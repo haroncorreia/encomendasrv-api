@@ -34,11 +34,6 @@ describe('UsuariosModule (e2e)', () => {
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
 
-    await knex('auditoria')
-      .where('user_mail', 'like', 'usuarios.%@teste.com')
-      .del();
-    await knex('usuarios').where('email', 'like', 'usuarios.%@teste.com').del();
-
     const superRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
@@ -79,10 +74,6 @@ describe('UsuariosModule (e2e)', () => {
   });
 
   afterAll(async () => {
-    await knex('auditoria')
-      .where('user_mail', 'like', 'usuarios.%@teste.com')
-      .del();
-    await knex('usuarios').where('email', 'like', 'usuarios.%@teste.com').del();
     await app.close();
     await knex.destroy();
   });

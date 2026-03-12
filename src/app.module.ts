@@ -13,7 +13,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      envFilePath: '.env',
+      envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
       isGlobal: true,
     }),
     DatabaseModule,

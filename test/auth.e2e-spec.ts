@@ -44,18 +44,9 @@ describe('AuthModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
-
-    await knex('auditoria')
-      .where('user_mail', 'like', 'auth.%@teste.com')
-      .del();
-    await knex('usuarios').where('email', 'like', 'auth.%@teste.com').del();
   });
 
   afterAll(async () => {
-    await knex('auditoria')
-      .where('user_mail', 'like', 'auth.%@teste.com')
-      .del();
-    await knex('usuarios').where('email', 'like', 'auth.%@teste.com').del();
     await app.close();
     await knex.destroy();
   });
