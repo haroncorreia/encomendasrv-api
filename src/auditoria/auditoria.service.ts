@@ -10,7 +10,7 @@ export interface RegistrarAuditoriaDto {
   description: string;
 }
 
-/** Payload tipado para o INSERT na tabela audit (JSON serializado como string). */
+/** Payload tipado para o INSERT na tabela auditoria (JSON serializado como string). */
 interface AuditInsert {
   uuid: string;
   created_at: Date;
@@ -36,7 +36,7 @@ export class AuditoriaService {
    */
   async registrar(dto: RegistrarAuditoriaDto): Promise<void> {
     try {
-      await this.knex<AuditInsert>('audit').insert(this.buildInsert(dto));
+      await this.knex<AuditInsert>('auditoria').insert(this.buildInsert(dto));
     } catch (err) {
       this.logger.error('Falha ao registrar evento de auditoria', err);
     }
@@ -46,7 +46,7 @@ export class AuditoriaService {
     dto: RegistrarAuditoriaDto,
     trx: Knex.Transaction,
   ): Promise<void> {
-    await trx<AuditInsert>('audit').insert(this.buildInsert(dto));
+    await trx<AuditInsert>('auditoria').insert(this.buildInsert(dto));
   }
 
   private buildInsert(dto: RegistrarAuditoriaDto): AuditInsert {

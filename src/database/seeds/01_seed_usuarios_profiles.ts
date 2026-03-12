@@ -4,9 +4,9 @@ import * as bcrypt from 'bcrypt';
 export async function seed(knex: Knex): Promise<void> {
   const senhaHash = await bcrypt.hash('Senha@123', 10);
 
-  await knex('user').del();
+  await knex('usuarios').del();
 
-  await knex('user').insert([
+  await knex('usuarios').insert([
     {
       uuid: '11111111-1111-4111-8111-111111111111',
       nome: 'Usuário Super',

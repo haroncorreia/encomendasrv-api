@@ -1,9 +1,9 @@
 import type { Knex } from 'knex';
 
 export async function seed(knex: Knex): Promise<void> {
-  await knex('audit').del();
+  await knex('auditoria').del();
 
-  await knex('audit').insert({
+  await knex('auditoria').insert({
     uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     method: 'SYSTEM',
     route: '/audit/init',

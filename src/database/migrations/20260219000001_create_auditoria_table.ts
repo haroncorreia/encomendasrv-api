@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 
 export async function up(knex: Knex): Promise<void> {
-  await knex.schema.createTable('audit', (table) => {
+  await knex.schema.createTable('auditoria', (table) => {
     table.string('uuid', 36).primary().notNullable();
     table.timestamp('created_at').defaultTo(knex.fn.now()).notNullable();
     table.string('method', 10).notNullable();
@@ -16,5 +16,5 @@ export async function up(knex: Knex): Promise<void> {
 }
 
 export async function down(knex: Knex): Promise<void> {
-  await knex.schema.dropTableIfExists('audit');
+  await knex.schema.dropTableIfExists('auditoria');
 }
