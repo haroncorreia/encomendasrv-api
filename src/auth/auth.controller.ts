@@ -24,7 +24,7 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 
-@Controller('authentication')
+@Controller('authenticate')
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
