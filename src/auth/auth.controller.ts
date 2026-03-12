@@ -24,7 +24,7 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 
-@Controller('auth')
+@Controller('authentication')
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -34,7 +34,7 @@ export class AuthController {
    * POST /auth/signup
    */
   @Public()
-  @Post('signup')
+  @Post('sign-up')
   @HttpCode(HttpStatus.CREATED)
   signUp(@Body() dto: CreateUsuarioDto, @AuditoriaCtx() ctx: AuditoriaContext) {
     return this.authService.signUp(dto, ctx);
@@ -42,10 +42,10 @@ export class AuthController {
 
   /**
    * Autentica com e-mail e senha e retorna os tokens JWT.
-   * POST /auth/signin
+   * POST /auth/sign-in
    */
   @Public()
-  @Post('signin')
+  @Post('sign-in')
   @HttpCode(HttpStatus.OK)
   signIn(@Body() dto: SignInDto, @AuditoriaCtx() ctx: AuditoriaContext) {
     return this.authService.signIn(dto, ctx);
