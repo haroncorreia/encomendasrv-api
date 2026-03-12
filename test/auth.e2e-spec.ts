@@ -78,6 +78,20 @@ describe('AuthModule (e2e)', () => {
       .expect(409);
   });
 
+  it('POST /authenticate/sign-up deve retornar 409 para celular duplicado', async () => {
+    const usuarioComCelularDuplicado = {
+      nome: 'Auth Test User Celular Duplicado',
+      email: 'auth.test.celular.duplicado@teste.com',
+      celular: usuarioBase.celular,
+      senha: 'Senha@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioComCelularDuplicado)
+      .expect(409);
+  });
+
   it('POST /authenticate/sign-in deve autenticar com credenciais válidas', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
@@ -142,5 +156,83 @@ describe('AuthModule (e2e)', () => {
 
     expect(registro).toBeTruthy();
     expect(registro.uuid).toBeDefined();
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se não informar o nome', async () => {
+    const usuarioSemNome = {
+      email: 'auth.test.sem.nome@teste.com',
+      celular: '11999990002',
+      senha: 'Senha@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemNome)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se não informar o e-mail', async () => {
+    const usuarioSemEmail = {
+      nome: 'Auth Test User Sem Email',
+      celular: '11999990003',
+      senha: 'Senha@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemEmail)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se não informar o celular', async () => {
+    const usuarioSemCelular = {
+      nome: 'Auth Test User Sem Celular',
+      email: 'auth.test.sem.celular@teste.com',
+      senha: 'Senha@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemCelular)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se não informar a senha', async () => {
+    const usuarioSemSenha = {
+      nome: 'Auth Test User Sem Senha',
+      email: 'auth.test.sem.senha@teste.com',
+      celular: '11999990004',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemSenha)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve criar um registro de usuário com o perfil morador', async () => {
+    const novoUsuario = {
+      nome: 'Auth Test Morador',
+      email: 'auth.test.morador@teste.com',
+      celular: '11999990005',
+      senha: 'Senha@123',
+    };
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(novoUsuario)
+      .expect(201);
+
+    const usuario = await knex('usuarios')
+      .where({ email: novoUsuario.email })
+      .first();
+
+    expect(usuario).toBeTruthy();
+    expect(usuario.uuid).toBe(res.body.usuario.uuid);
+
+    const perfil = await knex('usuarios').where({ uuid: usuario.uuid }).first();
+
+    expect(perfil).toBeTruthy();
+    expect(perfil.perfil).toBe('morador');
   });
 });
