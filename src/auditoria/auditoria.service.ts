@@ -6,24 +6,22 @@ import { AuditoriaContext } from './interfaces/auditoria-context.interface';
 
 export interface RegistrarAuditoriaDto {
   ctx: AuditoriaContext;
-  email_usuario?: string | null;
-  entidade?: string | null;
-  descricao: string;
+  user_mail?: string | null;
+  description: string;
 }
 
-/** Payload tipado para o INSERT na tabela auditoria (JSON serializado como string). */
-interface AuditoriaInsert {
-  id: string;
-  criado_em: Date;
-  metodo: string;
-  rota: string;
+/** Payload tipado para o INSERT na tabela audit (JSON serializado como string). */
+interface AuditInsert {
+  uuid: string;
+  created_at: Date;
+  method: string;
+  route: string;
   params: string | null;
   body: string | null;
   query: string | null;
-  ip: string | null;
-  email_usuario: string | null;
-  entidade: string | null;
-  descricao: string;
+  user_ip: string | null;
+  user_mail: string | null;
+  description: string;
 }
 
 @Injectable()
@@ -38,9 +36,7 @@ export class AuditoriaService {
    */
   async registrar(dto: RegistrarAuditoriaDto): Promise<void> {
     try {
-      await this.knex<AuditoriaInsert>('auditoria').insert(
-        this.buildInsert(dto),
-      );
+      await this.knex<AuditInsert>('audit').insert(this.buildInsert(dto));
     } catch (err) {
       this.logger.error('Falha ao registrar evento de auditoria', err);
     }
@@ -50,18 +46,18 @@ export class AuditoriaService {
     dto: RegistrarAuditoriaDto,
     trx: Knex.Transaction,
   ): Promise<void> {
-    await trx<AuditoriaInsert>('auditoria').insert(this.buildInsert(dto));
+    await trx<AuditInsert>('audit').insert(this.buildInsert(dto));
   }
 
-  private buildInsert(dto: RegistrarAuditoriaDto): AuditoriaInsert {
+  private buildInsert(dto: RegistrarAuditoriaDto): AuditInsert {
     const { ctx } = dto;
     const bodySeguro = ctx.body ? this.omitirSensiveis(ctx.body) : null;
 
     return {
-      id: randomUUID(),
-      criado_em: new Date(),
-      metodo: ctx.metodo,
-      rota: ctx.rota,
+      uuid: randomUUID(),
+      created_at: new Date(),
+      method: ctx.method,
+      route: ctx.route,
       params: Object.keys(ctx.params ?? {}).length
         ? JSON.stringify(ctx.params)
         : null,
@@ -72,10 +68,9 @@ export class AuditoriaService {
       query: Object.keys(ctx.query ?? {}).length
         ? JSON.stringify(ctx.query)
         : null,
-      ip: ctx.ip ?? null,
-      email_usuario: dto.email_usuario ?? null,
-      entidade: dto.entidade ?? null,
-      descricao: dto.descricao,
+      user_ip: ctx.user_ip ?? null,
+      user_mail: dto.user_mail ?? null,
+      description: dto.description,
     };
   }
 

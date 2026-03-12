@@ -1,5 +1,4 @@
 import {
-  IsDateString,
   IsEmail,
   IsIn,
   IsNotEmpty,
@@ -16,13 +15,6 @@ export class CreateUsuarioDto {
     message: 'Informe o nome e o sobrenome.',
   })
   nome: string;
-
-  @IsNotEmpty({ message: 'A data de nascimento é obrigatória.' })
-  @IsDateString(
-    {},
-    { message: 'A data de nascimento deve ser uma data válida.' },
-  )
-  data_nascimento: string;
 
   @IsNotEmpty({ message: 'O e-mail é obrigatório.' })
   @IsEmail({}, { message: 'Informe um e-mail válido.' })
@@ -42,15 +34,8 @@ export class CreateUsuarioDto {
   senha: string;
 
   @IsOptional()
-  @IsIn([Perfil.SUP, Perfil.ADM, Perfil.USR], {
-    message: 'O perfil deve ser sup, adm ou usr.',
+  @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {
+    message: 'O perfil deve ser super, admin, portaria ou morador.',
   })
   perfil?: Perfil;
-
-  @IsNotEmpty({ message: 'A matrícula é obrigatória.' })
-  @Matches(/^\d+-\d$/, {
-    message:
-      'A matrícula deve conter apenas dígitos e um hífen na penúltima posição (ex: 9213384-2).',
-  })
-  matricula: string;
 }

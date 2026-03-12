@@ -1,30 +1,31 @@
 import { Perfil } from '../enums/perfil.enum';
 
 export interface Usuario {
-  id: string;
+  uuid: string;
   nome: string;
-  data_nascimento: Date | null;
   email: string;
   celular: string;
   senha: string;
   perfil: Perfil;
-  matricula: string;
 
   // Ativação
-  ativado: boolean;
-  ativado_em: Date | null;
-  codigo_ativacao: string | null;
-  codigo_ativacao_exp: Date | null;
+  activated_at: Date | null;
+  activation_code_hash: string | null;
+  activation_code_exp: Date | null;
 
   // Redefinição de senha
-  reset_senha_token: string | null;
-  reset_senha_exp: Date | null;
+  reset_password_token_hash: string | null;
+  reset_password_exp: Date | null;
+
+  // Refresh token
+  refresh_token_hash: string | null;
+  refresh_token_exp: Date | null;
 
   // Audit
-  criado_em: Date;
-  criado_por: string | null;
-  editado_em: Date | null;
-  editado_por: string | null;
-  excluido_em: Date | null;
-  excluido_por: string | null;
+  created_at: Date;
+  created_by: string;
+  updated_at: Date;
+  updated_by: string;
+  deleted_at: Date | null;
+  deleted_by: string | null;
 }

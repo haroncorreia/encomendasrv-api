@@ -28,7 +28,7 @@ export interface AuthTokens {
 }
 
 export interface AuthResponse extends AuthTokens {
-  usuario: Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil'>;
+  usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>;
 }
 
 @Injectable()
@@ -47,10 +47,10 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   private buildPayload(
-    usuario: Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil'>,
+    usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>,
   ): JwtPayload {
     return {
-      sub: usuario.id,
+      sub: usuario.uuid,
       nome: usuario.nome,
       email: usuario.email,
       perfil: usuario.perfil,
@@ -76,11 +76,11 @@ export class AuthService {
 
   private buildAuthResponse(usuario: Omit<Usuario, 'senha'>): AuthResponse {
     const payload = this.buildPayload(usuario as Usuario);
-    const { id, nome, email, perfil } = usuario;
+    const { uuid, nome, email, perfil } = usuario;
     return {
       access_token: this.gerarAccessToken(payload),
       refresh_token: this.gerarRefreshToken(payload),
-      usuario: { id, nome, email, perfil },
+      usuario: { uuid, nome, email, perfil },
     };
   }
 
@@ -98,9 +98,8 @@ export class AuthService {
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
-          email_usuario: usuario.email,
-          entidade: 'usuarios',
-          descricao: 'Novo usuário registrado via SignUp.',
+          user_mail: usuario.email,
+          description: 'Novo usuário registrado via SignUp.',
         },
         trx,
       );
@@ -115,9 +114,8 @@ export class AuthService {
     if (!usuario) {
       await this.auditoriaService.registrar({
         ctx,
-        email_usuario: dto.email,
-        entidade: 'auth',
-        descricao: 'Tentativa de login com e-mail não cadastrado.',
+        user_mail: dto.email,
+        description: 'Tentativa de login com e-mail não cadastrado.',
       });
       throw new UnauthorizedException('Credenciais inválidas.');
     }
@@ -126,18 +124,16 @@ export class AuthService {
     if (!senhaValida) {
       await this.auditoriaService.registrar({
         ctx,
-        email_usuario: dto.email,
-        entidade: 'auth',
-        descricao: 'Tentativa de login com senha incorreta.',
+        user_mail: dto.email,
+        description: 'Tentativa de login com senha incorreta.',
       });
       throw new UnauthorizedException('Credenciais inválidas.');
     }
 
     await this.auditoriaService.registrar({
       ctx,
-      email_usuario: usuario.email,
-      entidade: 'auth',
-      descricao: 'Login realizado com sucesso.',
+      user_mail: usuario.email,
+      description: 'Login realizado com sucesso.',
     });
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -174,7 +170,7 @@ export class AuthService {
   async requestActivation(userId: string): Promise<{ message: string }> {
     const usuario = await this.usuariosService.findByIdInterno(userId);
     if (!usuario) throw new NotFoundException('Usuário não encontrado.');
-    if (usuario.ativado)
+    if (usuario.activated_at)
       throw new ConflictException('Usuário já está ativado.');
 
     const codigo = Math.floor(100000 + Math.random() * 900000).toString();
@@ -196,13 +192,17 @@ export class AuthService {
   ): Promise<{ message: string }> {
     const usuario = await this.usuariosService.findByIdInterno(userId);
     if (!usuario) throw new NotFoundException('Usuário não encontrado.');
-    if (usuario.ativado)
+    if (usuario.activated_at)
       throw new ConflictException('Usuário já está ativado.');
-    if (!usuario.codigo_ativacao || !usuario.codigo_ativacao_exp)
+    if (!usuario.activation_code_hash || !usuario.activation_code_exp)
       throw new BadRequestException('Nenhum código de ativação solicitado.');
-    if (new Date() > new Date(usuario.codigo_ativacao_exp))
+    if (new Date() > new Date(usuario.activation_code_exp))
       throw new GoneException('Código de ativação expirado. Solicite um novo.');
-    if (usuario.codigo_ativacao !== codigo)
+    const codigoValido = await this.usuariosService.validarCodigoAtivacao(
+      usuario.uuid,
+      codigo,
+    );
+    if (!codigoValido)
       throw new UnauthorizedException('Código de ativação inválido.');
 
     await this.usuariosService.ativarUsuario(userId);
@@ -228,7 +228,7 @@ export class AuthService {
     const token = randomBytes(32).toString('hex');
     const exp = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
 
-    await this.usuariosService.saveResetToken(usuario.id, token, exp);
+    await this.usuariosService.saveResetToken(usuario.uuid, token, exp);
 
     try {
       await this.emailService.sendResetPasswordToken(
@@ -253,19 +253,19 @@ export class AuthService {
   ): Promise<{ message: string }> {
     const usuario = await this.usuariosService.findByResetToken(token);
 
-    if (!usuario || !usuario.reset_senha_exp) {
+    if (!usuario || !usuario.reset_password_exp) {
       throw new BadRequestException('Token de redefinição inválido.');
     }
 
-    if (new Date() > new Date(usuario.reset_senha_exp)) {
+    if (new Date() > new Date(usuario.reset_password_exp)) {
       throw new GoneException(
         'Token de redefinição expirado. Solicite um novo.',
       );
     }
 
     const senhaHash = await bcrypt.hash(nova_senha, 12);
-    await this.usuariosService.updateSenha(usuario.id, senhaHash);
-    await this.usuariosService.clearResetToken(usuario.id);
+    await this.usuariosService.updateSenha(usuario.uuid, senhaHash);
+    await this.usuariosService.clearResetToken(usuario.uuid);
 
     return { message: 'Senha redefinida com sucesso.' };
   }
@@ -292,7 +292,7 @@ export class AuthService {
     }
 
     const senhaHash = await bcrypt.hash(novaSenha, 12);
-    await this.usuariosService.updateSenha(usuario.id, senhaHash);
+    await this.usuariosService.updateSenha(usuario.uuid, senhaHash);
 
     return { message: 'Senha atualizada com sucesso.' };
   }

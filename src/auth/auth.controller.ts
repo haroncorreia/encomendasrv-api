@@ -73,7 +73,7 @@ export class AuthController {
     return {
       valid: true,
       usuario: {
-        id: user.sub,
+        uuid: user.sub,
         nome: user.nome,
         email: user.email,
         perfil: user.perfil,

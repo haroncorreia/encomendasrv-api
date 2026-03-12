@@ -23,9 +23,7 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from './enums/perfil.enum';
-import { CreateAssistenteDto } from './dto/create-assistente.dto';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
-import { UpsertVinculoAssistenteDto } from './dto/upsert-vinculo-assistente.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
 
@@ -44,7 +42,7 @@ export class UsuariosController {
   }
 
   @Get('removed')
-  @Roles(Perfil.ADM, Perfil.SUP)
+  @Roles(Perfil.ADMIN, Perfil.SUPER)
   findRemoved() {
     return this.usuariosService.findRemoved();
   }
@@ -56,7 +54,7 @@ export class UsuariosController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(Perfil.ADM, Perfil.SUP)
+  @Roles(Perfil.ADMIN, Perfil.SUPER)
   create(
     @Body() createUsuarioDto: CreateUsuarioDto,
     @CurrentUser() user: JwtPayload,
@@ -71,177 +69,12 @@ export class UsuariosController {
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios',
-          descricao: `Usuário criado via admin. (id: ${usuario.id})`,
+          user_mail: user.email,
+          description: `Usuário criado via admin. (uuid: ${usuario.uuid})`,
         },
         trx,
       );
       return usuario;
-    });
-  }
-
-  @Post('assistente')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR)
-  createAssistente(
-    @Body() dto: CreateAssistenteDto,
-    @CurrentUser() user: JwtPayload,
-    @AuditoriaCtx() ctx: AuditoriaContext,
-  ) {
-    if (
-      user.perfil === Perfil.USR &&
-      dto.ids_usuarios_vinculados.some((idUsuario) => idUsuario !== user.sub)
-    ) {
-      throw new ForbiddenException(
-        'Usuário perito/assinante só pode criar assistente vinculado a si próprio.',
-      );
-    }
-
-    return this.knex.transaction(async (trx) => {
-      const usuario = await this.usuariosService.create(
-        { ...dto, perfil: Perfil.ASS },
-        user.email,
-        trx,
-      );
-      await this.usuariosService.criarVinculosAssistente(
-        usuario.id,
-        dto.ids_usuarios_vinculados,
-        user.email,
-        trx,
-      );
-      await this.auditoriaService.registrarEmTrx(
-        {
-          ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios',
-          descricao: `Usuário assistente criado. (id: ${usuario.id})`,
-        },
-        trx,
-      );
-      return usuario;
-    });
-  }
-
-  @Get(':id/assinantes-vinculados')
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR, Perfil.ASS)
-  listVinculosDoAssistente(
-    @Param('id', ParseUUIDPtPipe) id: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    if (user.perfil === Perfil.USR) {
-      return this.usuariosService
-        .listarUsuariosVinculadosDoAssistente(id)
-        .then((vinculos) => {
-          const apenasProprios = vinculos.every((v) => v.id === user.sub);
-          if (!apenasProprios) {
-            throw new ForbiddenException(
-              'Usuário perito/assinante só pode consultar vínculos próprios.',
-            );
-          }
-          return vinculos;
-        });
-    }
-
-    return this.usuariosService.listarUsuariosVinculadosDoAssistente(id);
-  }
-
-  @Get(':id/assistentes-vinculados')
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR)
-  listAssistentesVinculadosDoUsuario(
-    @Param('id', ParseUUIDPtPipe) id: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    if (user.perfil === Perfil.USR && user.sub !== id) {
-      throw new ForbiddenException(
-        'Usuário perito/assinante só pode consultar vínculos próprios.',
-      );
-    }
-
-    return this.usuariosService.listarAssistentesVinculadosDoUsuario(id);
-  }
-
-  @Get(':id/assistentes-desvinculados')
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR)
-  listAssistentesNaoVinculadosDoUsuario(
-    @Param('id', ParseUUIDPtPipe) id: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    if (user.perfil === Perfil.USR && user.sub !== id) {
-      throw new ForbiddenException(
-        'Usuário perito/assinante só pode consultar vínculos próprios.',
-      );
-    }
-
-    return this.usuariosService.listarAssistentesNaoVinculadosDoUsuario(id);
-  }
-
-  @Post(':id/vincular-assinante')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR)
-  addVinculoAssistente(
-    @Param('id', ParseUUIDPtPipe) id: string, // ID do assistente
-    @Body() dto: UpsertVinculoAssistenteDto, // ID do usuário a ser vinculado
-    @CurrentUser() user: JwtPayload,
-    @AuditoriaCtx() ctx: AuditoriaContext,
-  ) {
-    if (user.perfil === Perfil.USR && dto.id_usuario !== user.sub) {
-      throw new ForbiddenException(
-        'Usuário perito/assinante só pode gerenciar vínculos próprios.',
-      );
-    }
-
-    return this.knex.transaction(async (trx) => {
-      const vinculo = await this.usuariosService.vincularAssistenteAUsuario(
-        id,
-        dto.id_usuario,
-        user.email,
-        trx,
-      );
-      await this.auditoriaService.registrarEmTrx(
-        {
-          ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios_assistentes_vinculos',
-          descricao: `Vínculo assistente-usuário criado. (assistente: ${id}, usuário: ${dto.id_usuario})`,
-        },
-        trx,
-      );
-      return vinculo;
-    });
-  }
-
-  @Delete(':id/desvincular-assinante/:idUsuario')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(Perfil.SUP, Perfil.ADM, Perfil.USR)
-  removeVinculoAssistente(
-    @Param('id', ParseUUIDPtPipe) id: string,
-    @Param('idUsuario', ParseUUIDPtPipe) idUsuario: string,
-    @CurrentUser() user: JwtPayload,
-    @AuditoriaCtx() ctx: AuditoriaContext,
-  ) {
-    if (user.perfil === Perfil.USR && idUsuario !== user.sub) {
-      throw new ForbiddenException(
-        'Usuário perito/assinante só pode gerenciar vínculos próprios.',
-      );
-    }
-
-    return this.knex.transaction(async (trx) => {
-      await this.usuariosService.desvincularAssistenteDeUsuario(
-        id,
-        idUsuario,
-        user.email,
-        trx,
-      );
-      await this.auditoriaService.registrarEmTrx(
-        {
-          ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios_assistentes_vinculos',
-          descricao: `Vínculo assistente-usuário removido. (assistente: ${id}, usuário: ${idUsuario})`,
-        },
-        trx,
-      );
     });
   }
 
@@ -268,9 +101,8 @@ export class UsuariosController {
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios',
-          descricao: `Usuário atualizado. (id: ${id})`,
+          user_mail: user.email,
+          description: `Usuário atualizado. (uuid: ${id})`,
         },
         trx,
       );
@@ -290,9 +122,8 @@ export class UsuariosController {
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios',
-          descricao: `Usuário removido (soft delete). (id: ${id})`,
+          user_mail: user.email,
+          description: `Usuário removido (soft delete). (uuid: ${id})`,
         },
         trx,
       );
@@ -301,7 +132,7 @@ export class UsuariosController {
 
   @Delete(':id/hard')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(Perfil.SUP)
+  @Roles(Perfil.SUPER)
   hardRemove(
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,
@@ -312,9 +143,8 @@ export class UsuariosController {
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
-          email_usuario: user.email,
-          entidade: 'usuarios',
-          descricao: `Usuário removido permanentemente (hard delete). (id: ${id})`,
+          user_mail: user.email,
+          description: `Usuário removido permanentemente (hard delete). (uuid: ${id})`,
         },
         trx,
       );

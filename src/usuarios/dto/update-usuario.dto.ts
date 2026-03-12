@@ -1,24 +1,10 @@
-import {
-  IsDateString,
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  Matches,
-} from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Matches } from 'class-validator';
 import { Perfil } from '../enums/perfil.enum';
 
 export class UpdateUsuarioDto {
   @IsOptional()
   @IsString()
   nome?: string;
-
-  @IsOptional()
-  @IsDateString(
-    {},
-    { message: 'A data de nascimento deve ser uma data válida.' },
-  )
-  data_nascimento?: string;
 
   @IsOptional()
   @IsEmail({}, { message: 'Informe um e-mail válido.' })
@@ -31,8 +17,8 @@ export class UpdateUsuarioDto {
   celular?: string;
 
   @IsOptional()
-  @IsIn([Perfil.SUP, Perfil.ADM, Perfil.USR], {
-    message: 'O perfil deve ser sup, adm ou usr.',
+  @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {
+    message: 'O perfil deve ser super, admin, portaria ou morador.',
   })
   perfil?: Perfil;
 
@@ -42,11 +28,4 @@ export class UpdateUsuarioDto {
       'A senha deve ter no mínimo 8 caracteres, com letra maiúscula, minúscula, número e símbolo.',
   })
   senha?: string;
-
-  @IsOptional()
-  @Matches(/^\d+-\d$/, {
-    message:
-      'A matrícula deve conter apenas dígitos e um hífen na penúltima posição (ex: 9213384-2).',
-  })
-  matricula?: string;
 }

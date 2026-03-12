@@ -3,9 +3,9 @@
  * de auditoria. Mantém o serviço desacoplado do Express/Fastify.
  */
 export interface AuditoriaContext {
-  ip: string;
-  metodo: string;
-  rota: string;
+  user_ip: string;
+  method: string;
+  route: string;
   params: Record<string, unknown>;
   body: Record<string, unknown>;
   query: Record<string, unknown>;

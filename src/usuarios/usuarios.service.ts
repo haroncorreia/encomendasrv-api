@@ -1,6 +1,5 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
-  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -11,12 +10,9 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
-import { Perfil } from './enums/perfil.enum';
-import { AssistenteVinculo } from './interfaces/assistente-vinculo.interface';
 import { Usuario } from './interfaces/usuario.interface';
 
-const TABLE = 'usuarios';
-const TABLE_VINCULOS = 'usuarios_assistentes_vinculos';
+const TABLE = 'user';
 const BCRYPT_ROUNDS = 12;
 
 @Injectable()
@@ -24,7 +20,11 @@ export class UsuariosService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   private get query() {
-    return this.knex<Usuario>(TABLE).whereNull('excluido_em');
+    return this.knex<Usuario>(TABLE).whereNull('deleted_at');
+  }
+
+  private hashValor(valor: string): string {
+    return createHash('sha256').update(valor).digest('hex');
   }
 
   private omitSenha(usuario: Usuario): Omit<Usuario, 'senha'> {
@@ -36,27 +36,27 @@ export class UsuariosService {
   async findByEmailComSenha(email: string): Promise<Usuario | undefined> {
     return this.knex<Usuario>(TABLE)
       .where({ email })
-      .whereNull('excluido_em')
+      .whereNull('deleted_at')
       .first();
   }
 
   async findAll(): Promise<Omit<Usuario, 'senha'>[]> {
-    const usuarios = await this.query.select('*').orderBy('criado_em', 'desc');
+    const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
     return usuarios.map((u) => this.omitSenha(u));
   }
 
   async findRemoved(): Promise<Omit<Usuario, 'senha'>[]> {
     const usuarios = await this.knex<Usuario>(TABLE)
-      .whereNotNull('excluido_em')
+      .whereNotNull('deleted_at')
       .select('*')
-      .orderBy('excluido_em', 'desc');
+      .orderBy('deleted_at', 'desc');
     return usuarios.map((u) => this.omitSenha(u));
   }
 
-  async findOne(id: string): Promise<Omit<Usuario, 'senha'>> {
-    const usuario = await this.query.where({ id }).first();
+  async findOne(uuid: string): Promise<Omit<Usuario, 'senha'>> {
+    const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {
-      throw new NotFoundException(`Usuário com id ${id} não encontrado.`);
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
     return this.omitSenha(usuario);
   }
@@ -84,47 +84,45 @@ export class UsuariosService {
 
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
 
-    const id = randomUUID();
+    const uuid = randomUUID();
 
     await qb(TABLE).insert({
-      id,
+      uuid,
       nome: dto.nome,
-      data_nascimento: new Date(dto.data_nascimento),
       email: dto.email,
       celular: dto.celular,
       senha: senhaHash,
-      perfil: dto.perfil ?? 'usr',
-      matricula: dto.matricula,
-      criado_em: this.knex.fn.now(),
-      criado_por: criadoPor ?? null,
+      perfil: dto.perfil ?? 'morador',
+      created_by: criadoPor ?? 'system',
+      updated_by: criadoPor ?? 'system',
     });
 
     // Busca dentro da mesma transaction para garantir leitura do dado recém inserido
     const usuario = await qb<Usuario>(TABLE)
-      .where({ id })
-      .whereNull('excluido_em')
+      .where({ uuid })
+      .whereNull('deleted_at')
       .first();
 
     if (!usuario) {
-      throw new NotFoundException(`Usuário com id ${id} não encontrado.`);
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
 
     return this.omitSenha(usuario);
   }
 
   async update(
-    id: string,
+    uuid: string,
     dto: UpdateUsuarioDto,
     editadoPor?: string,
     trx?: Knex.Transaction,
   ): Promise<Omit<Usuario, 'senha'>> {
-    await this.findOne(id);
+    await this.findOne(uuid);
 
     if (dto.email) {
       const emailEmUso = await this.knex<Usuario>(TABLE)
         .where({ email: dto.email })
-        .whereNot({ id })
-        .whereNull('excluido_em')
+        .whereNot({ uuid })
+        .whereNull('deleted_at')
         .first();
 
       if (emailEmUso) {
@@ -137,8 +135,8 @@ export class UsuariosService {
     if (dto.celular) {
       const celularEmUso = await this.knex<Usuario>(TABLE)
         .where({ celular: dto.celular })
-        .whereNot({ id })
-        .whereNull('excluido_em')
+        .whereNot({ uuid })
+        .whereNull('deleted_at')
         .first();
 
       if (celularEmUso) {
@@ -150,15 +148,11 @@ export class UsuariosService {
 
     const payload: Partial<Usuario> = {
       ...(dto.nome !== undefined && { nome: dto.nome }),
-      ...(dto.data_nascimento !== undefined && {
-        data_nascimento: new Date(dto.data_nascimento),
-      }),
       ...(dto.email !== undefined && { email: dto.email }),
       ...(dto.celular !== undefined && { celular: dto.celular }),
       ...(dto.perfil !== undefined && { perfil: dto.perfil }),
-      ...(dto.matricula !== undefined && { matricula: dto.matricula }),
-      editado_em: new Date(),
-      editado_por: editadoPor ?? null,
+      updated_at: new Date(),
+      updated_by: editadoPor ?? 'system',
     };
 
     if (dto.senha) {
@@ -166,331 +160,123 @@ export class UsuariosService {
     }
 
     const qb = trx ?? this.knex;
-    await qb<Usuario>(TABLE).where({ id }).update(payload);
+    await qb<Usuario>(TABLE).where({ uuid }).update(payload);
 
     // Lê o registro atualizado dentro da mesma trx (ou conexão)
     const atualizado = await qb<Usuario>(TABLE)
-      .where({ id })
-      .whereNull('excluido_em')
+      .where({ uuid })
+      .whereNull('deleted_at')
       .first();
     return this.omitSenha(atualizado!);
   }
 
   async remove(
-    id: string,
+    uuid: string,
     excluidoPor?: string,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    await this.findOne(id);
+    await this.findOne(uuid);
     const qb = trx ?? this.knex;
     await qb<Usuario>(TABLE)
-      .where({ id })
+      .where({ uuid })
       .update({
-        excluido_em: new Date(),
-        excluido_por: excluidoPor ?? null,
+        deleted_at: new Date(),
+        deleted_by: excluidoPor ?? null,
+        updated_at: new Date(),
+        updated_by: excluidoPor ?? 'system',
       });
   }
 
   async hardRemove(
-    id: string,
-    excluidoPor?: string,
+    uuid: string,
+    _excluidoPor?: string,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    const usuario = await this.knex<Usuario>(TABLE).where({ id }).first();
+    const usuario = await this.knex<Usuario>(TABLE).where({ uuid }).first();
     if (!usuario) {
-      throw new NotFoundException(`Usuário com id ${id} não encontrado.`);
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
     const qb = trx ?? this.knex;
-    await qb<Usuario>(TABLE).where({ id }).delete();
+    await qb<Usuario>(TABLE).where({ uuid }).delete();
   }
 
   /** Persiste o código de ativação e sua expiração no banco. */
   async saveCodigoAtivacao(
-    id: string,
+    uuid: string,
     codigo: string,
     exp: Date,
   ): Promise<void> {
+    const codigoHash = this.hashValor(codigo);
     await this.knex<Usuario>(TABLE)
-      .where({ id })
-      .update({ codigo_ativacao: codigo, codigo_ativacao_exp: exp });
+      .where({ uuid })
+      .update({ activation_code_hash: codigoHash, activation_code_exp: exp });
   }
 
   /** Marca o usuário como ativado e limpa os campos de código. */
-  async ativarUsuario(id: string): Promise<void> {
-    await this.knex<Usuario>(TABLE).where({ id }).update({
-      ativado: true,
-      ativado_em: new Date(),
-      codigo_ativacao: null,
-      codigo_ativacao_exp: null,
+  async ativarUsuario(uuid: string): Promise<void> {
+    await this.knex<Usuario>(TABLE).where({ uuid }).update({
+      activated_at: new Date(),
+      activation_code_hash: null,
+      activation_code_exp: null,
+      updated_at: new Date(),
+      updated_by: 'activation',
     });
   }
 
+  async validarCodigoAtivacao(uuid: string, codigo: string): Promise<boolean> {
+    const codigoHash = this.hashValor(codigo);
+    const usuario = await this.knex<Usuario>(TABLE)
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .first();
+
+    return usuario?.activation_code_hash === codigoHash;
+  }
+
   /** Retorna o registro completo (incluindo campos de ativação). Uso interno. */
-  async findByIdInterno(id: string): Promise<Usuario | undefined> {
+  async findByIdInterno(uuid: string): Promise<Usuario | undefined> {
     return this.knex<Usuario>(TABLE)
-      .where({ id })
-      .whereNull('excluido_em')
+      .where({ uuid })
+      .whereNull('deleted_at')
       .first();
   }
 
   /** Salva o token de redefinição de senha e sua expiração. */
-  async saveResetToken(id: string, token: string, exp: Date): Promise<void> {
-    await this.knex<Usuario>(TABLE)
-      .where({ id })
-      .update({ reset_senha_token: token, reset_senha_exp: exp });
+  async saveResetToken(uuid: string, token: string, exp: Date): Promise<void> {
+    const tokenHash = this.hashValor(token);
+    await this.knex<Usuario>(TABLE).where({ uuid }).update({
+      reset_password_token_hash: tokenHash,
+      reset_password_exp: exp,
+      updated_at: new Date(),
+      updated_by: 'password-reset',
+    });
   }
 
   /** Limpa o token de redefinição de senha após uso. */
-  async clearResetToken(id: string): Promise<void> {
-    await this.knex<Usuario>(TABLE)
-      .where({ id })
-      .update({ reset_senha_token: null, reset_senha_exp: null });
+  async clearResetToken(uuid: string): Promise<void> {
+    await this.knex<Usuario>(TABLE).where({ uuid }).update({
+      reset_password_token_hash: null,
+      reset_password_exp: null,
+      updated_at: new Date(),
+      updated_by: 'password-reset',
+    });
   }
 
   /** Busca usuário pelo token de redefinição de senha. */
   async findByResetToken(token: string): Promise<Usuario | undefined> {
+    const tokenHash = this.hashValor(token);
     return this.knex<Usuario>(TABLE)
-      .where({ reset_senha_token: token })
-      .whereNull('excluido_em')
+      .where({ reset_password_token_hash: tokenHash })
+      .whereNull('deleted_at')
       .first();
   }
 
   /** Atualiza o hash da senha diretamente (uso pós-reset). */
-  async updateSenha(id: string, senhaHash: string): Promise<void> {
-    await this.knex<Usuario>(TABLE)
-      .where({ id })
-      .update({ senha: senhaHash, editado_em: new Date() });
-  }
-
-  async listarUsuariosVinculadosDoAssistente(
-    idAssistente: string,
-  ): Promise<Array<Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil'>>> {
-    const assistente = await this.findByIdInterno(idAssistente);
-    if (!assistente) {
-      throw new NotFoundException(
-        `Assistente com id ${idAssistente} não encontrado.`,
-      );
-    }
-    if (assistente.perfil !== Perfil.ASS) {
-      throw new BadRequestException(
-        'O usuário informado não possui perfil de assistente.',
-      );
-    }
-
-    return this.knex<Usuario>(TABLE)
-      .join(TABLE_VINCULOS, `${TABLE}.id`, `${TABLE_VINCULOS}.id_usuario`)
-      .where(`${TABLE_VINCULOS}.id_assistente`, idAssistente)
-      .whereNull(`${TABLE_VINCULOS}.excluido_em`)
-      .whereNull(`${TABLE}.excluido_em`)
-      .select(
-        `${TABLE}.id`,
-        `${TABLE}.nome`,
-        `${TABLE}.email`,
-        `${TABLE}.perfil`,
-      )
-      .orderBy(`${TABLE}.nome`, 'asc');
-  }
-
-  async listarAssistentesVinculadosDoUsuario(
-    idUsuario: string,
-  ): Promise<Array<Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil'>>> {
-    const usuario = await this.findByIdInterno(idUsuario);
-    if (!usuario) {
-      throw new NotFoundException(
-        `Usuário perito/assinante com id ${idUsuario} não encontrado.`,
-      );
-    }
-    if (usuario.perfil !== Perfil.USR) {
-      throw new BadRequestException(
-        'O usuário informado não possui perfil de perito/assinante.',
-      );
-    }
-
-    return this.knex<Usuario>(TABLE)
-      .join(TABLE_VINCULOS, `${TABLE}.id`, `${TABLE_VINCULOS}.id_assistente`)
-      .where(`${TABLE_VINCULOS}.id_usuario`, idUsuario)
-      .whereNull(`${TABLE_VINCULOS}.excluido_em`)
-      .whereNull(`${TABLE}.excluido_em`)
-      .select(
-        `${TABLE}.id`,
-        `${TABLE}.nome`,
-        `${TABLE}.email`,
-        `${TABLE}.perfil`,
-      )
-      .orderBy(`${TABLE}.nome`, 'asc');
-  }
-
-  async listarAssistentesNaoVinculadosDoUsuario(
-    idUsuario: string,
-  ): Promise<Array<Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil'>>> {
-    const usuario = await this.findByIdInterno(idUsuario);
-    if (!usuario) {
-      throw new NotFoundException(
-        `Usuário perito/assinante com id ${idUsuario} não encontrado.`,
-      );
-    }
-    if (usuario.perfil !== Perfil.USR) {
-      throw new BadRequestException(
-        'O usuário informado não possui perfil de perito/assinante.',
-      );
-    }
-
-    return this.knex<Usuario>(TABLE)
-      .where(`${TABLE}.perfil`, Perfil.ASS)
-      .whereNull(`${TABLE}.excluido_em`)
-      .whereNotIn(
-        `${TABLE}.id`,
-        this.knex<AssistenteVinculo>(TABLE_VINCULOS)
-          .select(`${TABLE_VINCULOS}.id_assistente`)
-          .where(`${TABLE_VINCULOS}.id_usuario`, idUsuario)
-          .whereNull(`${TABLE_VINCULOS}.excluido_em`),
-      )
-      .select(
-        `${TABLE}.id`,
-        `${TABLE}.nome`,
-        `${TABLE}.email`,
-        `${TABLE}.perfil`,
-      )
-      .orderBy(`${TABLE}.nome`, 'asc');
-  }
-
-  async vincularAssistenteAUsuario(
-    idAssistente: string,
-    idUsuario: string,
-    criadoPor?: string,
-    trx?: Knex.Transaction,
-  ): Promise<AssistenteVinculo> {
-    if (idAssistente === idUsuario) {
-      throw new BadRequestException(
-        'Assistente e usuário perito/assinante não podem ser o mesmo registro.',
-      );
-    }
-
-    const qb = trx ?? this.knex;
-    const assistente = await qb<Usuario>(TABLE)
-      .where({ id: idAssistente })
-      .whereNull('excluido_em')
-      .first();
-    if (!assistente) {
-      throw new NotFoundException(
-        `Assistente com id ${idAssistente} não encontrado.`,
-      );
-    }
-    if (assistente.perfil !== Perfil.ASS) {
-      throw new BadRequestException(
-        'O vínculo exige um usuário com perfil assistente.',
-      );
-    }
-
-    const usuario = await qb<Usuario>(TABLE)
-      .where({ id: idUsuario })
-      .whereNull('excluido_em')
-      .first();
-    if (!usuario) {
-      throw new NotFoundException(
-        `Usuário perito/assinante com id ${idUsuario} não encontrado.`,
-      );
-    }
-    if (usuario.perfil !== Perfil.USR) {
-      throw new BadRequestException(
-        'O vínculo exige um usuário com perfil perito/assinante.',
-      );
-    }
-
-    const vinculoExistente = await qb<AssistenteVinculo>(TABLE_VINCULOS)
-      .where({ id_assistente: idAssistente, id_usuario: idUsuario })
-      .first();
-
-    if (vinculoExistente && !vinculoExistente.excluido_em) {
-      throw new ConflictException(
-        'Este assistente já está vinculado ao usuário informado.',
-      );
-    }
-
-    if (vinculoExistente && vinculoExistente.excluido_em) {
-      await qb<AssistenteVinculo>(TABLE_VINCULOS)
-        .where({ id: vinculoExistente.id })
-        .update({
-          excluido_em: null,
-          excluido_por: null,
-          criado_em: new Date(),
-          criado_por: criadoPor ?? null,
-        });
-      const reativado = await qb<AssistenteVinculo>(TABLE_VINCULOS)
-        .where({ id: vinculoExistente.id })
-        .first();
-      return reativado!;
-    }
-
-    const id = randomUUID();
-    await qb<AssistenteVinculo>(TABLE_VINCULOS).insert({
-      id,
-      id_assistente: idAssistente,
-      id_usuario: idUsuario,
-      criado_em: this.knex.fn.now(),
-      criado_por: criadoPor ?? null,
+  async updateSenha(uuid: string, senhaHash: string): Promise<void> {
+    await this.knex<Usuario>(TABLE).where({ uuid }).update({
+      senha: senhaHash,
+      updated_at: new Date(),
+      updated_by: 'password-update',
     });
-
-    const vinculo = await qb<AssistenteVinculo>(TABLE_VINCULOS)
-      .where({ id })
-      .first();
-    return vinculo!;
-  }
-
-  async criarVinculosAssistente(
-    idAssistente: string,
-    idsUsuarios: string[],
-    criadoPor?: string,
-    trx?: Knex.Transaction,
-  ): Promise<void> {
-    const idsUnicos = [...new Set(idsUsuarios)];
-    for (const idUsuario of idsUnicos) {
-      await this.vincularAssistenteAUsuario(
-        idAssistente,
-        idUsuario,
-        criadoPor,
-        trx,
-      );
-    }
-  }
-
-  async desvincularAssistenteDeUsuario(
-    idAssistente: string,
-    idUsuario: string,
-    excluidoPor?: string,
-    trx?: Knex.Transaction,
-  ): Promise<void> {
-    const qb = trx ?? this.knex;
-
-    const vinculo = await qb<AssistenteVinculo>(TABLE_VINCULOS)
-      .where({ id_assistente: idAssistente, id_usuario: idUsuario })
-      .whereNull('excluido_em')
-      .first();
-
-    if (!vinculo) {
-      throw new NotFoundException(
-        'Vínculo entre assistente e usuário perito/assinante não encontrado.',
-      );
-    }
-
-    await qb<AssistenteVinculo>(TABLE_VINCULOS)
-      .where({ id: vinculo.id })
-      .update({
-        excluido_em: new Date(),
-        excluido_por: excluidoPor ?? null,
-      });
-  }
-
-  async assistenteEhVinculadoAoUsuario(
-    idAssistente: string,
-    idUsuario: string,
-    trx?: Knex.Transaction,
-  ): Promise<boolean> {
-    const qb = trx ?? this.knex;
-    const vinculo = await qb<AssistenteVinculo>(TABLE_VINCULOS)
-      .where({ id_assistente: idAssistente, id_usuario: idUsuario })
-      .whereNull('excluido_em')
-      .first();
-    return !!vinculo;
   }
 }
