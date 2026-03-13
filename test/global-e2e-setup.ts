@@ -52,7 +52,11 @@ export default async function globalSetup(): Promise<void> {
   ];
   const tableNames = tables[0].map((row) => Object.values(row)[0]);
 
-  if (!tableNames.includes('usuarios') || !tableNames.includes('auditoria')) {
+  if (
+    !tableNames.includes('condominios') ||
+    !tableNames.includes('usuarios') ||
+    !tableNames.includes('auditoria')
+  ) {
     throw new Error(
       `Migrations não aplicadas corretamente no banco ${database}. Tabelas encontradas: ${tableNames.join(', ')}`,
     );

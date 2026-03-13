@@ -85,9 +85,21 @@ export class UsuariosService {
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
 
     const uuid = randomUUID();
+    const condominioInicial = await qb('condominios')
+      .whereNull('deleted_at')
+      .orderBy('created_at', 'asc')
+      .orderBy('uuid', 'asc')
+      .first<{ uuid: string }>('uuid');
+
+    if (!condominioInicial) {
+      throw new NotFoundException(
+        'Nenhum condomínio disponível para vincular o usuário.',
+      );
+    }
 
     await qb(TABLE).insert({
       uuid,
+      uuid_condominio: condominioInicial.uuid,
       nome: dto.nome,
       email: dto.email,
       celular: dto.celular,

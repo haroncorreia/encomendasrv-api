@@ -2,6 +2,7 @@ import { Perfil } from '../enums/perfil.enum';
 
 export interface Usuario {
   uuid: string;
+  uuid_condominio: string;
   nome: string;
   email: string;
   celular: string;

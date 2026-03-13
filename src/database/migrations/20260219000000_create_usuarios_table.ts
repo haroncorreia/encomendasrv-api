@@ -4,6 +4,7 @@ export async function up(knex: Knex): Promise<void> {
   await knex.schema.createTable('usuarios', (table) => {
     // Dados do usuário
     table.string('uuid', 36).primary().notNullable();
+    table.string('uuid_condominio', 36).notNullable();
     table.string('nome', 255).notNullable();
     table.string('email', 255).notNullable().unique();
     table.string('celular', 11).notNullable().unique();
@@ -33,6 +34,12 @@ export async function up(knex: Knex): Promise<void> {
     table.string('updated_by', 255).notNullable();
     table.timestamp('deleted_at').nullable();
     table.string('deleted_by', 255).nullable();
+
+    table
+      .foreign('uuid_condominio')
+      .references('condominios.uuid')
+      .onUpdate('CASCADE')
+      .onDelete('RESTRICT');
   });
 }
 

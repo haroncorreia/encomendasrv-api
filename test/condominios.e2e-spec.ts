@@ -8,7 +8,6 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/condominios';
 const AUTH_BASE = '/authenticate';
-const CONDOMINIO_SEED_UUID = '55555555-5555-4555-8555-555555555555';
 
 describe('CondominiosModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -17,6 +16,7 @@ describe('CondominiosModule (e2e)', () => {
   let adminToken: string;
   let portariaToken: string;
   let moradorToken: string;
+  let condominioSeedUuid: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -34,6 +34,12 @@ describe('CondominiosModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+
+    const condominioSeed = await knex('condominios')
+      .orderBy('created_at', 'asc')
+      .first('uuid');
+
+    condominioSeedUuid = condominioSeed.uuid as string;
 
     const superRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
@@ -107,7 +113,7 @@ describe('CondominiosModule (e2e)', () => {
 
     expect(Array.isArray(res.body)).toBe(true);
     const recantoVerde = res.body.find(
-      (c: { uuid: string }) => c.uuid === CONDOMINIO_SEED_UUID,
+      (c: { uuid: string }) => c.uuid === condominioSeedUuid,
     );
 
     expect(recantoVerde).toBeDefined();
@@ -131,10 +137,10 @@ describe('CondominiosModule (e2e)', () => {
   it('GET /condominios/:id deve retornar 200 para usuário autenticado e trazer dados corretos', async () => {
     const res = await auth(
       portariaToken,
-      request(app.getHttpServer()).get(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`),
+      request(app.getHttpServer()).get(`${BASE_URL}/${condominioSeedUuid}`),
     ).expect(200);
 
-    expect(res.body.uuid).toBe(CONDOMINIO_SEED_UUID);
+    expect(res.body.uuid).toBe(condominioSeedUuid);
     expect(res.body.nome).toBe('Recanto Verde');
     expect(res.body.endereco).toBe('Avenida Tucunaré, 411');
   });
@@ -143,7 +149,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       portariaToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ nome: 'Nao Pode Portaria' }),
     ).expect(403);
   });
@@ -152,7 +158,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       moradorToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ nome: 'Nao Pode Morador' }),
     ).expect(403);
   });
@@ -161,11 +167,11 @@ describe('CondominiosModule (e2e)', () => {
     const res = await auth(
       adminToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ cidade: 'Barueri', bairro: 'Alphaville' }),
     ).expect(200);
 
-    expect(res.body.uuid).toBe(CONDOMINIO_SEED_UUID);
+    expect(res.body.uuid).toBe(condominioSeedUuid);
     expect(res.body.cidade).toBe('Barueri');
     expect(res.body.bairro).toBe('Alphaville');
     expect(res.body.updated_by).toBe('condominio.admin@teste.com');
@@ -175,7 +181,7 @@ describe('CondominiosModule (e2e)', () => {
     const res = await auth(
       superToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({
           nome: 'Recanto Verde Atualizado',
           cep: '06453000',
@@ -197,7 +203,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       superToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ cep: '06453A00' }),
     ).expect(400);
   });
@@ -206,7 +212,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       superToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ uf: 'XX' }),
     ).expect(400);
   });
@@ -215,7 +221,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       superToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ telefone: '1191234ABCD' }),
     ).expect(400);
   });
@@ -224,7 +230,7 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       superToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ email: 'email_invalido' }),
     ).expect(400);
   });
@@ -233,19 +239,19 @@ describe('CondominiosModule (e2e)', () => {
     await auth(
       adminToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
         .send({ endereco: 'Avenida Tucunaré, 500' }),
     ).expect(200);
 
     const auditoria = await knex('auditoria')
       .where({ method: 'PATCH' })
-      .andWhere({ route: `${BASE_URL}/${CONDOMINIO_SEED_UUID}` })
+      .andWhere({ route: `${BASE_URL}/${condominioSeedUuid}` })
       .andWhere({ user_mail: 'condominio.admin@teste.com' })
       .orderBy('created_at', 'desc')
       .first();
 
     expect(auditoria).toBeDefined();
     expect(auditoria.description).toContain('Condomínio atualizado');
-    expect(auditoria.description).toContain(CONDOMINIO_SEED_UUID);
+    expect(auditoria.description).toContain(condominioSeedUuid);
   });
 });
