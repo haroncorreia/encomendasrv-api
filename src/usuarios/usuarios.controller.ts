@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -60,6 +61,26 @@ export class UsuariosController {
     @CurrentUser() user: JwtPayload,
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
+    const perfilAlvo = createUsuarioDto.perfil;
+
+    if (!perfilAlvo || perfilAlvo === Perfil.MORADOR) {
+      throw new ForbiddenException(
+        'A rota POST /usuarios não permite criação de usuário com perfil morador.',
+      );
+    }
+
+    if (user.perfil === Perfil.ADMIN && perfilAlvo === Perfil.SUPER) {
+      throw new ForbiddenException(
+        'Usuário admin não pode criar usuário com perfil super.',
+      );
+    }
+
+    if (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) {
+      throw new ForbiddenException(
+        'Seu perfil não possui permissão para criar usuários por esta rota.',
+      );
+    }
+
     return this.knex.transaction(async (trx) => {
       const usuario = await this.usuariosService.create(
         createUsuarioDto,
@@ -118,6 +139,29 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      const ehProprioUsuario = user.sub === id;
+
+      const podeExcluir =
+        (user.perfil === Perfil.SUPER &&
+          (ehProprioUsuario || usuarioAlvo.perfil !== Perfil.SUPER)) ||
+        (user.perfil === Perfil.ADMIN &&
+          (ehProprioUsuario ||
+            usuarioAlvo.perfil === Perfil.PORTARIA ||
+            usuarioAlvo.perfil === Perfil.MORADOR)) ||
+        ((user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) &&
+          ehProprioUsuario);
+
+      if (!podeExcluir) {
+        throw new ForbiddenException(
+          'Seu perfil não possui permissão para excluir este usuário.',
+        );
+      }
+
       await this.usuariosService.remove(id, user.email, trx);
       await this.auditoriaService.registrarEmTrx(
         {
@@ -138,6 +182,12 @@ export class UsuariosController {
     @CurrentUser() user: JwtPayload,
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
+    if (user.perfil !== Perfil.SUPER) {
+      throw new ForbiddenException(
+        'Apenas usuários com perfil super podem executar hard delete.',
+      );
+    }
+
     return this.knex.transaction(async (trx) => {
       await this.usuariosService.hardRemove(id, user.email, trx);
       await this.auditoriaService.registrarEmTrx(
