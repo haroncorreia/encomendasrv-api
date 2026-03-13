@@ -51,7 +51,7 @@ describe('AuthModule (e2e)', () => {
     await knex.destroy();
   });
 
-  it('POST /authenticate/sign-up deve registrar usuário e retornar tokens', async () => {
+  it('POST /authenticate/sign-up deve retornar 201 e registrar usuário e retornar tokens', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
       .send(usuarioBase)
@@ -71,91 +71,30 @@ describe('AuthModule (e2e)', () => {
     refreshToken = res.body.refresh_token as string;
   });
 
-  it('POST /authenticate/sign-up deve retornar 409 para e-mail duplicado', async () => {
-    await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-up`)
-      .send(usuarioBase)
-      .expect(409);
-  });
-
-  it('POST /authenticate/sign-up deve retornar 409 para celular duplicado', async () => {
-    const usuarioComCelularDuplicado = {
-      nome: 'Auth Test User Celular Duplicado',
-      email: 'auth.test.celular.duplicado@teste.com',
-      celular: usuarioBase.celular,
+  it('POST /authenticate/sign-up deve retornar 201 e criar um registro de usuário com o perfil morador', async () => {
+    const novoUsuario = {
+      nome: 'Auth Test Morador',
+      email: 'auth.test.morador@teste.com',
+      celular: '11999990005',
       senha: 'Senha@123',
     };
 
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
-      .send(usuarioComCelularDuplicado)
-      .expect(409);
-  });
+      .send(novoUsuario)
+      .expect(201);
 
-  it('POST /authenticate/sign-in deve autenticar com credenciais válidas', async () => {
-    const res = await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-in`)
-      .send({ email: usuarioBase.email, senha: usuarioBase.senha })
-      .expect(200);
-
-    expect(res.body.usuario.uuid).toBeDefined();
-    expect(res.body.usuario.email).toBe(usuarioBase.email);
-    accessToken = res.body.access_token as string;
-    refreshToken = res.body.refresh_token as string;
-  });
-
-  it('POST /authenticate/sign-in deve retornar 401 para senha inválida', async () => {
-    await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-in`)
-      .send({ email: usuarioBase.email, senha: 'SenhaErrada@123' })
-      .expect(401);
-  });
-
-  it('POST /authenticate/refresh-token deve gerar novos tokens', async () => {
-    const res = await request(app.getHttpServer())
-      .post(`${BASE_URL}/refresh-token`)
-      .send({ refresh_token: refreshToken })
-      .expect(200);
-
-    expect(res.body.access_token).toBeDefined();
-    expect(res.body.refresh_token).toBeDefined();
-  });
-
-  it('GET /authenticate/validate-token deve validar token e retornar uuid', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`${BASE_URL}/validate-token`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-
-    expect(res.body.valid).toBe(true);
-    expect(res.body.usuario.uuid).toBeDefined();
-  });
-
-  it('POST /authenticate/request-reset-password deve persistir hash de reset', async () => {
-    await request(app.getHttpServer())
-      .post(`${BASE_URL}/request-reset-password`)
-      .send({ email: usuarioBase.email })
-      .expect(200);
-
-    const row = await knex('usuarios')
-      .where({ email: usuarioBase.email })
-      .first();
-    expect(row.reset_password_token_hash).toBeTruthy();
-    expect(row.reset_password_exp).toBeTruthy();
-  });
-
-  it('deve registrar auditoria de login na tabela auditoria', async () => {
-    const registro = await knex('auditoria')
-      .where({
-        method: 'POST',
-        route: '/authenticate/sign-in',
-        user_mail: usuarioBase.email,
-      })
-      .whereRaw('description LIKE ?', ['%Login realizado com sucesso%'])
+    const usuario = await knex('usuarios')
+      .where({ email: novoUsuario.email })
       .first();
 
-    expect(registro).toBeTruthy();
-    expect(registro.uuid).toBeDefined();
+    expect(usuario).toBeTruthy();
+    expect(usuario.uuid).toBe(res.body.usuario.uuid);
+
+    const perfil = await knex('usuarios').where({ uuid: usuario.uuid }).first();
+
+    expect(perfil).toBeTruthy();
+    expect(perfil.perfil).toBe('morador');
   });
 
   it('POST /authenticate/sign-up deve retornar 400 se não informar o nome', async () => {
@@ -210,29 +149,160 @@ describe('AuthModule (e2e)', () => {
       .expect(400);
   });
 
-  it('POST /authenticate/sign-up deve criar um registro de usuário com o perfil morador', async () => {
-    const novoUsuario = {
-      nome: 'Auth Test Morador',
-      email: 'auth.test.morador@teste.com',
-      celular: '11999990005',
+  it('POST /authenticate/sign-up deve retornar 400 se a senha possuir menos de 8 dígitos', async () => {
+    const usuarioSenhaCurta = {
+      nome: 'Auth Test User Senha Curta',
+      email: 'auth.test.senhacurta@teste.com',
+      celular: '11999990010',
+      senha: 'S@1a',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSenhaCurta)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se a senha não possuir uma letra minúscula', async () => {
+    const usuarioSemMinuscula = {
+      nome: 'Auth Test User Sem Minuscula',
+      email: 'auth.test.semm@teste.com',
+      celular: '11999990011',
+      senha: 'SENHA@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemMinuscula)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se a senha não possuir uma letra maiúscula', async () => {
+    const usuarioSemMaiuscula = {
+      nome: 'Auth Test User Sem Maiuscula',
+      email: 'auth.test.semm@teste.com',
+      celular: '11999990012',
+      senha: 'senha@123',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemMaiuscula)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se a senha não possuir um número', async () => {
+    const usuarioSemNumero = {
+      nome: 'Auth Test User Sem Numero',
+      email: 'auth.test.semnumero@teste.com',
+      celular: '11999990013',
+      senha: 'Senha@abc',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemNumero)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 se a senha não possuir um símbolo', async () => {
+    const usuarioSemSimbolo = {
+      nome: 'Auth Test User Sem Simbolo',
+      email: 'auth.test.semsimbolo@teste.com',
+      celular: '11999990014',
+      senha: 'Senha1234',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioSemSimbolo)
+      .expect(400);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 409 para e-mail duplicado', async () => {
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioBase)
+      .expect(409);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 409 para celular duplicado', async () => {
+    const usuarioComCelularDuplicado = {
+      nome: 'Auth Test User Celular Duplicado',
+      email: 'auth.test.celular.duplicado@teste.com',
+      celular: usuarioBase.celular,
       senha: 'Senha@123',
     };
 
-    const res = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
-      .send(novoUsuario)
-      .expect(201);
+      .send(usuarioComCelularDuplicado)
+      .expect(409);
+  });
 
-    const usuario = await knex('usuarios')
-      .where({ email: novoUsuario.email })
+  it('POST /authenticate/sign-in deve retornar 200 e autenticar com credenciais válidas', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({ email: usuarioBase.email, senha: usuarioBase.senha })
+      .expect(200);
+
+    expect(res.body.usuario.uuid).toBeDefined();
+    expect(res.body.usuario.email).toBe(usuarioBase.email);
+    accessToken = res.body.access_token as string;
+    refreshToken = res.body.refresh_token as string;
+  });
+
+  it('POST /authenticate/sign-in deve retornar 401 para senha inválida', async () => {
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({ email: usuarioBase.email, senha: 'SenhaErrada@123' })
+      .expect(401);
+  });
+
+  it('POST /authenticate/refresh-token deve retornar 200 e gerar novos tokens', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/refresh-token`)
+      .send({ refresh_token: refreshToken })
+      .expect(200);
+
+    expect(res.body.access_token).toBeDefined();
+    expect(res.body.refresh_token).toBeDefined();
+  });
+
+  it('GET /authenticate/validate-token deve retornar 200, validar token e retornar uuid', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${BASE_URL}/validate-token`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(res.body.valid).toBe(true);
+    expect(res.body.usuario.uuid).toBeDefined();
+  });
+
+  it('POST /authenticate/request-reset-password deve retornar 200 e persistir hash de reset', async () => {
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-reset-password`)
+      .send({ email: usuarioBase.email })
+      .expect(200);
+
+    const row = await knex('usuarios')
+      .where({ email: usuarioBase.email })
+      .first();
+    expect(row.reset_password_token_hash).toBeTruthy();
+    expect(row.reset_password_exp).toBeTruthy();
+  });
+
+  it('SYSTEM deve registrar auditoria de login na tabela auditoria', async () => {
+    const registro = await knex('auditoria')
+      .where({
+        method: 'POST',
+        route: '/authenticate/sign-in',
+        user_mail: usuarioBase.email,
+      })
+      .whereRaw('description LIKE ?', ['%Login realizado com sucesso%'])
       .first();
 
-    expect(usuario).toBeTruthy();
-    expect(usuario.uuid).toBe(res.body.usuario.uuid);
-
-    const perfil = await knex('usuarios').where({ uuid: usuario.uuid }).first();
-
-    expect(perfil).toBeTruthy();
-    expect(perfil.perfil).toBe('morador');
+    expect(registro).toBeTruthy();
+    expect(registro.uuid).toBeDefined();
   });
 });
