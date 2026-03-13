@@ -42,7 +42,7 @@ describe('AppController (e2e)', () => {
   // ---------------------------------------------------------------------------
   // GET /
   // ---------------------------------------------------------------------------
-  it('(GET) / deve retornar a mensagem de boas-vindas', async () => {
+  it('GET / deve retornar 200 e mensagem de api online', async () => {
     app = await createApp(true);
     return request(app.getHttpServer())
       .get('/')
@@ -53,36 +53,34 @@ describe('AppController (e2e)', () => {
   // ---------------------------------------------------------------------------
   // GET /health-check
   // ---------------------------------------------------------------------------
-  describe('GET /health-check', () => {
-    it('deve retornar 200 e status ok quando todos os serviços estão saudáveis', async () => {
-      app = await createApp(true);
+  it('GET /health-check deve retornar 200 e status ok quando todos os serviços estão saudáveis', async () => {
+    app = await createApp(true);
 
-      const res = await request(app.getHttpServer())
-        .get('/health-check')
-        .expect(200);
+    const res = await request(app.getHttpServer())
+      .get('/health-check')
+      .expect(200);
 
-      expect(res.body.status).toBe('ok');
-      expect(res.body.services.api).toBe('ok');
-      expect(res.body.services.database).toBe('ok');
-      expect(res.body.services.email).toBe('ok');
-    });
+    expect(res.body.status).toBe('ok');
+    expect(res.body.services.api).toBe('ok');
+    expect(res.body.services.database).toBe('ok');
+    expect(res.body.services.email).toBe('ok');
+  });
 
-    it('deve retornar 503 e status degraded quando o e-mail está indisponível', async () => {
-      app = await createApp(false);
+  it('GET /health-check deve retornar 503 e status degraded quando o e-mail está indisponível', async () => {
+    app = await createApp(false);
 
-      const res = await request(app.getHttpServer())
-        .get('/health-check')
-        .expect(503);
+    const res = await request(app.getHttpServer())
+      .get('/health-check')
+      .expect(503);
 
-      expect(res.body.status).toBe('degraded');
-      expect(res.body.services.api).toBe('ok');
-      expect(res.body.services.database).toBe('ok');
-      expect(res.body.services.email).toBe('error');
-    });
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.services.api).toBe('ok');
+    expect(res.body.services.database).toBe('ok');
+    expect(res.body.services.email).toBe('error');
+  });
 
-    it('não deve exigir autenticação', async () => {
-      app = await createApp(true);
-      await request(app.getHttpServer()).get('/health-check').expect(200);
-    });
+  it('GET /health-check não deve exigir autenticação', async () => {
+    app = await createApp(true);
+    await request(app.getHttpServer()).get('/health-check').expect(200);
   });
 });
