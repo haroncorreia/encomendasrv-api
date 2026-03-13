@@ -9,8 +9,8 @@ export async function seed(knex: Knex): Promise<void> {
   await knex('usuarios').insert([
     {
       uuid: '11111111-1111-4111-8111-111111111111',
-      nome: 'Usuário Super',
-      email: 'super@recantoverdeac.com.br',
+      nome: 'Haron Correia',
+      email: 'haroncorreia@hotmail.com',
       celular: '11990000001',
       senha: senhaHash,
       perfil: 'super',
