@@ -1,0 +1,251 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { Knex } from 'knex';
+import { AppModule } from '../src/app.module';
+import { KNEX_CONNECTION } from '../src/database/database.constants';
+
+const BASE_URL = '/condominios';
+const AUTH_BASE = '/authenticate';
+const CONDOMINIO_SEED_UUID = '55555555-5555-4555-8555-555555555555';
+
+describe('CondominiosModule (e2e)', () => {
+  let app: INestApplication<App>;
+  let knex: Knex;
+  let superToken: string;
+  let adminToken: string;
+  let portariaToken: string;
+  let moradorToken: string;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+
+    await app.init();
+    knex = app.get<Knex>(KNEX_CONNECTION);
+
+    const superRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Condominio Super',
+        email: 'condominio.super@teste.com',
+        celular: '11770000001',
+        senha: 'Senha@123',
+        perfil: 'super',
+      })
+      .expect(201);
+
+    superToken = superRes.body.access_token as string;
+
+    const adminRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Condominio Admin',
+        email: 'condominio.admin@teste.com',
+        celular: '11770000002',
+        senha: 'Senha@123',
+        perfil: 'admin',
+      })
+      .expect(201);
+
+    adminToken = adminRes.body.access_token as string;
+
+    const portariaRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Condominio Portaria',
+        email: 'condominio.portaria@teste.com',
+        celular: '11770000003',
+        senha: 'Senha@123',
+        perfil: 'portaria',
+      })
+      .expect(201);
+
+    portariaToken = portariaRes.body.access_token as string;
+
+    const moradorRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Condominio Morador',
+        email: 'condominio.morador@teste.com',
+        celular: '11770000004',
+        senha: 'Senha@123',
+      })
+      .expect(201);
+
+    moradorToken = moradorRes.body.access_token as string;
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await knex.destroy();
+  });
+
+  const auth = (token: string, req: request.Test) =>
+    req.set('Authorization', `Bearer ${token}`);
+
+  it('GET /condominios deve retornar 401 sem autenticação', async () => {
+    await request(app.getHttpServer()).get(BASE_URL).expect(401);
+  });
+
+  it('GET /condominios deve retornar 200 para usuário super', async () => {
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    const recantoVerde = res.body.find(
+      (c: { uuid: string }) => c.uuid === CONDOMINIO_SEED_UUID,
+    );
+
+    expect(recantoVerde).toBeDefined();
+    expect(recantoVerde.nome).toBe('Recanto Verde');
+    expect(recantoVerde.endereco).toBe('Avenida Tucunaré, 411');
+  });
+
+  it('GET /condominios deve retornar 200 para usuário admin, portaria e morador', async () => {
+    await auth(adminToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+      200,
+    );
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(200);
+    await auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+      200,
+    );
+  });
+
+  it('GET /condominios/:id deve retornar 200 para usuário autenticado e trazer dados corretos', async () => {
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(CONDOMINIO_SEED_UUID);
+    expect(res.body.nome).toBe('Recanto Verde');
+    expect(res.body.endereco).toBe('Avenida Tucunaré, 411');
+  });
+
+  it('PATCH /condominios/:id deve retornar 403 para portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ nome: 'Nao Pode Portaria' }),
+    ).expect(403);
+  });
+
+  it('PATCH /condominios/:id deve retornar 403 para morador', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ nome: 'Nao Pode Morador' }),
+    ).expect(403);
+  });
+
+  it('PATCH /condominios/:id deve retornar 200 para admin', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ cidade: 'Barueri', bairro: 'Alphaville' }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(CONDOMINIO_SEED_UUID);
+    expect(res.body.cidade).toBe('Barueri');
+    expect(res.body.bairro).toBe('Alphaville');
+    expect(res.body.updated_by).toBe('condominio.admin@teste.com');
+  });
+
+  it('PATCH /condominios/:id deve retornar 200 para super', async () => {
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({
+          nome: 'Recanto Verde Atualizado',
+          cep: '06453000',
+          uf: 'sp',
+          telefone: '11912345678',
+          email: 'contato@recantoverde.com.br',
+        }),
+    ).expect(200);
+
+    expect(res.body.nome).toBe('Recanto Verde Atualizado');
+    expect(res.body.cep).toBe('06453000');
+    expect(res.body.uf).toBe('SP');
+    expect(res.body.telefone).toBe('11912345678');
+    expect(res.body.email).toBe('contato@recantoverde.com.br');
+    expect(res.body.updated_by).toBe('condominio.super@teste.com');
+  });
+
+  it('PATCH /condominios/:id deve retornar 400 para cep inválido', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ cep: '06453A00' }),
+    ).expect(400);
+  });
+
+  it('PATCH /condominios/:id deve retornar 400 para uf inválida', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ uf: 'XX' }),
+    ).expect(400);
+  });
+
+  it('PATCH /condominios/:id deve retornar 400 para telefone inválido', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ telefone: '1191234ABCD' }),
+    ).expect(400);
+  });
+
+  it('PATCH /condominios/:id deve retornar 400 para e-mail inválido', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ email: 'email_invalido' }),
+    ).expect(400);
+  });
+
+  it('PATCH /condominios/:id deve registrar auditoria da atualização', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${CONDOMINIO_SEED_UUID}`)
+        .send({ endereco: 'Avenida Tucunaré, 500' }),
+    ).expect(200);
+
+    const auditoria = await knex('auditoria')
+      .where({ method: 'PATCH' })
+      .andWhere({ route: `${BASE_URL}/${CONDOMINIO_SEED_UUID}` })
+      .andWhere({ user_mail: 'condominio.admin@teste.com' })
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeDefined();
+    expect(auditoria.description).toContain('Condomínio atualizado');
+    expect(auditoria.description).toContain(CONDOMINIO_SEED_UUID);
+  });
+});

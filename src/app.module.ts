@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
+import { CondominiosModule } from './condominios/condominios.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
@@ -19,6 +20,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     DatabaseModule,
     EmailModule,
     UsuariosModule,
+    CondominiosModule,
     AuthModule,
   ],
   controllers: [AppController],
