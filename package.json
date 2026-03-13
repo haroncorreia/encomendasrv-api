@@ -24,7 +24,9 @@
     "migrate:make": "knex --knexfile knexfile.ts migrate:make",
     "knex:clear": "knex --knexfile knexfile.ts migrate:rollback && knex --knexfile knexfile.ts migrate:latest",
     "db:recreate": "ts-node -r dotenv/config scripts/db-recreate.ts",
+    "db:recreate:test": "ts-node scripts/db-recreate-test.ts",
     "knex:reset": "npm run db:recreate && knex --knexfile knexfile.ts migrate:latest && knex --knexfile knexfile.ts seed:run",
+    "knex:reset:test": "npm run db:recreate:test && knex --knexfile knexfile.ts --env test migrate:latest && knex --knexfile knexfile.ts --env test seed:run",
     "seed:run": "knex --knexfile knexfile.ts seed:run",
     "seed:make": "knex --knexfile knexfile.ts seed:make"
   },

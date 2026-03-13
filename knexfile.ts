@@ -1,8 +1,14 @@
 import type { Knex } from 'knex';
 import * as dotenv from 'dotenv';
 
+const envArgIndex = process.argv.findIndex((arg) => arg === '--env');
+const cliEnv = envArgIndex >= 0 ? process.argv[envArgIndex + 1] : undefined;
+
 dotenv.config({
-  path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
+  path:
+    process.env.NODE_ENV === 'test' || cliEnv === 'test'
+      ? '.env.test'
+      : '.env',
 });
 
 const config: { [key: string]: Knex.Config } = {
