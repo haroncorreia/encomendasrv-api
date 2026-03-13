@@ -9,6 +9,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { CondominiosModule } from './condominios/condominios.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
+import { EncomendasModule } from './encomendas/encomendas.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
@@ -23,6 +24,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     UsuariosModule,
     CondominiosModule,
     TransportadorasModule,
+    EncomendasModule,
     AuthModule,
   ],
   controllers: [AppController],
