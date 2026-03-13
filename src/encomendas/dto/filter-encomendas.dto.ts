@@ -1,30 +1,15 @@
-import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
-  IsInt,
   IsOptional,
   IsString,
   IsUUID,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
 import { EncomendaStatus } from '../enums/encomenda-status.enum';
+import { PaginationEncomendasDto } from './pagination-encomendas.dto';
 
-export class FilterEncomendasDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
+export class FilterEncomendasDto extends PaginationEncomendasDto {
 
   @IsOptional()
   @IsUUID('4')

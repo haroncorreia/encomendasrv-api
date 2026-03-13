@@ -98,6 +98,48 @@ describe('EncomendasModule (e2e)', () => {
     }
   });
 
+  it('GET /encomendas deve usar limite padrão de 50 registros', async () => {
+    for (let i = 1; i <= 55; i++) {
+      await auth(
+        adminToken,
+        request(app.getHttpServer()).post(BASE_URL).send({
+          palavra_chave: 'PAGINACAO_LISTA',
+          descricao: `Registro lista ${i}`,
+          codigo_rastreamento: `PGL${String(i).padStart(6, '0')}`,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+        }),
+      ).expect(201);
+    }
+
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(50);
+  });
+
+  it('GET /encomendas deve paginar com page e limit quando informados', async () => {
+    const page1 = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .get(BASE_URL)
+        .query({ page: 1, limit: 10 }),
+    ).expect(200);
+
+    const page2 = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .get(BASE_URL)
+        .query({ page: 2, limit: 10 }),
+    ).expect(200);
+
+    expect(page1.body).toHaveLength(10);
+    expect(page2.body).toHaveLength(10);
+    expect(page1.body[0].uuid).not.toBe(page2.body[0].uuid);
+  });
+
   it('GET /encomendas deve restringir o morador às próprias encomendas', async () => {
     const res = await auth(
       moradorToken,
@@ -136,8 +178,8 @@ describe('EncomendasModule (e2e)', () => {
     expect(res.body[0].status).toBe('cancelada');
   });
 
-  it('GET /encomendas/filter deve usar limite padrão de 20 registros', async () => {
-    for (let i = 1; i <= 25; i++) {
+  it('GET /encomendas/filter deve usar limite padrão de 50 registros', async () => {
+    for (let i = 1; i <= 55; i++) {
       await auth(
         adminToken,
         request(app.getHttpServer()).post(BASE_URL).send({
@@ -157,7 +199,7 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(20);
+    expect(res.body).toHaveLength(50);
   });
 
   it('GET /encomendas/filter deve paginar com page e limit quando informados', async () => {

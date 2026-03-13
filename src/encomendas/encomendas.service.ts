@@ -12,13 +12,14 @@ import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
 import { EncomendaStatus } from './enums/encomenda-status.enum';
 import { Encomenda } from './interfaces/encomenda.interface';
 
 const TABLE = 'encomendas';
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = 50;
 const DEFAULT_PAGE = 1;
 
 interface UsuarioLookup {
@@ -189,7 +190,11 @@ export class EncomendasService {
     }
 
     if (filters.recebido_em_inicial) {
-      query.andWhere('recebido_em', '>=', new Date(filters.recebido_em_inicial));
+      query.andWhere(
+        'recebido_em',
+        '>=',
+        new Date(filters.recebido_em_inicial),
+      );
     }
 
     if (filters.recebido_em_final) {
@@ -197,7 +202,11 @@ export class EncomendasService {
     }
 
     if (filters.entregue_em_inicial) {
-      query.andWhere('entregue_em', '>=', new Date(filters.entregue_em_inicial));
+      query.andWhere(
+        'entregue_em',
+        '>=',
+        new Date(filters.entregue_em_inicial),
+      );
     }
 
     if (filters.entregue_em_final) {
@@ -205,17 +214,36 @@ export class EncomendasService {
     }
   }
 
-  async findAll(user: JwtPayload): Promise<Encomenda[]> {
-    return this.scopedQuery(user).select('*').orderBy('created_at', 'desc');
+  private resolvePagination(pagination: PaginationEncomendasDto): {
+    page: number;
+    limit: number;
+    offset: number;
+  } {
+    const page = pagination.page ?? DEFAULT_PAGE;
+    const limit = pagination.limit ?? DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+
+    return { page, limit, offset };
+  }
+
+  async findAll(
+    user: JwtPayload,
+    pagination: PaginationEncomendasDto,
+  ): Promise<Encomenda[]> {
+    const { offset, limit } = this.resolvePagination(pagination);
+
+    return this.scopedQuery(user)
+      .select('*')
+      .orderBy('created_at', 'desc')
+      .offset(offset)
+      .limit(limit);
   }
 
   async findByFilters(
     filters: FilterEncomendasDto,
     user: JwtPayload,
   ): Promise<Encomenda[]> {
-    const page = filters.page ?? DEFAULT_PAGE;
-    const limit = filters.limit ?? DEFAULT_LIMIT;
-    const offset = (page - 1) * limit;
+    const { offset, limit } = this.resolvePagination(filters);
 
     const query = this.scopedQuery(user).select('*');
     this.applyFilters(query, filters);
@@ -373,23 +401,19 @@ export class EncomendasService {
     await this.findActiveByUuid(uuid, trx);
 
     if (dto.status === EncomendaStatus.RETIRADA) {
-      await qb<Encomenda>(TABLE)
-        .where({ uuid })
-        .update({
-          status: dto.status,
-          entregue_em: new Date(),
-          entregue_por_uuid_usuario: user.sub,
-          updated_at: new Date(),
-          updated_by: user.email,
-        });
+      await qb<Encomenda>(TABLE).where({ uuid }).update({
+        status: dto.status,
+        entregue_em: new Date(),
+        entregue_por_uuid_usuario: user.sub,
+        updated_at: new Date(),
+        updated_by: user.email,
+      });
     } else {
-      await qb<Encomenda>(TABLE)
-        .where({ uuid })
-        .update({
-          status: dto.status,
-          updated_at: new Date(),
-          updated_by: user.email,
-        });
+      await qb<Encomenda>(TABLE).where({ uuid }).update({
+        status: dto.status,
+        updated_at: new Date(),
+        updated_by: user.email,
+      });
     }
 
     return this.findActiveByUuid(uuid, trx);
@@ -412,14 +436,12 @@ export class EncomendasService {
       );
     }
 
-    await qb<Encomenda>(TABLE)
-      .where({ uuid })
-      .update({
-        deleted_at: null,
-        deleted_by: null,
-        updated_at: new Date(),
-        updated_by: user.email,
-      });
+    await qb<Encomenda>(TABLE).where({ uuid }).update({
+      deleted_at: null,
+      deleted_by: null,
+      updated_at: new Date(),
+      updated_by: user.email,
+    });
 
     return this.findActiveByUuid(uuid, trx);
   }
@@ -433,14 +455,12 @@ export class EncomendasService {
     const encomenda = await this.findActiveByUuid(uuid, trx);
     this.assertWriteAccess(encomenda, user);
 
-    await qb<Encomenda>(TABLE)
-      .where({ uuid })
-      .update({
-        deleted_at: new Date(),
-        deleted_by: user.email,
-        updated_at: new Date(),
-        updated_by: user.email,
-      });
+    await qb<Encomenda>(TABLE).where({ uuid }).update({
+      deleted_at: new Date(),
+      deleted_by: user.email,
+      updated_at: new Date(),
+      updated_by: user.email,
+    });
   }
 
   async hardRemove(uuid: string, trx?: Knex.Transaction): Promise<void> {

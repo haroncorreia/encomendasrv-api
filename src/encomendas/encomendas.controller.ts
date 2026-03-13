@@ -25,6 +25,7 @@ import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
 import { EncomendasService } from './encomendas.service';
@@ -39,8 +40,11 @@ export class EncomendasController {
   ) {}
 
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.encomendasService.findAll(user);
+  findAll(
+    @Query() pagination: PaginationEncomendasDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.encomendasService.findAll(user, pagination);
   }
 
   @Get('filter')
