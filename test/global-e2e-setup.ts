@@ -54,6 +54,7 @@ export default async function globalSetup(): Promise<void> {
 
   if (
     !tableNames.includes('condominios') ||
+    !tableNames.includes('transportadoras') ||
     !tableNames.includes('usuarios') ||
     !tableNames.includes('auditoria')
   ) {

@@ -9,6 +9,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { CondominiosModule } from './condominios/condominios.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
+import { TransportadorasModule } from './transportadoras/transportadoras.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     EmailModule,
     UsuariosModule,
     CondominiosModule,
+    TransportadorasModule,
     AuthModule,
   ],
   controllers: [AppController],
