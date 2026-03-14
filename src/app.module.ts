@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -10,6 +11,7 @@ import { CondominiosModule } from './condominios/condominios.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
 import { EncomendasModule } from './encomendas/encomendas.module';
+import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
@@ -19,12 +21,14 @@ import { UsuariosModule } from './usuarios/usuarios.module';
       envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
       isGlobal: true,
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     EmailModule,
     UsuariosModule,
     CondominiosModule,
     TransportadorasModule,
     EncomendasModule,
+    NotificacoesModule,
     AuthModule,
   ],
   controllers: [AppController],

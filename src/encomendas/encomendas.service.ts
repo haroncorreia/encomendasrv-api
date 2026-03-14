@@ -14,6 +14,7 @@ import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendasEventosService } from '../encomendas-eventos/encomendas-eventos.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
@@ -48,6 +49,7 @@ export class EncomendasService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly encomendasEventosService: EncomendasEventosService,
+    private readonly notificacoesService: NotificacoesService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
@@ -139,6 +141,34 @@ export class EncomendasService {
         uuid_usuario: params.uuid_usuario,
         evento: `Encomenda ${params.acao} com status ${params.status}.`,
         actorEmail: params.actorEmail,
+      },
+      trx,
+    );
+  }
+
+  private async registerStatusNotification(
+    params: {
+      uuid_encomenda: string;
+      uuid_usuario: string;
+      status: EncomendaStatus;
+      acao: 'criada' | 'atualizada';
+      actorEmail: string;
+      actorPerfil: Perfil;
+    },
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    if (!trx || !this.shouldRegisterStatusEvent(params.status)) {
+      return;
+    }
+
+    await this.notificacoesService.registrarNotificacoesMovimentacaoEncomendaEmTrx(
+      {
+        acao: params.acao,
+        status: params.status,
+        uuid_encomenda: params.uuid_encomenda,
+        uuid_usuario: params.uuid_usuario,
+        actorEmail: params.actorEmail,
+        actorPerfil: params.actorPerfil,
       },
       trx,
     );
@@ -416,7 +446,9 @@ export class EncomendasService {
       .first();
 
     if (!encomenda) {
-      throw new BadRequestException('Token QRCode referencia uma encomenda inválida.');
+      throw new BadRequestException(
+        'Token QRCode referencia uma encomenda inválida.',
+      );
     }
 
     if (encomenda.uuid_condominio !== payload.uuid_condominio) {
@@ -463,6 +495,18 @@ export class EncomendasService {
         status: EncomendaStatus.RETIRADA,
         acao: 'atualizada',
         actorEmail: user.email,
+      },
+      trx,
+    );
+
+    await this.registerStatusNotification(
+      {
+        uuid_encomenda: encomenda.uuid,
+        uuid_usuario: encomenda.uuid_usuario,
+        status: EncomendaStatus.RETIRADA,
+        acao: 'atualizada',
+        actorEmail: user.email,
+        actorPerfil: user.perfil,
       },
       trx,
     );
@@ -577,6 +621,18 @@ export class EncomendasService {
       trx,
     );
 
+    await this.registerStatusNotification(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: actor.uuid,
+        status,
+        acao: 'criada',
+        actorEmail: user.email,
+        actorPerfil: actor.perfil,
+      },
+      trx,
+    );
+
     return this.findActiveByUuid(uuid, trx);
   }
 
@@ -658,6 +714,18 @@ export class EncomendasService {
       trx,
     );
 
+    await this.registerStatusNotification(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: usuarioEncomenda.uuid_usuario,
+        status: dto.status,
+        acao: 'atualizada',
+        actorEmail: user.email,
+        actorPerfil: user.perfil,
+      },
+      trx,
+    );
+
     return this.findActiveByUuid(uuid, trx);
   }
 
@@ -714,6 +782,7 @@ export class EncomendasService {
     }
 
     await qb('encomendas_eventos').where({ uuid_encomenda: uuid }).delete();
+    await qb('notificacoes').where({ uuid_encomenda: uuid }).delete();
     await qb<Encomenda>(TABLE).where({ uuid }).delete();
   }
 }

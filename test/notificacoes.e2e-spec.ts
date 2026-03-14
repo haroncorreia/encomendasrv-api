@@ -1,0 +1,488 @@
+import { randomUUID } from 'crypto';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Knex } from 'knex';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from '../src/app.module';
+import { KNEX_CONNECTION } from '../src/database/database.constants';
+import { NotificacoesService } from '../src/notificacoes/notificacoes.service';
+
+const BASE_URL = '/notificacoes';
+const ENCOMENDAS_BASE = '/encomendas';
+const AUTH_BASE = '/authenticate';
+
+const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
+const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
+const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
+const UUID_ENCOMENDA_MORADOR = '80000000-0000-4000-8000-000000000001';
+const UUID_SEED_NOTIFICACAO_PORTARIA = 'a0000000-0000-4000-8000-000000000001';
+const UUID_SEED_NOTIFICACAO_ADMIN = 'a0000000-0000-4000-8000-000000000002';
+
+describe('NotificacoesModule (e2e)', () => {
+  let app: INestApplication<App>;
+  let knex: Knex;
+  let notificacoesService: NotificacoesService;
+  let superToken: string;
+  let adminToken: string;
+  let portariaToken: string;
+  let moradorToken: string;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+
+    await app.init();
+    knex = app.get<Knex>(KNEX_CONNECTION);
+    notificacoesService = app.get<NotificacoesService>(NotificacoesService);
+
+    const signIn = async (email: string, senha = 'Senha@123') => {
+      const res = await request(app.getHttpServer())
+        .post(`${AUTH_BASE}/sign-in`)
+        .send({ email, senha })
+        .expect(200);
+
+      return res.body.access_token as string;
+    };
+
+    superToken = await signIn('haroncorreia@hotmail.com');
+    adminToken = await signIn('admin@recantoverdeac.com.br');
+    portariaToken = await signIn('portaria@recantoverdeac.com.br');
+    moradorToken = await signIn('morador@recantoverdeac.com.br');
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await knex.destroy();
+  });
+
+  const auth = (token: string, req: request.Test) =>
+    req.set('Authorization', `Bearer ${token}`);
+
+  it('GET /notificacoes deve retornar 401 sem autenticação', async () => {
+    await request(app.getHttpServer()).get(BASE_URL).expect(401);
+  });
+
+  it('GET /notificacoes deve permitir apenas super e admin com limite padrão de 50', async () => {
+    for (let i = 1; i <= 55; i++) {
+      await knex('notificacoes').insert({
+        uuid: randomUUID(),
+        uuid_usuario: UUID_ADMIN,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: `PAGINACAO_NOTIFICACOES_${i}`,
+        mensagem: `Mensagem paginada ${i}`,
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      });
+    }
+
+    const [superRes, adminRes] = await Promise.all([
+      auth(superToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
+      auth(adminToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
+    ]);
+
+    expect(superRes.body).toHaveLength(50);
+    expect(adminRes.body).toHaveLength(50);
+    expect(
+      adminRes.body.some(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_ADMIN,
+      ),
+    ).toBe(true);
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(403);
+    await auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+      403,
+    );
+  });
+
+  it('GET /notificacoes/filter deve aplicar filtros e escopo por perfil', async () => {
+    const superRes = await auth(
+      superToken,
+      request(app.getHttpServer())
+        .get(`${BASE_URL}/filter`)
+        .query({ tipo: 'ALERTA_SISTEMA', page: 1, limit: 10 }),
+    ).expect(200);
+
+    expect(Array.isArray(superRes.body)).toBe(true);
+    expect(superRes.body.length).toBeLessThanOrEqual(10);
+
+    const moradorRes = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .get(`${BASE_URL}/filter`)
+        .query({ uuid_usuario: UUID_ADMIN }),
+    ).expect(200);
+
+    expect(
+      moradorRes.body.every(
+        (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
+      ),
+    ).toBe(true);
+  });
+
+  it('GET /notificacoes/:id deve restringir acesso por vínculo para portaria e morador', async () => {
+    const ownPortaria = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${UUID_SEED_NOTIFICACAO_PORTARIA}`,
+      ),
+    ).expect(200);
+
+    expect(ownPortaria.body.uuid).toBe(UUID_SEED_NOTIFICACAO_PORTARIA);
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${UUID_SEED_NOTIFICACAO_ADMIN}`,
+      ),
+    ).expect(403);
+
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${UUID_SEED_NOTIFICACAO_ADMIN}`,
+      ),
+    ).expect(403);
+  });
+
+  it('PATCH /notificacoes/:id/restore deve permitir apenas super e admin e validar UUID', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/invalido/restore`),
+    ).expect(400);
+
+    const uuid = randomUUID();
+
+    await knex('notificacoes').insert({
+      uuid,
+      uuid_usuario: UUID_MORADOR,
+      uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+      tipo: 'ALERTA_SISTEMA',
+      titulo: 'Restore notificação',
+      mensagem: 'Registro removido para restauração',
+      canal: 'app',
+      enviado_em: new Date(),
+      lido_em: null,
+      created_by: 'test',
+      updated_by: 'test',
+      deleted_at: new Date(),
+      deleted_by: 'test',
+    });
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${uuid}/restore`),
+    ).expect(403);
+
+    const restored = await auth(
+      adminToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${uuid}/restore`),
+    ).expect(200);
+
+    expect(restored.body.uuid).toBe(uuid);
+    expect(restored.body.deleted_at).toBeNull();
+    expect(restored.body.deleted_by).toBeNull();
+  });
+
+  it('DELETE /notificacoes/:id deve validar UUID e restringir soft delete por vínculo', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/invalido`),
+    ).expect(400);
+
+    const ownUuid = randomUUID();
+    const otherUuid = randomUUID();
+
+    await knex('notificacoes').insert([
+      {
+        uuid: ownUuid,
+        uuid_usuario: UUID_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Soft delete próprio',
+        mensagem: 'Morador pode remover próprio registro',
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: otherUuid,
+        uuid_usuario: UUID_ADMIN,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Soft delete terceiro',
+        mensagem: 'Morador não pode remover registro de terceiro',
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
+    ]);
+
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${otherUuid}`),
+    ).expect(403);
+
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${ownUuid}`),
+    ).expect(204);
+
+    const deleted = await knex('notificacoes')
+      .where({ uuid: ownUuid })
+      .first('deleted_at', 'deleted_by');
+
+    expect(deleted?.deleted_at).toBeTruthy();
+    expect(deleted?.deleted_by).toBe('morador@recantoverdeac.com.br');
+  });
+
+  it('DELETE /notificacoes/:id/hard deve validar UUID e permitir apenas super', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/invalido/hard`),
+    ).expect(400);
+
+    const uuid = randomUUID();
+    await knex('notificacoes').insert({
+      uuid,
+      uuid_usuario: UUID_ADMIN,
+      uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+      tipo: 'ALERTA_SISTEMA',
+      titulo: 'Hard delete',
+      mensagem: 'Registro para exclusão permanente',
+      canal: 'app',
+      enviado_em: new Date(),
+      created_by: 'test',
+      updated_by: 'test',
+    });
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${uuid}/hard`),
+    ).expect(403);
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${uuid}/hard`),
+    ).expect(204);
+
+    const registro = await knex('notificacoes').where({ uuid }).first('uuid');
+    expect(registro).toBeUndefined();
+  });
+
+  it('Movimentações de encomenda devem gerar notificações transacionais por status', async () => {
+    const createdPrevista = await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
+        palavra_chave: 'NOTIF_PREVISTA',
+        descricao: 'Criação para notificar portaria',
+        codigo_rastreamento: 'NOTPREV123',
+      }),
+    ).expect(201);
+
+    const notifPortaria = await knex('notificacoes')
+      .where({
+        uuid_encomenda: createdPrevista.body.uuid,
+        uuid_usuario: UUID_PORTARIA,
+        tipo: 'ALERTA_SISTEMA',
+      })
+      .whereNull('deleted_at')
+      .first('uuid');
+
+    expect(notifPortaria).toBeTruthy();
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${ENCOMENDAS_BASE}/${UUID_ENCOMENDA_MORADOR}/update-status`)
+        .send({ status: 'aguardando retirada' }),
+    ).expect(200);
+
+    const notifAguardando = await knex('notificacoes')
+      .where({
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        tipo: 'ENCOMENDA_LEMBRETE',
+      })
+      .whereNull('deleted_at')
+      .first('uuid');
+
+    expect(notifAguardando).toBeTruthy();
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${ENCOMENDAS_BASE}/${UUID_ENCOMENDA_MORADOR}/update-status`)
+        .send({ status: 'retirada' }),
+    ).expect(200);
+
+    const notifRetirada = await knex('notificacoes')
+      .where({
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        tipo: 'ENCOMENDA_ENTREGUE',
+      })
+      .whereNull('deleted_at')
+      .first('uuid');
+
+    expect(notifRetirada).toBeTruthy();
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${ENCOMENDAS_BASE}/${UUID_ENCOMENDA_MORADOR}/update-status`)
+        .send({ status: 'cancelada' }),
+    ).expect(200);
+
+    const notifCancelada = await knex('notificacoes')
+      .where({
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+      })
+      .whereNull('deleted_at')
+      .orderBy('created_at', 'desc')
+      .first('uuid');
+
+    expect(notifCancelada).toBeTruthy();
+  });
+
+  it('Cron diário deve criar notificações para encomendas aguardando retirada', async () => {
+    await knex('encomendas').where({ uuid: UUID_ENCOMENDA_MORADOR }).update({
+      status: 'aguardando retirada',
+      updated_at: new Date(),
+      updated_by: 'test',
+    });
+
+    const beforeCount = await knex('notificacoes')
+      .where({
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        tipo: 'ENCOMENDA_LEMBRETE',
+      })
+      .whereNull('deleted_at')
+      .count<{ total: number }[]>({ total: '*' });
+
+    await notificacoesService.criarLembretesDiariosPendenciasRetirada();
+
+    const afterCount = await knex('notificacoes')
+      .where({
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        tipo: 'ENCOMENDA_LEMBRETE',
+      })
+      .whereNull('deleted_at')
+      .count<{ total: number }[]>({ total: '*' });
+
+    const before = Number(beforeCount[0]?.total ?? 0);
+    const after = Number(afterCount[0]?.total ?? 0);
+
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('GET /notificacoes/filter e GET /notificacoes/:id devem validar UUID de entrada quando aplicável', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/invalido`),
+    ).expect(400);
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .get(`${BASE_URL}/filter`)
+        .query({ uuid: 'invalido' }),
+    ).expect(400);
+  });
+
+  it('DELETE /notificacoes/:id deve permitir super e admin remover qualquer registro', async () => {
+    const uuid = randomUUID();
+    await knex('notificacoes').insert({
+      uuid,
+      uuid_usuario: UUID_PORTARIA,
+      uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+      tipo: 'ALERTA_SISTEMA',
+      titulo: 'Delete administrativo',
+      mensagem: 'Registro removível por super/admin',
+      canal: 'app',
+      enviado_em: new Date(),
+      created_by: 'test',
+      updated_by: 'test',
+    });
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${uuid}`),
+    ).expect(204);
+
+    const deleted = await knex('notificacoes')
+      .where({ uuid })
+      .first('deleted_at', 'deleted_by');
+
+    expect(deleted?.deleted_at).toBeTruthy();
+    expect(deleted?.deleted_by).toBe('admin@recantoverdeac.com.br');
+  });
+
+  it('Rotas GET devem respeitar regra de visibilidade por perfil em registros vinculados ao uuid_usuario', async () => {
+    const uuidOwnMorador = randomUUID();
+
+    await knex('notificacoes').insert({
+      uuid: uuidOwnMorador,
+      uuid_usuario: UUID_MORADOR,
+      uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+      tipo: 'ALERTA_SISTEMA',
+      titulo: 'Visibilidade do morador',
+      mensagem: 'Notificação própria do morador',
+      canal: 'app',
+      enviado_em: new Date(),
+      created_by: 'test',
+      updated_by: 'test',
+    });
+
+    const listMorador = await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/filter`),
+    ).expect(200);
+
+    expect(
+      listMorador.body.every(
+        (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
+      ),
+    ).toBe(true);
+
+    const oneMorador = await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${uuidOwnMorador}`),
+    ).expect(200);
+
+    expect(oneMorador.body.uuid).toBe(uuidOwnMorador);
+    expect(oneMorador.body.uuid_usuario).toBe(UUID_MORADOR);
+
+    const oneSuper = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${uuidOwnMorador}`),
+    ).expect(200);
+
+    expect(oneSuper.body.uuid).toBe(uuidOwnMorador);
+    expect(oneSuper.body.uuid_usuario).toBe(UUID_MORADOR);
+    expect(oneSuper.body.created_by).toBeDefined();
+    expect(oneSuper.body.deleted_at).toBeNull();
+  });
+});
