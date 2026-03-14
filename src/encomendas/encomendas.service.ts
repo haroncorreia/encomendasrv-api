@@ -9,6 +9,7 @@ import {
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import { EncomendasEventosService } from '../encomendas-eventos/encomendas-eventos.service';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
@@ -30,7 +31,45 @@ interface UsuarioLookup {
 
 @Injectable()
 export class EncomendasService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly encomendasEventosService: EncomendasEventosService,
+  ) {}
+
+  private shouldRegisterStatusEvent(status: EncomendaStatus): boolean {
+    return [
+      EncomendaStatus.PREVISTA,
+      EncomendaStatus.RECEBIDA,
+      EncomendaStatus.AGUARDANDO_RETIRADA,
+      EncomendaStatus.RETIRADA,
+      EncomendaStatus.CANCELADA,
+    ].includes(status);
+  }
+
+  private async registerStatusEvent(
+    params: {
+      uuid_encomenda: string;
+      uuid_usuario: string;
+      status: EncomendaStatus;
+      acao: 'criada' | 'atualizada';
+      actorEmail: string;
+    },
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    if (!trx || !this.shouldRegisterStatusEvent(params.status)) {
+      return;
+    }
+
+    await this.encomendasEventosService.registrarEventoEmTrx(
+      {
+        uuid_encomenda: params.uuid_encomenda,
+        uuid_usuario: params.uuid_usuario,
+        evento: `Encomenda ${params.acao} com status ${params.status}.`,
+        actorEmail: params.actorEmail,
+      },
+      trx,
+    );
+  }
 
   private get query() {
     return this.knex<Encomenda>(TABLE).whereNull('deleted_at');
@@ -353,6 +392,17 @@ export class EncomendasService {
       updated_by: user.email,
     });
 
+    await this.registerStatusEvent(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: actor.uuid,
+        status,
+        acao: 'criada',
+        actorEmail: user.email,
+      },
+      trx,
+    );
+
     return this.findActiveByUuid(uuid, trx);
   }
 
@@ -399,6 +449,13 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     await this.findActiveByUuid(uuid, trx);
+    const usuarioEncomenda = await this.knex<Encomenda>(TABLE)
+      .where({ uuid })
+      .first('uuid_usuario');
+
+    if (!usuarioEncomenda) {
+      throw new NotFoundException(`Encomenda com uuid ${uuid} não encontrada.`);
+    }
 
     if (dto.status === EncomendaStatus.RETIRADA) {
       await qb<Encomenda>(TABLE).where({ uuid }).update({
@@ -415,6 +472,17 @@ export class EncomendasService {
         updated_by: user.email,
       });
     }
+
+    await this.registerStatusEvent(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: usuarioEncomenda.uuid_usuario,
+        status: dto.status,
+        acao: 'atualizada',
+        actorEmail: user.email,
+      },
+      trx,
+    );
 
     return this.findActiveByUuid(uuid, trx);
   }
@@ -471,6 +539,7 @@ export class EncomendasService {
       throw new NotFoundException(`Encomenda com uuid ${uuid} não encontrada.`);
     }
 
+    await qb('encomendas_eventos').where({ uuid_encomenda: uuid }).delete();
     await qb<Encomenda>(TABLE).where({ uuid }).delete();
   }
 }

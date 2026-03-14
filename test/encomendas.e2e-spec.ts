@@ -381,7 +381,7 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
-        .send({ status: 'recebida' }),
+        .send({ status: 'prevista' }),
     ).expect(400);
   });
 
