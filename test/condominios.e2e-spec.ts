@@ -8,6 +8,7 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/condominios';
 const AUTH_BASE = '/authenticate';
+const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 
 describe('CondominiosModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -17,6 +18,8 @@ describe('CondominiosModule (e2e)', () => {
   let portariaToken: string;
   let moradorToken: string;
   let condominioSeedUuid: string;
+  let superEmail: string;
+  let adminEmail: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -45,34 +48,36 @@ describe('CondominiosModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Condominio Super',
-        email: 'condominio.super@teste.com',
-        celular: '11770000001',
+        email: `condominio.super.${RUN_ID}@teste.com`,
+        celular: `1177${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'super',
       })
       .expect(201);
 
     superToken = superRes.body.access_token as string;
+    superEmail = superRes.body.usuario.email as string;
 
     const adminRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Condominio Admin',
-        email: 'condominio.admin@teste.com',
-        celular: '11770000002',
+        email: `condominio.admin.${RUN_ID}@teste.com`,
+        celular: `1178${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'admin',
       })
       .expect(201);
 
     adminToken = adminRes.body.access_token as string;
+    adminEmail = adminRes.body.usuario.email as string;
 
     const portariaRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Condominio Portaria',
-        email: 'condominio.portaria@teste.com',
-        celular: '11770000003',
+        email: `condominio.portaria.${RUN_ID}@teste.com`,
+        celular: `1179${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'portaria',
       })
@@ -84,8 +89,8 @@ describe('CondominiosModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Condominio Morador',
-        email: 'condominio.morador@teste.com',
-        celular: '11770000004',
+        email: `condominio.morador.${RUN_ID}@teste.com`,
+        celular: `1166${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
       })
       .expect(201);
@@ -174,7 +179,7 @@ describe('CondominiosModule (e2e)', () => {
     expect(res.body.uuid).toBe(condominioSeedUuid);
     expect(res.body.cidade).toBe('Barueri');
     expect(res.body.bairro).toBe('Alphaville');
-    expect(res.body.updated_by).toBe('condominio.admin@teste.com');
+    expect(res.body.updated_by).toBe(adminEmail);
   });
 
   it('PATCH /condominios/:id deve retornar 200 para super', async () => {
@@ -196,7 +201,7 @@ describe('CondominiosModule (e2e)', () => {
     expect(res.body.uf).toBe('SP');
     expect(res.body.telefone).toBe('11912345678');
     expect(res.body.email).toBe('contato@recantoverde.com.br');
-    expect(res.body.updated_by).toBe('condominio.super@teste.com');
+    expect(res.body.updated_by).toBe(superEmail);
   });
 
   it('PATCH /condominios/:id deve retornar 400 para cep inválido', async () => {
@@ -246,7 +251,7 @@ describe('CondominiosModule (e2e)', () => {
     const auditoria = await knex('auditoria')
       .where({ method: 'PATCH' })
       .andWhere({ route: `${BASE_URL}/${condominioSeedUuid}` })
-      .andWhere({ user_mail: 'condominio.admin@teste.com' })
+      .andWhere({ user_mail: adminEmail })
       .orderBy('created_at', 'desc')
       .first();
 

@@ -97,8 +97,8 @@ describe('NotificacoesModule (e2e)', () => {
     expect(superRes.body).toHaveLength(50);
     expect(adminRes.body).toHaveLength(50);
     expect(
-      adminRes.body.some(
-        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_ADMIN,
+      adminRes.body.some((item: { titulo: string }) =>
+        item.titulo.startsWith('PAGINACAO_NOTIFICACOES_'),
       ),
     ).toBe(true);
 

@@ -9,10 +9,18 @@ import { EmailService } from '../src/email/email.service';
 
 const BASE_URL = '/authenticate';
 
+const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
+const BASE_CELULAR = `11${String(
+  Math.floor(Math.random() * 1_000_000_000),
+).padStart(9, '0')}`;
+const MORADOR_CELULAR = `${BASE_CELULAR.slice(0, 10)}${
+  (Number(BASE_CELULAR[10]) + 1) % 10
+}`;
+
 const usuarioBase = {
   nome: 'Auth Test User',
-  email: 'auth.test@teste.com',
-  celular: '11999990001',
+  email: `auth.test.${RUN_ID}@teste.com`,
+  celular: BASE_CELULAR,
   senha: 'Senha@123',
 };
 
@@ -74,8 +82,8 @@ describe('AuthModule (e2e)', () => {
   it('POST /authenticate/sign-up deve retornar 201 e criar um registro de usuário com o perfil morador', async () => {
     const novoUsuario = {
       nome: 'Auth Test Morador',
-      email: 'auth.test.morador@teste.com',
-      celular: '11999990005',
+      email: `auth.test.morador.${RUN_ID}@teste.com`,
+      celular: MORADOR_CELULAR,
       senha: 'Senha@123',
     };
 

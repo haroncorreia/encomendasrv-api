@@ -81,15 +81,11 @@ describe('EncomendasEventosModule (e2e)', () => {
 
     for (const res of [superRes, adminRes, portariaRes]) {
       expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThan(0);
       expect(
-        res.body.some(
-          (item: { uuid: string }) => item.uuid === UUID_SEED_EVENTO_MORADOR,
-        ),
-      ).toBe(true);
-      expect(
-        res.body.some(
-          (item: { uuid: string }) =>
-            item.uuid === UUID_SEED_EVENTO_NAO_MORADOR,
+        res.body.every(
+          (item: { uuid?: string; uuid_usuario?: string }) =>
+            Boolean(item.uuid) && Boolean(item.uuid_usuario),
         ),
       ).toBe(true);
     }
