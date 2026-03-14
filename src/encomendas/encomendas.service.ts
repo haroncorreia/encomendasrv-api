@@ -5,7 +5,11 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { isUUID } from 'class-validator';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
@@ -13,6 +17,7 @@ import { EncomendasEventosService } from '../encomendas-eventos/encomendas-event
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
@@ -29,12 +34,80 @@ interface UsuarioLookup {
   perfil: Perfil;
 }
 
+interface QrCodeEncomendaPayload {
+  tipo: 'retirada';
+  uuid_encomenda: string;
+  uuid_usuario: string;
+  uuid_condominio: string;
+  iat?: number;
+  exp?: number;
+}
+
 @Injectable()
 export class EncomendasService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly encomendasEventosService: EncomendasEventosService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
+
+  private getQrCodeSecret(): string {
+    return this.configService.get<string>(
+      'JWT_QRCODE_SECRET',
+      this.configService.get<string>(
+        'JWT_SECRET',
+        'troque_por_uma_chave_secreta_forte_em_producao',
+      ),
+    );
+  }
+
+  private validateQrCodePayload(
+    payload: unknown,
+  ): asserts payload is QrCodeEncomendaPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new BadRequestException('Token QRCode possui payload inválido.');
+    }
+
+    const data = payload as Partial<QrCodeEncomendaPayload>;
+
+    if (data.tipo !== 'retirada') {
+      throw new BadRequestException('Token QRCode possui payload inválido.');
+    }
+
+    if (
+      !data.uuid_encomenda ||
+      !isUUID(data.uuid_encomenda, '4') ||
+      !data.uuid_usuario ||
+      !isUUID(data.uuid_usuario, '4') ||
+      !data.uuid_condominio ||
+      !isUUID(data.uuid_condominio, '4')
+    ) {
+      throw new BadRequestException('Token QRCode possui payload inválido.');
+    }
+  }
+
+  private verifyQrCodeToken(token: string): QrCodeEncomendaPayload {
+    try {
+      const payload = this.jwtService.verify<QrCodeEncomendaPayload>(token, {
+        secret: this.getQrCodeSecret(),
+      });
+
+      this.validateQrCodePayload(payload);
+      return payload;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      const errorName = (error as { name?: string })?.name;
+      if (errorName === 'TokenExpiredError') {
+        throw new UnauthorizedException('Token QRCode expirado.');
+      }
+
+      throw new UnauthorizedException('Token QRCode inválido.');
+    }
+  }
 
   private shouldRegisterStatusEvent(status: EncomendaStatus): boolean {
     return [
@@ -294,6 +367,107 @@ export class EncomendasService {
     const encomenda = await this.findActiveByUuid(uuid);
     this.assertReadAccess(encomenda, user);
     return encomenda;
+  }
+
+  async generateQrCodeToken(
+    uuid: string,
+    user: JwtPayload,
+  ): Promise<{ token: string }> {
+    const encomenda = await this.findActiveByUuid(uuid);
+    this.assertReadAccess(encomenda, user);
+
+    const payload: QrCodeEncomendaPayload = {
+      tipo: 'retirada',
+      uuid_encomenda: encomenda.uuid,
+      uuid_usuario: encomenda.uuid_usuario,
+      uuid_condominio: encomenda.uuid_condominio,
+    };
+
+    const token = this.jwtService.sign(payload, {
+      secret: this.getQrCodeSecret(),
+      expiresIn: '12h',
+    });
+
+    return { token };
+  }
+
+  async readQrCodeToken(
+    dto: LerQrCodeEncomendaDto,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<Encomenda> {
+    const qb = trx ?? this.knex;
+    const payload = this.verifyQrCodeToken(dto.token);
+
+    const condominio = await qb('condominios')
+      .where({ uuid: payload.uuid_condominio })
+      .whereNull('deleted_at')
+      .first('uuid');
+
+    if (!condominio) {
+      throw new BadRequestException(
+        'Token QRCode referencia um condomínio inválido.',
+      );
+    }
+
+    const encomenda = await qb<Encomenda>(TABLE)
+      .where({ uuid: payload.uuid_encomenda })
+      .whereNull('deleted_at')
+      .first();
+
+    if (!encomenda) {
+      throw new BadRequestException('Token QRCode referencia uma encomenda inválida.');
+    }
+
+    if (encomenda.uuid_condominio !== payload.uuid_condominio) {
+      throw new BadRequestException(
+        'Token QRCode não corresponde ao condomínio da encomenda.',
+      );
+    }
+
+    const usuario = await this.findUsuarioAtivo(payload.uuid_usuario, trx);
+
+    if (usuario.uuid_condominio !== payload.uuid_condominio) {
+      throw new BadRequestException(
+        'Token QRCode referencia um usuário inválido para o condomínio informado.',
+      );
+    }
+
+    if (encomenda.uuid_usuario !== usuario.uuid) {
+      throw new BadRequestException(
+        'Token QRCode referencia um usuário não vinculado à encomenda.',
+      );
+    }
+
+    if (
+      encomenda.status === EncomendaStatus.RETIRADA ||
+      encomenda.status === EncomendaStatus.CANCELADA
+    ) {
+      throw new BadRequestException(
+        'A encomenda não pode ser entregue pois já está retirada ou cancelada.',
+      );
+    }
+
+    await qb<Encomenda>(TABLE).where({ uuid: encomenda.uuid }).update({
+      status: EncomendaStatus.RETIRADA,
+      entregue_em: new Date(),
+      entregue_por_uuid_usuario: user.sub,
+      updated_at: new Date(),
+      updated_by: user.email,
+    });
+
+    await this.registerStatusEvent(
+      {
+        uuid_encomenda: encomenda.uuid,
+        uuid_usuario: encomenda.uuid_usuario,
+        status: EncomendaStatus.RETIRADA,
+        acao: 'atualizada',
+        actorEmail: user.email,
+      },
+      trx,
+    );
+
+    return this.findActiveByUuid(encomenda.uuid, trx);
   }
 
   async create(

@@ -25,6 +25,7 @@ import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
@@ -61,6 +62,42 @@ export class EncomendasController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.encomendasService.findOne(id, user);
+  }
+
+  @Post(':id/gerar-qrcode')
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.MORADOR)
+  gerarQrCode(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.encomendasService.generateQrCodeToken(id, user);
+  }
+
+  @Post('ler-qrcode')
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
+  lerQrCode(
+    @Body() dto: LerQrCodeEncomendaDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const encomenda = await this.encomendasService.readQrCodeToken(
+        dto,
+        user,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Entrega de encomenda processada via QRCode. (uuid: ${encomenda.uuid})`,
+        },
+        trx,
+      );
+
+      return encomenda;
+    });
   }
 
   @Post()
