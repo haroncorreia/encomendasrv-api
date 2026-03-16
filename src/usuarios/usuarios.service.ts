@@ -27,8 +27,28 @@ export class UsuariosService {
     return createHash('sha256').update(valor).digest('hex');
   }
 
-  private omitSenha(usuario: Usuario): Omit<Usuario, 'senha'> {
-    const { senha: _, ...rest } = usuario;
+  private omitSenha(
+    usuario: Usuario,
+  ): Omit<
+    Usuario,
+    | 'senha'
+    | 'activation_code_hash'
+    | 'activation_code_exp'
+    | 'reset_password_token_hash'
+    | 'reset_password_exp'
+    | 'refresh_token_hash'
+    | 'refresh_token_exp'
+  > {
+    const {
+      senha: _,
+      activation_code_hash: __,
+      activation_code_exp: ___,
+      reset_password_token_hash: ____,
+      reset_password_exp: _____,
+      refresh_token_hash: ______,
+      refresh_token_exp: _______,
+      ...rest
+    } = usuario as any;
     return rest;
   }
 
@@ -40,12 +60,34 @@ export class UsuariosService {
       .first();
   }
 
-  async findAll(): Promise<Omit<Usuario, 'senha'>[]> {
+  async findAll(): Promise<
+    Omit<
+      Usuario,
+      | 'senha'
+      | 'activation_code_hash'
+      | 'activation_code_exp'
+      | 'reset_password_token_hash'
+      | 'reset_password_exp'
+      | 'refresh_token_hash'
+      | 'refresh_token_exp'
+    >[]
+  > {
     const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
     return usuarios.map((u) => this.omitSenha(u));
   }
 
-  async findRemoved(): Promise<Omit<Usuario, 'senha'>[]> {
+  async findRemoved(): Promise<
+    Omit<
+      Usuario,
+      | 'senha'
+      | 'activation_code_hash'
+      | 'activation_code_exp'
+      | 'reset_password_token_hash'
+      | 'reset_password_exp'
+      | 'refresh_token_hash'
+      | 'refresh_token_exp'
+    >[]
+  > {
     const usuarios = await this.knex<Usuario>(TABLE)
       .whereNotNull('deleted_at')
       .select('*')
@@ -53,7 +95,20 @@ export class UsuariosService {
     return usuarios.map((u) => this.omitSenha(u));
   }
 
-  async findOne(uuid: string): Promise<Omit<Usuario, 'senha'>> {
+  async findOne(
+    uuid: string,
+  ): Promise<
+    Omit<
+      Usuario,
+      | 'senha'
+      | 'activation_code_hash'
+      | 'activation_code_exp'
+      | 'reset_password_token_hash'
+      | 'reset_password_exp'
+      | 'refresh_token_hash'
+      | 'refresh_token_exp'
+    >
+  > {
     const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
@@ -65,7 +120,18 @@ export class UsuariosService {
     dto: CreateUsuarioDto,
     criadoPor?: string,
     trx?: Knex.Transaction,
-  ): Promise<Omit<Usuario, 'senha'>> {
+  ): Promise<
+    Omit<
+      Usuario,
+      | 'senha'
+      | 'activation_code_hash'
+      | 'activation_code_exp'
+      | 'reset_password_token_hash'
+      | 'reset_password_exp'
+      | 'refresh_token_hash'
+      | 'refresh_token_exp'
+    >
+  > {
     const qb = trx ?? this.knex;
 
     const existe = await qb<Usuario>(TABLE).where({ email: dto.email }).first();
@@ -127,7 +193,18 @@ export class UsuariosService {
     dto: UpdateUsuarioDto,
     editadoPor?: string,
     trx?: Knex.Transaction,
-  ): Promise<Omit<Usuario, 'senha'>> {
+  ): Promise<
+    Omit<
+      Usuario,
+      | 'senha'
+      | 'activation_code_hash'
+      | 'activation_code_exp'
+      | 'reset_password_token_hash'
+      | 'reset_password_exp'
+      | 'refresh_token_hash'
+      | 'refresh_token_exp'
+    >
+  > {
     await this.findOne(uuid);
 
     if (dto.email) {

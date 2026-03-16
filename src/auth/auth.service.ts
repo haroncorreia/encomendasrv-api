@@ -74,8 +74,10 @@ export class AuthService {
     });
   }
 
-  private buildAuthResponse(usuario: Omit<Usuario, 'senha'>): AuthResponse {
-    const payload = this.buildPayload(usuario as Usuario);
+  private buildAuthResponse(
+    usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>,
+  ): AuthResponse {
+    const payload = this.buildPayload(usuario);
     const { uuid, nome, email, perfil } = usuario;
     return {
       access_token: this.gerarAccessToken(payload),
