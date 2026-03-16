@@ -5,6 +5,7 @@ import {
   GoneException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -33,6 +34,8 @@ export interface AuthResponse extends AuthTokens {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly emailService: EmailService,
@@ -185,6 +188,10 @@ export class AuthService {
 
     const codigo = Math.floor(100000 + Math.random() * 900000).toString();
     const exp = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+    // this.logger.log(
+    //   `Codigo de ativacao gerado para o usuario ${userId}: ${codigo}`,
+    // );
 
     await this.usuariosService.saveCodigoAtivacao(userId, codigo, exp);
     try {
