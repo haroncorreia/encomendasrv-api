@@ -415,6 +415,28 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.refresh_token_exp).toBeUndefined();
   });
 
+  it('POST /usuarios/update-password deve atualizar a senha do usuário autenticado', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(`${BASE_URL}/update-password`).send({
+        senha_atual: 'Senha@123',
+        nova_senha: 'SenhaNova@123',
+      }),
+    )
+      .expect(200)
+      .expect({ message: 'Senha atualizada com sucesso.' });
+
+    await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-in`)
+      .send({ email: 'usuarios.portaria@teste.com', senha: 'Senha@123' })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-in`)
+      .send({ email: 'usuarios.portaria@teste.com', senha: 'SenhaNova@123' })
+      .expect(200);
+  });
+
   it('PATCH /usuarios/:id deve retornar 403 se tentar alterar outro usuário', async () => {
     await auth(
       adminToken,

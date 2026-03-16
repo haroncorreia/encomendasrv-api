@@ -290,31 +290,4 @@ export class AuthService {
 
     return { message: 'Senha redefinida com sucesso.' };
   }
-
-  // ---------------------------------------------------------------------------
-  // Atualização de senha (usuário autenticado)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Permite que um usuário autenticado atualize sua senha.
-   * Valida a senha atual antes de permitir a atualização.
-   */
-  async updatePassword(
-    userId: string,
-    senhaAtual: string,
-    novaSenha: string,
-  ): Promise<{ message: string }> {
-    const usuario = await this.usuariosService.findByIdInterno(userId);
-    if (!usuario) throw new NotFoundException('Usuário não encontrado.');
-
-    const senhaValida = await bcrypt.compare(senhaAtual, usuario.senha);
-    if (!senhaValida) {
-      throw new UnauthorizedException('Senha atual inválida.');
-    }
-
-    const senhaHash = await bcrypt.hash(novaSenha, 12);
-    await this.usuariosService.updateSenha(usuario.uuid, senhaHash);
-
-    return { message: 'Senha atualizada com sucesso.' };
-  }
 }

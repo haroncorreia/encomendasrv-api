@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
@@ -336,5 +337,24 @@ export class UsuariosService {
       updated_at: new Date(),
       updated_by: 'password-update',
     });
+  }
+
+  async updatePassword(
+    userId: string,
+    senhaAtual: string,
+    novaSenha: string,
+  ): Promise<{ message: string }> {
+    const usuario = await this.findByIdInterno(userId);
+    if (!usuario) throw new NotFoundException('Usuário não encontrado.');
+
+    const senhaValida = await bcrypt.compare(senhaAtual, usuario.senha);
+    if (!senhaValida) {
+      throw new UnauthorizedException('Senha atual inválida.');
+    }
+
+    const senhaHash = await bcrypt.hash(novaSenha, BCRYPT_ROUNDS);
+    await this.updateSenha(usuario.uuid, senhaHash);
+
+    return { message: 'Senha atualizada com sucesso.' };
   }
 }

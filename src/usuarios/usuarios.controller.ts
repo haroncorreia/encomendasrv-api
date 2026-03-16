@@ -25,6 +25,7 @@ import { KNEX_CONNECTION } from '../database/database.constants';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from './enums/perfil.enum';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
 
@@ -129,6 +130,19 @@ export class UsuariosController {
       );
       return usuario;
     });
+  }
+
+  @Post('update-password')
+  @HttpCode(HttpStatus.OK)
+  updatePassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UpdatePasswordDto,
+  ) {
+    return this.usuariosService.updatePassword(
+      user.sub,
+      dto.senha_atual,
+      dto.nova_senha,
+    );
   }
 
   @Delete(':id')

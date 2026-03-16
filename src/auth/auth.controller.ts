@@ -20,7 +20,6 @@ import { ConfirmResetPasswordDto } from './dto/confirm-reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestResetPasswordDto } from './dto/request-reset-password.dto';
 import { SignInDto } from './dto/signin.dto';
-import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 
@@ -124,23 +123,5 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   confirmResetPassword(@Body() dto: ConfirmResetPasswordDto) {
     return this.authService.confirmResetPassword(dto.token, dto.nova_senha);
-  }
-
-  /**
-   * Permite que um usuário autenticado atualize sua senha.
-   * Requer a senha atual para validação e a nova senha.
-   * POST /auth/update-password
-   */
-  @Post('update-password')
-  @HttpCode(HttpStatus.OK)
-  updatePassword(
-    @CurrentUser() user: JwtPayload,
-    @Body() dto: UpdatePasswordDto,
-  ) {
-    return this.authService.updatePassword(
-      user.sub,
-      dto.senha_atual,
-      dto.nova_senha,
-    );
   }
 }
