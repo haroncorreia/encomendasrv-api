@@ -8,12 +8,28 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { Usuario } from './interfaces/usuario.interface';
 
 const TABLE = 'usuarios';
 const BCRYPT_ROUNDS = 12;
+
+type UsuarioSemCredenciais = Omit<
+  Usuario,
+  | 'senha'
+  | 'activation_code_hash'
+  | 'activation_code_exp'
+  | 'reset_password_token_hash'
+  | 'reset_password_exp'
+  | 'refresh_token_hash'
+  | 'refresh_token_exp'
+>;
+
+type UsuarioComCondominio = UsuarioSemCredenciais & {
+  condominio: Condominio | null;
+};
 
 @Injectable()
 export class UsuariosService {
@@ -27,18 +43,7 @@ export class UsuariosService {
     return createHash('sha256').update(valor).digest('hex');
   }
 
-  private omitSenha(
-    usuario: Usuario,
-  ): Omit<
-    Usuario,
-    | 'senha'
-    | 'activation_code_hash'
-    | 'activation_code_exp'
-    | 'reset_password_token_hash'
-    | 'reset_password_exp'
-    | 'refresh_token_hash'
-    | 'refresh_token_exp'
-  > {
+  private omitSenha(usuario: Usuario): UsuarioSemCredenciais {
     const {
       senha: _,
       activation_code_hash: __,
@@ -48,7 +53,7 @@ export class UsuariosService {
       refresh_token_hash: ______,
       refresh_token_exp: _______,
       ...rest
-    } = usuario as any;
+    } = usuario;
     return rest;
   }
 
@@ -60,34 +65,12 @@ export class UsuariosService {
       .first();
   }
 
-  async findAll(): Promise<
-    Omit<
-      Usuario,
-      | 'senha'
-      | 'activation_code_hash'
-      | 'activation_code_exp'
-      | 'reset_password_token_hash'
-      | 'reset_password_exp'
-      | 'refresh_token_hash'
-      | 'refresh_token_exp'
-    >[]
-  > {
+  async findAll(): Promise<UsuarioSemCredenciais[]> {
     const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
     return usuarios.map((u) => this.omitSenha(u));
   }
 
-  async findRemoved(): Promise<
-    Omit<
-      Usuario,
-      | 'senha'
-      | 'activation_code_hash'
-      | 'activation_code_exp'
-      | 'reset_password_token_hash'
-      | 'reset_password_exp'
-      | 'refresh_token_hash'
-      | 'refresh_token_exp'
-    >[]
-  > {
+  async findRemoved(): Promise<UsuarioSemCredenciais[]> {
     const usuarios = await this.knex<Usuario>(TABLE)
       .whereNotNull('deleted_at')
       .select('*')
@@ -95,43 +78,29 @@ export class UsuariosService {
     return usuarios.map((u) => this.omitSenha(u));
   }
 
-  async findOne(
-    uuid: string,
-  ): Promise<
-    Omit<
-      Usuario,
-      | 'senha'
-      | 'activation_code_hash'
-      | 'activation_code_exp'
-      | 'reset_password_token_hash'
-      | 'reset_password_exp'
-      | 'refresh_token_hash'
-      | 'refresh_token_exp'
-    >
-  > {
+  async findOne(uuid: string): Promise<UsuarioComCondominio> {
     const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
-    return this.omitSenha(usuario);
+
+    const condominio =
+      (await this.knex<Condominio>('condominios')
+        .where({ uuid: usuario.uuid_condominio })
+        .whereNull('deleted_at')
+        .first()) ?? null;
+
+    return {
+      ...this.omitSenha(usuario),
+      condominio,
+    };
   }
 
   async create(
     dto: CreateUsuarioDto,
     criadoPor?: string,
     trx?: Knex.Transaction,
-  ): Promise<
-    Omit<
-      Usuario,
-      | 'senha'
-      | 'activation_code_hash'
-      | 'activation_code_exp'
-      | 'reset_password_token_hash'
-      | 'reset_password_exp'
-      | 'refresh_token_hash'
-      | 'refresh_token_exp'
-    >
-  > {
+  ): Promise<UsuarioSemCredenciais> {
     const qb = trx ?? this.knex;
 
     const existe = await qb<Usuario>(TABLE).where({ email: dto.email }).first();
@@ -193,18 +162,7 @@ export class UsuariosService {
     dto: UpdateUsuarioDto,
     editadoPor?: string,
     trx?: Knex.Transaction,
-  ): Promise<
-    Omit<
-      Usuario,
-      | 'senha'
-      | 'activation_code_hash'
-      | 'activation_code_exp'
-      | 'reset_password_token_hash'
-      | 'reset_password_exp'
-      | 'refresh_token_hash'
-      | 'refresh_token_exp'
-    >
-  > {
+  ): Promise<UsuarioSemCredenciais> {
     await this.findOne(uuid);
 
     if (dto.email) {

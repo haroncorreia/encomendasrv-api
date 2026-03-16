@@ -361,6 +361,27 @@ describe('UsuariosModule (e2e)', () => {
     ).toBe(true);
   });
 
+  it('GET /usuarios/:id deve retornar 200 com o condomínio vinculado', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(usuarioCriadoUuid);
+    expect(res.body.uuid_condominio).toBeDefined();
+    expect(res.body.condominio).toBeDefined();
+    expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
+    expect(typeof res.body.condominio.nome).toBe('string');
+
+    expect(res.body.senha).toBeUndefined();
+    expect(res.body.activation_code_hash).toBeUndefined();
+    expect(res.body.activation_code_exp).toBeUndefined();
+    expect(res.body.reset_password_token_hash).toBeUndefined();
+    expect(res.body.reset_password_exp).toBeUndefined();
+    expect(res.body.refresh_token_hash).toBeUndefined();
+    expect(res.body.refresh_token_exp).toBeUndefined();
+  });
+
   // Rotas PATCH
 
   it('PATCH /usuarios/:id deve retornar 200 e modificar o próprio usuário', async () => {

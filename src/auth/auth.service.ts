@@ -150,7 +150,12 @@ export class AuthService {
       });
 
       const usuario = await this.usuariosService.findOne(payload.sub);
-      const newPayload = this.buildPayload(usuario as Usuario);
+      const newPayload = this.buildPayload({
+        uuid: usuario.uuid,
+        nome: usuario.nome,
+        email: usuario.email,
+        perfil: usuario.perfil,
+      });
 
       return {
         access_token: this.gerarAccessToken(newPayload),
