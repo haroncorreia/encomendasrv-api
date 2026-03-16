@@ -26,6 +26,7 @@ import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from './enums/perfil.enum';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { UpdateUsuarioRoleDto } from './dto/update-usuario-role.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
 
@@ -128,6 +129,74 @@ export class UsuariosController {
         },
         trx,
       );
+      return usuario;
+    });
+  }
+
+  @Patch(':id/update-role')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  updateRole(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @Body() dto: UpdateUsuarioRoleDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      const perfilAlvoAtual = usuarioAlvo.perfil;
+      const novoPerfil = dto.perfil;
+
+      if (user.perfil === Perfil.SUPER) {
+        if (perfilAlvoAtual === Perfil.SUPER) {
+          throw new ForbiddenException(
+            'Usuário super não pode modificar o perfil de outro usuário super.',
+          );
+        }
+      }
+
+      if (user.perfil === Perfil.ADMIN) {
+        if (
+          perfilAlvoAtual === Perfil.SUPER ||
+          perfilAlvoAtual === Perfil.ADMIN
+        ) {
+          throw new ForbiddenException(
+            'Usuário admin não pode modificar perfil de usuário super ou admin.',
+          );
+        }
+
+        if (novoPerfil === Perfil.SUPER) {
+          throw new ForbiddenException(
+            'Usuário admin não pode definir perfil super.',
+          );
+        }
+      }
+
+      if (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) {
+        throw new ForbiddenException(
+          'Seu perfil não possui permissão para modificar perfil de usuário.',
+        );
+      }
+
+      const usuario = await this.usuariosService.updateRole(
+        id,
+        novoPerfil,
+        user.email,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Perfil de usuário atualizado de ${perfilAlvoAtual} para ${novoPerfil}. (uuid: ${id})`,
+        },
+        trx,
+      );
+
       return usuario;
     });
   }

@@ -1,5 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, Matches } from 'class-validator';
-import { Perfil } from '../enums/perfil.enum';
+import { IsEmail, IsOptional, IsString, Matches } from 'class-validator';
 
 export class UpdateUsuarioDto {
   @IsOptional()
@@ -15,12 +14,6 @@ export class UpdateUsuarioDto {
     message: 'O celular deve conter exatamente 11 dígitos numéricos.',
   })
   celular?: string;
-
-  @IsOptional()
-  @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {
-    message: 'O perfil deve ser super, admin, portaria ou morador.',
-  })
-  perfil?: Perfil;
 
   @IsOptional()
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/, {

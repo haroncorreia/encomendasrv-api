@@ -22,6 +22,10 @@ describe('UsuariosModule (e2e)', () => {
   let usuarioAdminCriadoUuid: string;
   let usuarioPortariaCriadoAdminUuid: string;
   let hardDeleteTargetUuid: string;
+  let roleSuperTargetUuid: string;
+  let roleAdminTargetUuid: string;
+  let rolePortariaTargetUuid: string;
+  let roleMoradorTargetUuid: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -92,6 +96,57 @@ describe('UsuariosModule (e2e)', () => {
 
     moradorToken = moradorRes.body.access_token as string;
     moradorUuid = moradorRes.body.usuario.uuid as string;
+
+    const roleSuperTargetRes = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Role Super Target',
+        email: 'usuarios.role.super.target@teste.com',
+        celular: '11881111901',
+        senha: 'Senha@123',
+        perfil: 'super',
+      }),
+    ).expect(201);
+
+    roleSuperTargetUuid = roleSuperTargetRes.body.uuid as string;
+
+    const roleAdminTargetRes = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Role Admin Target',
+        email: 'usuarios.role.admin.target@teste.com',
+        celular: '11881111902',
+        senha: 'Senha@123',
+        perfil: 'admin',
+      }),
+    ).expect(201);
+
+    roleAdminTargetUuid = roleAdminTargetRes.body.uuid as string;
+
+    const rolePortariaTargetRes = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Role Portaria Target',
+        email: 'usuarios.role.portaria.target@teste.com',
+        celular: '11881111903',
+        senha: 'Senha@123',
+        perfil: 'portaria',
+      }),
+    ).expect(201);
+
+    rolePortariaTargetUuid = rolePortariaTargetRes.body.uuid as string;
+
+    const roleMoradorTargetRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Role Morador Target',
+        email: 'usuarios.role.morador.target@teste.com',
+        celular: '11881111904',
+        senha: 'Senha@123',
+      })
+      .expect(201);
+
+    roleMoradorTargetUuid = roleMoradorTargetRes.body.usuario.uuid as string;
   });
 
   afterAll(async () => {
@@ -443,6 +498,112 @@ describe('UsuariosModule (e2e)', () => {
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
         .send({ nome: 'Nao Deve Editar' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id não deve permitir alterar perfil de usuário', async () => {
+    const signInRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-in`)
+      .send({ email: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
+      .expect(200);
+
+    const proprioToken = signInRes.body.access_token as string;
+
+    await auth(
+      proprioToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
+        .send({ perfil: 'admin' }),
+    ).expect(400);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 se super tentar alterar outro super', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleSuperTargetUuid}/update-role`)
+        .send({ perfil: 'admin' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve permitir super alterar admin para qualquer perfil', async () => {
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleAdminTargetUuid}/update-role`)
+        .send({ perfil: 'super' }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(roleAdminTargetUuid);
+    expect(res.body.perfil).toBe('super');
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 se admin tentar alterar usuário super', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleSuperTargetUuid}/update-role`)
+        .send({ perfil: 'morador' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 se admin tentar alterar usuário admin', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioAdminCriadoUuid}/update-role`)
+        .send({ perfil: 'morador' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 se admin tentar definir perfil super', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${rolePortariaTargetUuid}/update-role`)
+        .send({ perfil: 'super' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve permitir admin alterar usuário portaria para admin', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${rolePortariaTargetUuid}/update-role`)
+        .send({ perfil: 'admin' }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(rolePortariaTargetUuid);
+    expect(res.body.perfil).toBe('admin');
+  });
+
+  it('PATCH /usuarios/:id/update-role deve permitir admin alterar usuário morador para portaria', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleMoradorTargetUuid}/update-role`)
+        .send({ perfil: 'portaria' }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(roleMoradorTargetUuid);
+    expect(res.body.perfil).toBe('portaria');
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 para portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleMoradorTargetUuid}/update-role`)
+        .send({ perfil: 'admin' }),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/update-role deve retornar 403 para morador', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleMoradorTargetUuid}/update-role`)
+        .send({ perfil: 'admin' }),
     ).expect(403);
   });
 

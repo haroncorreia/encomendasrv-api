@@ -11,6 +11,7 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
+import { Perfil } from './enums/perfil.enum';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { Usuario } from './interfaces/usuario.interface';
 
@@ -198,7 +199,6 @@ export class UsuariosService {
       ...(dto.nome !== undefined && { nome: dto.nome }),
       ...(dto.email !== undefined && { email: dto.email }),
       ...(dto.celular !== undefined && { celular: dto.celular }),
-      ...(dto.perfil !== undefined && { perfil: dto.perfil }),
       updated_at: new Date(),
       updated_by: editadoPor ?? 'system',
     };
@@ -211,6 +211,41 @@ export class UsuariosService {
     await qb<Usuario>(TABLE).where({ uuid }).update(payload);
 
     // Lê o registro atualizado dentro da mesma trx (ou conexão)
+    const atualizado = await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .first();
+
+    const usuarioSemCredenciais = this.omitSenha(atualizado!);
+    const condominio =
+      (await qb<Condominio>('condominios')
+        .where({ uuid: usuarioSemCredenciais.uuid_condominio })
+        .whereNull('deleted_at')
+        .first()) ?? null;
+
+    return {
+      ...usuarioSemCredenciais,
+      condominio,
+    };
+  }
+
+  async updateRole(
+    uuid: string,
+    perfil: Perfil,
+    editadoPor?: string,
+    trx?: Knex.Transaction,
+  ): Promise<UsuarioComCondominio> {
+    await this.findOne(uuid);
+
+    const qb = trx ?? this.knex;
+    await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .update({
+        perfil,
+        updated_at: new Date(),
+        updated_by: editadoPor ?? 'system',
+      });
+
     const atualizado = await qb<Usuario>(TABLE)
       .where({ uuid })
       .whereNull('deleted_at')
