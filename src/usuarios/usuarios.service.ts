@@ -162,7 +162,7 @@ export class UsuariosService {
     dto: UpdateUsuarioDto,
     editadoPor?: string,
     trx?: Knex.Transaction,
-  ): Promise<UsuarioSemCredenciais> {
+  ): Promise<UsuarioComCondominio> {
     await this.findOne(uuid);
 
     if (dto.email) {
@@ -214,7 +214,18 @@ export class UsuariosService {
       .where({ uuid })
       .whereNull('deleted_at')
       .first();
-    return this.omitSenha(atualizado!);
+
+    const usuarioSemCredenciais = this.omitSenha(atualizado!);
+    const condominio =
+      (await qb<Condominio>('condominios')
+        .where({ uuid: usuarioSemCredenciais.uuid_condominio })
+        .whereNull('deleted_at')
+        .first()) ?? null;
+
+    return {
+      ...usuarioSemCredenciais,
+      condominio,
+    };
   }
 
   async remove(

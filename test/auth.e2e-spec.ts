@@ -287,6 +287,75 @@ describe('AuthModule (e2e)', () => {
     expect(res.body.usuario.uuid).toBeDefined();
   });
 
+  it('POST /authenticate/request-user-activation deve retornar 200 com mensagem genérica para usuário existente', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-user-activation`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(res.body).toEqual({
+      message:
+        'Se sua conta existir e ainda não estiver ativada, um código será enviado para o e-mail cadastrado.',
+    });
+  });
+
+  it('POST /authenticate/request-user-activation deve retornar 200 com mensagem genérica para usuário inexistente', async () => {
+    const ghostUser = {
+      nome: 'Ghost User',
+      email: `auth.ghost.${RUN_ID}@teste.com`,
+      celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+    };
+
+    const signUpRes = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(ghostUser)
+      .expect(201);
+
+    const ghostAccessToken = signUpRes.body.access_token as string;
+    const ghostUuid = signUpRes.body.usuario.uuid as string;
+
+    await knex('usuarios').where({ uuid: ghostUuid }).delete();
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-user-activation`)
+      .set('Authorization', `Bearer ${ghostAccessToken}`)
+      .expect(200);
+
+    expect(res.body).toEqual({
+      message:
+        'Se sua conta existir e ainda não estiver ativada, um código será enviado para o e-mail cadastrado.',
+    });
+  });
+
+  it('POST /authenticate/request-user-activation deve retornar 409 para usuário já ativado', async () => {
+    const activatedUser = {
+      nome: 'Activated User',
+      email: `auth.activated.${RUN_ID}@teste.com`,
+      celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+    };
+
+    const signUpRes = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(activatedUser)
+      .expect(201);
+
+    const activatedAccessToken = signUpRes.body.access_token as string;
+    const activatedUuid = signUpRes.body.usuario.uuid as string;
+
+    await knex('usuarios').where({ uuid: activatedUuid }).update({
+      activated_at: new Date(),
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-user-activation`)
+      .set('Authorization', `Bearer ${activatedAccessToken}`)
+      .expect(409);
+
+    expect(res.body.message).toBe('Usuário já está ativado.');
+  });
+
   it('POST /authenticate/request-reset-password deve retornar 200 e persistir hash de reset', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/request-reset-password`)

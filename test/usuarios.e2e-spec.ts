@@ -392,12 +392,27 @@ describe('UsuariosModule (e2e)', () => {
 
     const proprioToken = signInRes.body.access_token as string;
 
-    await auth(
+    const res = await auth(
       proprioToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
         .send({ nome: 'Usuario Editado' }),
     ).expect(200);
+
+    expect(res.body.uuid).toBe(usuarioCriadoUuid);
+    expect(res.body.nome).toBe('Usuario Editado');
+    expect(res.body.uuid_condominio).toBeDefined();
+    expect(res.body.condominio).toBeDefined();
+    expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
+    expect(typeof res.body.condominio.nome).toBe('string');
+
+    expect(res.body.senha).toBeUndefined();
+    expect(res.body.activation_code_hash).toBeUndefined();
+    expect(res.body.activation_code_exp).toBeUndefined();
+    expect(res.body.reset_password_token_hash).toBeUndefined();
+    expect(res.body.reset_password_exp).toBeUndefined();
+    expect(res.body.refresh_token_hash).toBeUndefined();
+    expect(res.body.refresh_token_exp).toBeUndefined();
   });
 
   it('PATCH /usuarios/:id deve retornar 403 se tentar alterar outro usuário', async () => {

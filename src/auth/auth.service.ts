@@ -175,8 +175,11 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async requestActivation(userId: string): Promise<{ message: string }> {
+    const GENERIC_MESSAGE =
+      'Se sua conta existir e ainda não estiver ativada, um código será enviado para o e-mail cadastrado.';
+
     const usuario = await this.usuariosService.findByIdInterno(userId);
-    if (!usuario) throw new NotFoundException('Usuário não encontrado.');
+    if (!usuario) return { message: GENERIC_MESSAGE };
     if (usuario.activated_at)
       throw new ConflictException('Usuário já está ativado.');
 
@@ -184,13 +187,17 @@ export class AuthService {
     const exp = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
 
     await this.usuariosService.saveCodigoAtivacao(userId, codigo, exp);
-    await this.emailService.sendActivationCode(
-      usuario.email,
-      usuario.nome,
-      codigo,
-    );
+    try {
+      await this.emailService.sendActivationCode(
+        usuario.email,
+        usuario.nome,
+        codigo,
+      );
+    } catch {
+      // Resposta genérica para não vazar informações sobre existência da conta.
+    }
 
-    return { message: 'Código de ativação enviado para o e-mail cadastrado.' };
+    return { message: GENERIC_MESSAGE };
   }
 
   async confirmActivation(
