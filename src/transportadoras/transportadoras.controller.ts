@@ -40,6 +40,12 @@ export class TransportadorasController {
     return this.transportadorasService.findAll();
   }
 
+  @Get('removed')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  findRemoved() {
+    return this.transportadorasService.findRemoved();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPtPipe) id: string) {
     return this.transportadorasService.findOne(id);

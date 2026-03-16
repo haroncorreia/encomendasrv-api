@@ -20,6 +20,13 @@ export class TransportadorasService {
     return this.query.select('*').orderBy('nome', 'asc');
   }
 
+  async findRemoved(): Promise<Transportadora[]> {
+    return this.knex<Transportadora>(TABLE)
+      .whereNotNull('deleted_at')
+      .select('*')
+      .orderBy('deleted_at', 'desc');
+  }
+
   async findOne(uuid: string): Promise<Transportadora> {
     const transportadora = await this.query.where({ uuid }).first();
 

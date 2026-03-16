@@ -144,6 +144,33 @@ describe('TransportadorasModule (e2e)', () => {
     );
   });
 
+  it('GET /transportadoras/removed deve retornar 403 para portaria e morador', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/removed`),
+    ).expect(403);
+
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/removed`),
+    ).expect(403);
+  });
+
+  it('GET /transportadoras/removed deve retornar 200 para super e admin', async () => {
+    const superRes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/removed`),
+    ).expect(200);
+
+    const adminRes = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/removed`),
+    ).expect(200);
+
+    expect(Array.isArray(superRes.body)).toBe(true);
+    expect(Array.isArray(adminRes.body)).toBe(true);
+  });
+
   it('GET /transportadoras/:id deve retornar 200 para usuário autenticado', async () => {
     const res = await auth(
       moradorToken,
@@ -254,6 +281,15 @@ describe('TransportadorasModule (e2e)', () => {
       superToken,
       request(app.getHttpServer()).get(`${BASE_URL}/${criadaAdminUuid}`),
     ).expect(404);
+
+    const removedRes = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/removed`),
+    ).expect(200);
+
+    expect(
+      removedRes.body.some((t: { uuid: string }) => t.uuid === criadaAdminUuid),
+    ).toBe(true);
   });
 
   it('PATCH /transportadoras/:id/restore deve restaurar registro removido para admin', async () => {
