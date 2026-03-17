@@ -762,6 +762,42 @@ export class EncomendasService {
       trx,
     );
 
+    if (
+      actor.perfil === Perfil.PORTARIA &&
+      status === EncomendaStatus.RECEBIDA
+    ) {
+      status = EncomendaStatus.AGUARDANDO_RETIRADA;
+
+      await qb<Encomenda>(TABLE).where({ uuid }).update({
+        status,
+        updated_at: new Date(),
+        updated_by: user.email,
+      });
+
+      await this.registerStatusEvent(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: uuidUsuarioEncomenda,
+          status,
+          acao: 'atualizada',
+          actorEmail: user.email,
+        },
+        trx,
+      );
+
+      await this.registerStatusNotification(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: uuidUsuarioEncomenda,
+          status,
+          acao: 'atualizada',
+          actorEmail: user.email,
+          actorPerfil: actor.perfil,
+        },
+        trx,
+      );
+    }
+
     return this.findActiveByUuid(uuid, trx);
   }
 

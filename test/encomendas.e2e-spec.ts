@@ -304,7 +304,7 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(400);
   });
 
-  it('POST /encomendas deve criar encomenda para portaria com status recebida e recebimento automático', async () => {
+  it('POST /encomendas deve criar encomenda por portaria, atualizar para aguardando retirada e registrar evento/notificação', async () => {
     const res = await auth(
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
@@ -317,9 +317,47 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(201);
 
     expect(res.body.uuid_usuario).toBe(UUID_MORADOR);
-    expect(res.body.status).toBe('recebida');
+    expect(res.body.status).toBe('aguardando retirada');
     expect(res.body.recebido_por_uuid_usuario).toBe(UUID_PORTARIA);
     expect(res.body.recebido_em).toBeTruthy();
+
+    const [eventoRecebida, eventoAguardando] = await Promise.all([
+      knex('encomendas_eventos')
+        .where({ uuid_encomenda: res.body.uuid })
+        .where('evento', 'like', '%status recebida%')
+        .whereNull('deleted_at')
+        .first('uuid'),
+      knex('encomendas_eventos')
+        .where({ uuid_encomenda: res.body.uuid })
+        .where('evento', 'like', '%status aguardando retirada%')
+        .whereNull('deleted_at')
+        .first('uuid'),
+    ]);
+
+    expect(eventoRecebida).toBeTruthy();
+    expect(eventoAguardando).toBeTruthy();
+
+    const [notifRecebida, notifAguardando] = await Promise.all([
+      knex('notificacoes')
+        .where({
+          uuid_encomenda: res.body.uuid,
+          uuid_usuario: UUID_MORADOR,
+          tipo: 'ENCOMENDA_RECEBIDA',
+        })
+        .whereNull('deleted_at')
+        .first('uuid'),
+      knex('notificacoes')
+        .where({
+          uuid_encomenda: res.body.uuid,
+          uuid_usuario: UUID_MORADOR,
+          tipo: 'ENCOMENDA_LEMBRETE',
+        })
+        .whereNull('deleted_at')
+        .first('uuid'),
+    ]);
+
+    expect(notifRecebida).toBeTruthy();
+    expect(notifAguardando).toBeTruthy();
 
     encomendaPortariaUuid = res.body.uuid as string;
   });
