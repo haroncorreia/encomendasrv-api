@@ -12,9 +12,12 @@ import { JwtService } from '@nestjs/jwt';
 import { isUUID } from 'class-validator';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendasEventosService } from '../encomendas-eventos/encomendas-eventos.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { Transportadora } from '../transportadoras/interfaces/transportadora.interface';
+import { Usuario } from '../usuarios/interfaces/usuario.interface';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
@@ -34,6 +37,17 @@ interface UsuarioLookup {
   uuid_condominio: string;
   perfil: Perfil;
 }
+
+type UsuarioEncomendaInfo = Pick<
+  Usuario,
+  'uuid' | 'uuid_condominio' | 'nome' | 'email' | 'celular' | 'perfil'
+>;
+
+type EncomendaComRelacionamentos = Encomenda & {
+  condominio: Condominio | null;
+  usuario: UsuarioEncomendaInfo | null;
+  transportadora: Transportadora | null;
+};
 
 interface QrCodeEncomendaPayload {
   tipo: 'retirada';
@@ -368,35 +382,115 @@ export class EncomendasService {
     return { page, limit, offset };
   }
 
+  private async enrichWithRelacionamentos(
+    encomendas: Encomenda[],
+    trx?: Knex.Transaction,
+  ): Promise<EncomendaComRelacionamentos[]> {
+    if (encomendas.length === 0) {
+      return [];
+    }
+
+    const qb = trx ?? this.knex;
+    const uuidCondominios = Array.from(
+      new Set(encomendas.map((item) => item.uuid_condominio)),
+    );
+    const uuidUsuarios = Array.from(
+      new Set(encomendas.map((item) => item.uuid_usuario)),
+    );
+    const uuidTransportadoras = Array.from(
+      new Set(
+        encomendas
+          .map((item) => item.uuid_transportadora)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const [condominios, usuarios, transportadoras] = await Promise.all([
+      qb<Condominio>('condominios')
+        .whereIn('uuid', uuidCondominios)
+        .whereNull('deleted_at')
+        .select('*'),
+      qb<Usuario>('usuarios')
+        .whereIn('uuid', uuidUsuarios)
+        .whereNull('deleted_at')
+        .select(
+          'uuid',
+          'uuid_condominio',
+          'nome',
+          'email',
+          'celular',
+          'perfil',
+        ),
+      uuidTransportadoras.length > 0
+        ? qb<Transportadora>('transportadoras')
+            .whereIn('uuid', uuidTransportadoras)
+            .whereNull('deleted_at')
+            .select('*')
+        : Promise.resolve([] as Transportadora[]),
+    ]);
+
+    const condominiosByUuid = new Map(
+      condominios.map((item) => [item.uuid, item]),
+    );
+    const usuariosByUuid = new Map(
+      (usuarios as UsuarioEncomendaInfo[]).map((item) => [item.uuid, item]),
+    );
+    const transportadorasByUuid = new Map(
+      transportadoras.map((item) => [item.uuid, item]),
+    );
+
+    return encomendas.map((item) => ({
+      ...item,
+      condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
+      usuario: usuariosByUuid.get(item.uuid_usuario) ?? null,
+      transportadora: item.uuid_transportadora
+        ? (transportadorasByUuid.get(item.uuid_transportadora) ?? null)
+        : null,
+    }));
+  }
+
   async findAll(
     user: JwtPayload,
     pagination: PaginationEncomendasDto,
-  ): Promise<Encomenda[]> {
+  ): Promise<EncomendaComRelacionamentos[]> {
     const { offset, limit } = this.resolvePagination(pagination);
 
-    return this.scopedQuery(user)
+    const encomendas = await this.scopedQuery(user)
       .select('*')
       .orderBy('created_at', 'desc')
       .offset(offset)
       .limit(limit);
+
+    return this.enrichWithRelacionamentos(encomendas);
   }
 
   async findByFilters(
     filters: FilterEncomendasDto,
     user: JwtPayload,
-  ): Promise<Encomenda[]> {
+  ): Promise<EncomendaComRelacionamentos[]> {
     const { offset, limit } = this.resolvePagination(filters);
 
     const query = this.scopedQuery(user).select('*');
     this.applyFilters(query, filters);
 
-    return query.orderBy('created_at', 'desc').offset(offset).limit(limit);
+    const encomendas = await query
+      .orderBy('created_at', 'desc')
+      .offset(offset)
+      .limit(limit);
+
+    return this.enrichWithRelacionamentos(encomendas);
   }
 
-  async findOne(uuid: string, user: JwtPayload): Promise<Encomenda> {
+  async findOne(
+    uuid: string,
+    user: JwtPayload,
+  ): Promise<EncomendaComRelacionamentos> {
     const encomenda = await this.findActiveByUuid(uuid);
     this.assertReadAccess(encomenda, user);
-    return encomenda;
+    const [encomendaComRelacionamentos] = await this.enrichWithRelacionamentos([
+      encomenda,
+    ]);
+    return encomendaComRelacionamentos;
   }
 
   async generateQrCodeToken(

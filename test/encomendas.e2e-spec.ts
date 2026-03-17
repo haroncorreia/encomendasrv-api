@@ -85,6 +85,15 @@ describe('EncomendasModule (e2e)', () => {
 
     for (const res of [superRes, adminRes, portariaRes]) {
       expect(Array.isArray(res.body)).toBe(true);
+      const itemComRelacionamentos = res.body.find(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
+      );
+
+      expect(itemComRelacionamentos).toBeDefined();
+      expect(itemComRelacionamentos.condominio).toBeDefined();
+      expect(itemComRelacionamentos.usuario).toBeDefined();
+      expect(itemComRelacionamentos.transportadora).toBeDefined();
+      expect(itemComRelacionamentos.usuario.senha).toBeUndefined();
       expect(
         res.body.some(
           (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
@@ -242,6 +251,17 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(200);
 
     expect(ownRes.body.uuid).toBe(UUID_SEED_PREVISTA_MORADOR);
+    expect(ownRes.body.condominio).toBeDefined();
+    expect(ownRes.body.condominio.uuid).toBe(ownRes.body.uuid_condominio);
+    expect(ownRes.body.usuario).toBeDefined();
+    expect(ownRes.body.usuario.uuid).toBe(ownRes.body.uuid_usuario);
+    expect(ownRes.body.usuario.senha).toBeUndefined();
+    if (ownRes.body.uuid_transportadora) {
+      expect(ownRes.body.transportadora).toBeDefined();
+      expect(ownRes.body.transportadora.uuid).toBe(
+        ownRes.body.uuid_transportadora,
+      );
+    }
 
     await auth(
       moradorToken,

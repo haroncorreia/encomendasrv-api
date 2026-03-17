@@ -10,7 +10,6 @@ import { EncomendaStatus } from '../enums/encomenda-status.enum';
 import { PaginationEncomendasDto } from './pagination-encomendas.dto';
 
 export class FilterEncomendasDto extends PaginationEncomendasDto {
-
   @IsOptional()
   @IsUUID('4')
   uuid?: string;
