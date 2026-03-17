@@ -10,8 +10,8 @@ export class UpdateEncomendaStatusDto {
       EncomendaStatus.CANCELADA,
     ],
     {
-    message:
-      'O campo status deve ser um dos valores: recebida, aguardando retirada, retirada ou cancelada.',
+      message:
+        'O campo status deve ser um dos valores: recebida, aguardando retirada, retirada ou cancelada.',
     },
   )
   status!:

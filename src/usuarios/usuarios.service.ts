@@ -80,6 +80,14 @@ export class UsuariosService {
     return usuarios.map((u) => this.omitSenha(u));
   }
 
+  async findMoradores(): Promise<UsuarioSemCredenciais[]> {
+    const usuarios = await this.query
+      .where({ perfil: Perfil.MORADOR })
+      .select('*')
+      .orderBy('created_at', 'desc');
+    return usuarios.map((u) => this.omitSenha(u));
+  }
+
   async findOne(uuid: string): Promise<UsuarioComCondominio> {
     const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {

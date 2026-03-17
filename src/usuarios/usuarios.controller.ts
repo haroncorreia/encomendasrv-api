@@ -50,6 +50,12 @@ export class UsuariosController {
     return this.usuariosService.findRemoved();
   }
 
+  @Get('moradores')
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
+  findMoradores() {
+    return this.usuariosService.findMoradores();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPtPipe) id: string) {
     return this.usuariosService.findOne(id);

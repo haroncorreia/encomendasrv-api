@@ -437,6 +437,44 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.refresh_token_exp).toBeUndefined();
   });
 
+  it('GET /usuarios/moradores deve retornar 200 para super, admin e portaria, listando apenas moradores', async () => {
+    const superRes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+
+    const adminRes = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+
+    const portariaRes = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+
+    for (const res of [superRes, adminRes, portariaRes]) {
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(
+        res.body.every((u: { perfil: string }) => u.perfil === 'morador'),
+      ).toBe(true);
+      expect(
+        res.body.some((u: { uuid: string }) => u.uuid === moradorUuid),
+      ).toBe(true);
+      expect(res.body[0]?.senha).toBeUndefined();
+      expect(res.body[0]?.activation_code_hash).toBeUndefined();
+      expect(res.body[0]?.reset_password_token_hash).toBeUndefined();
+      expect(res.body[0]?.refresh_token_hash).toBeUndefined();
+    }
+  });
+
+  it('GET /usuarios/moradores deve retornar 403 para perfil morador', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(403);
+  });
+
   // Rotas PATCH
 
   it('PATCH /usuarios/:id deve retornar 200 e modificar o próprio usuário', async () => {
