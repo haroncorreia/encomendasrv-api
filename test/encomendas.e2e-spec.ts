@@ -102,12 +102,14 @@ describe('EncomendasModule (e2e)', () => {
     for (let i = 1; i <= 55; i++) {
       await auth(
         adminToken,
-        request(app.getHttpServer()).post(BASE_URL).send({
-          palavra_chave: 'PAGINACAO_LISTA',
-          descricao: `Registro lista ${i}`,
-          codigo_rastreamento: `PGL${String(i).padStart(6, '0')}`,
-          recebido_por_uuid_usuario: UUID_PORTARIA,
-        }),
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            palavra_chave: 'PAGINACAO_LISTA',
+            descricao: `Registro lista ${i}`,
+            codigo_rastreamento: `PGL${String(i).padStart(6, '0')}`,
+            recebido_por_uuid_usuario: UUID_PORTARIA,
+          }),
       ).expect(201);
     }
 
@@ -123,16 +125,12 @@ describe('EncomendasModule (e2e)', () => {
   it('GET /encomendas deve paginar com page e limit quando informados', async () => {
     const page1 = await auth(
       adminToken,
-      request(app.getHttpServer())
-        .get(BASE_URL)
-        .query({ page: 1, limit: 10 }),
+      request(app.getHttpServer()).get(BASE_URL).query({ page: 1, limit: 10 }),
     ).expect(200);
 
     const page2 = await auth(
       adminToken,
-      request(app.getHttpServer())
-        .get(BASE_URL)
-        .query({ page: 2, limit: 10 }),
+      request(app.getHttpServer()).get(BASE_URL).query({ page: 2, limit: 10 }),
     ).expect(200);
 
     expect(page1.body).toHaveLength(10);
@@ -182,12 +180,14 @@ describe('EncomendasModule (e2e)', () => {
     for (let i = 1; i <= 55; i++) {
       await auth(
         adminToken,
-        request(app.getHttpServer()).post(BASE_URL).send({
-          palavra_chave: 'PAGINACAO_DEFAULT',
-          descricao: `Registro pagina default ${i}`,
-          codigo_rastreamento: `PGD${String(i).padStart(6, '0')}`,
-          recebido_por_uuid_usuario: UUID_PORTARIA,
-        }),
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            palavra_chave: 'PAGINACAO_DEFAULT',
+            descricao: `Registro pagina default ${i}`,
+            codigo_rastreamento: `PGD${String(i).padStart(6, '0')}`,
+            recebido_por_uuid_usuario: UUID_PORTARIA,
+          }),
       ).expect(201);
     }
 
@@ -236,14 +236,18 @@ describe('EncomendasModule (e2e)', () => {
   it('GET /encomendas/:id deve permitir acesso ao próprio registro e bloquear registro de terceiros para morador', async () => {
     const ownRes = await auth(
       moradorToken,
-      request(app.getHttpServer()).get(`${BASE_URL}/${UUID_SEED_PREVISTA_MORADOR}`),
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${UUID_SEED_PREVISTA_MORADOR}`,
+      ),
     ).expect(200);
 
     expect(ownRes.body.uuid).toBe(UUID_SEED_PREVISTA_MORADOR);
 
     await auth(
       moradorToken,
-      request(app.getHttpServer()).get(`${BASE_URL}/${UUID_SEED_RECEBIDA_ADMIN}`),
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${UUID_SEED_RECEBIDA_ADMIN}`,
+      ),
     ).expect(403);
   });
 
@@ -268,6 +272,16 @@ describe('EncomendasModule (e2e)', () => {
     expect(res.body.recebido_por_uuid_usuario).toBeNull();
 
     encomendaMoradorUuid = res.body.uuid as string;
+  });
+
+  it('POST /encomendas deve exigir palavra_chave quando morador criar previsão de encomenda', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        descricao: 'Entrega sem palavra-chave',
+        codigo_rastreamento: 'SEMCHAVE123',
+      }),
+    ).expect(400);
   });
 
   it('POST /encomendas deve criar encomenda para portaria com status recebida e recebimento automático', async () => {
@@ -430,12 +444,16 @@ describe('EncomendasModule (e2e)', () => {
 
     await auth(
       moradorToken,
-      request(app.getHttpServer()).delete(`${BASE_URL}/${encomendaSoftDeleteUuid}`),
+      request(app.getHttpServer()).delete(
+        `${BASE_URL}/${encomendaSoftDeleteUuid}`,
+      ),
     ).expect(204);
 
     await auth(
       moradorToken,
-      request(app.getHttpServer()).get(`${BASE_URL}/${encomendaSoftDeleteUuid}`),
+      request(app.getHttpServer()).get(
+        `${BASE_URL}/${encomendaSoftDeleteUuid}`,
+      ),
     ).expect(404);
   });
 

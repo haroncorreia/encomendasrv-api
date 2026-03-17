@@ -17,7 +17,10 @@ export async function up(knex: Knex): Promise<void> {
     table.string('palavra_chave', 20).nullable();
     table.string('descricao', 255).nullable();
     table.string('codigo_rastreamento', 100).nullable();
-    table.enum('status',[...STATUS_VALUES]).notNullable().defaultTo('recebida');
+    table
+      .enum('status', [...STATUS_VALUES])
+      .notNullable()
+      .defaultTo('recebida');
     table.timestamp('recebido_em').nullable();
     table.string('recebido_por_uuid_usuario', 36).nullable();
     table.timestamp('entregue_em').nullable();
