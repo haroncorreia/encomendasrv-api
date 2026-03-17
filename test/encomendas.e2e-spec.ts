@@ -308,6 +308,7 @@ describe('EncomendasModule (e2e)', () => {
     const res = await auth(
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_MORADOR,
         uuid_transportadora: '70000000-0000-4000-8000-000000000006',
         palavra_chave: 'Documento',
         descricao: 'Recebido pela portaria',
@@ -315,12 +316,29 @@ describe('EncomendasModule (e2e)', () => {
       }),
     ).expect(201);
 
-    expect(res.body.uuid_usuario).toBe(UUID_PORTARIA);
+    expect(res.body.uuid_usuario).toBe(UUID_MORADOR);
     expect(res.body.status).toBe('recebida');
     expect(res.body.recebido_por_uuid_usuario).toBe(UUID_PORTARIA);
     expect(res.body.recebido_em).toBeTruthy();
 
     encomendaPortariaUuid = res.body.uuid as string;
+  });
+
+  it('POST /encomendas deve exigir uuid_usuario de morador para criação por portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        palavra_chave: 'SemUsuario',
+      }),
+    ).expect(400);
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_ADMIN,
+        palavra_chave: 'UsuarioInvalido',
+      }),
+    ).expect(400);
   });
 
   it('POST /encomendas deve exigir recebido_por_uuid_usuario válido para admin', async () => {

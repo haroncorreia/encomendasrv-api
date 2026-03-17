@@ -7,6 +7,12 @@ import {
 } from 'class-validator';
 
 export class CreateEncomendaDto {
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'O campo uuid_usuario deve ser um UUID válido.',
+  })
+  uuid_usuario?: string;
+
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsUUID('4', {
     message: 'O campo uuid_transportadora deve ser um UUID válido.',

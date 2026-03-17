@@ -629,6 +629,7 @@ export class EncomendasService {
     let recebidoPorUuidUsuario: string | null = null;
     let entregueEm: Date | null = null;
     let entreguePorUuidUsuario: string | null = null;
+    let uuidUsuarioEncomenda = actor.uuid;
 
     if (actor.perfil === Perfil.MORADOR) {
       if (!dto.palavra_chave || dto.palavra_chave.trim().length === 0) {
@@ -643,6 +644,26 @@ export class EncomendasService {
         );
       }
     } else if (actor.perfil === Perfil.PORTARIA) {
+      if (!dto.uuid_usuario) {
+        throw new BadRequestException(
+          'O campo uuid_usuario é obrigatório para usuários com perfil portaria.',
+        );
+      }
+
+      const usuarioDestino = await this.findUsuarioAtivo(dto.uuid_usuario, trx);
+
+      if (usuarioDestino.perfil !== Perfil.MORADOR) {
+        throw new BadRequestException(
+          'Usuários com perfil portaria só podem registrar recebimento para usuários com perfil morador.',
+        );
+      }
+
+      if (usuarioDestino.uuid_condominio !== actor.uuid_condominio) {
+        throw new BadRequestException(
+          'Usuário de destino deve pertencer ao mesmo condomínio da portaria autenticada.',
+        );
+      }
+
       if (
         dto.recebido_por_uuid_usuario &&
         dto.recebido_por_uuid_usuario !== actor.uuid
@@ -652,6 +673,14 @@ export class EncomendasService {
         );
       }
 
+      if (dto.entregue_por_uuid_usuario) {
+        throw new BadRequestException(
+          'Usuários com perfil portaria só podem criar encomendas com status recebida.',
+        );
+      }
+
+      status = EncomendaStatus.RECEBIDA;
+      uuidUsuarioEncomenda = usuarioDestino.uuid;
       recebidoEm = now;
       recebidoPorUuidUsuario = actor.uuid;
     } else {
@@ -696,7 +725,7 @@ export class EncomendasService {
     await qb<Encomenda>(TABLE).insert({
       uuid,
       uuid_condominio: actor.uuid_condominio,
-      uuid_usuario: actor.uuid,
+      uuid_usuario: uuidUsuarioEncomenda,
       uuid_transportadora: uuidTransportadora,
       palavra_chave: dto.palavra_chave ?? null,
       descricao: dto.descricao ?? null,
@@ -713,7 +742,7 @@ export class EncomendasService {
     await this.registerStatusEvent(
       {
         uuid_encomenda: uuid,
-        uuid_usuario: actor.uuid,
+        uuid_usuario: uuidUsuarioEncomenda,
         status,
         acao: 'criada',
         actorEmail: user.email,
@@ -724,7 +753,7 @@ export class EncomendasService {
     await this.registerStatusNotification(
       {
         uuid_encomenda: uuid,
-        uuid_usuario: actor.uuid,
+        uuid_usuario: uuidUsuarioEncomenda,
         status,
         acao: 'criada',
         actorEmail: user.email,
