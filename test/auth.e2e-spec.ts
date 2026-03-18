@@ -24,6 +24,7 @@ const usuarioBase = {
   email: `auth.test.${RUN_ID}@teste.com`,
   celular: BASE_CELULAR,
   senha: 'Senha@123',
+  perfil: 'admin',
   unidade: SEED_UNIDADE,
 };
 
@@ -304,6 +305,30 @@ describe('AuthModule (e2e)', () => {
       .post(`${BASE_URL}/sign-in`)
       .send({ email: usuarioBase.email, senha: 'SenhaErrada@123' })
       .expect(401);
+  });
+
+  it('POST /authenticate/sign-in deve retornar 401 para morador pendente de aprovação', async () => {
+    const moradorPendente = {
+      nome: 'Morador Pendente Aprovacao',
+      email: `auth.morador.pendente.${RUN_ID}@teste.com`,
+      celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      unidade: SEED_UNIDADE,
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(moradorPendente)
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({ email: moradorPendente.email, senha: moradorPendente.senha })
+      .expect(401);
+
+    expect(res.body.message).toBe(
+      'Sua conta está aguardando aprovação da administração.',
+    );
   });
 
   it('POST /authenticate/refresh-token deve retornar 200 e gerar novos tokens', async () => {
