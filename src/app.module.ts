@@ -13,6 +13,7 @@ import { EmailModule } from './email/email.module';
 import { EncomendasModule } from './encomendas/encomendas.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
+import { UnidadesModule } from './unidades/unidades.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     EmailModule,
     UsuariosModule,
     CondominiosModule,
+    UnidadesModule,
     TransportadorasModule,
     EncomendasModule,
     NotificacoesModule,

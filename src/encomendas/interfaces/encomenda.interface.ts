@@ -3,6 +3,7 @@ import { EncomendaStatus } from '../enums/encomenda-status.enum';
 export interface Encomenda {
   uuid: string;
   uuid_condominio: string;
+  uuid_unidade: string;
   uuid_usuario: string;
   uuid_transportadora: string | null;
   palavra_chave: string | null;

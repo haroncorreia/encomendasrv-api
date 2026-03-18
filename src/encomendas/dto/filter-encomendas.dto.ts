@@ -20,6 +20,10 @@ export class FilterEncomendasDto extends PaginationEncomendasDto {
 
   @IsOptional()
   @IsUUID('4')
+  uuid_unidade?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   uuid_usuario?: string;
 
   @IsOptional()

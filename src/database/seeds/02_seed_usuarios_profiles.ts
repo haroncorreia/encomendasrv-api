@@ -2,6 +2,9 @@ import type { Knex } from 'knex';
 import * as bcrypt from 'bcrypt';
 
 const UUID_CONDOMINIO_INICIAL = '11111111-1111-4111-8111-111111111111';
+const UUID_UNIDADE_PADRAO = '60000000-0000-4000-8000-000000000003';
+const UUID_UNIDADE_MORADOR_1 = '60000000-0000-4000-8000-000000000001';
+const UUID_UNIDADE_MORADOR_2 = '60000000-0000-4000-8000-000000000002';
 
 export async function seed(knex: Knex): Promise<void> {
   const senhaHash = await bcrypt.hash('Senha@123', 10);
@@ -12,6 +15,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '11111111-1111-4111-8111-111111111111',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_PADRAO,
       nome: 'Haron Correia',
       email: 'haroncorreia@hotmail.com',
       celular: '11990000001',
@@ -32,6 +36,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '22222222-2222-4222-8222-222222222222',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_PADRAO,
       nome: 'Usuário Admin',
       email: 'admin@recantoverdeac.com.br',
       celular: '11990000002',
@@ -52,6 +57,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '33333333-3333-4333-8333-333333333333',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_PADRAO,
       nome: 'Usuário Portaria',
       email: 'portaria@recantoverdeac.com.br',
       celular: '11990000003',
@@ -72,6 +78,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '33333333-3333-4333-8333-333333333334',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_PADRAO,
       nome: 'Usuário Portaria 2',
       email: 'portaria2@recantoverdeac.com.br',
       celular: '11990000004',
@@ -92,6 +99,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '44444444-4444-4444-8444-444444444444',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_MORADOR_1,
       nome: 'Usuário Morador 1',
       email: 'morador1@recantoverdeac.com.br',
       celular: '11990000014',
@@ -112,6 +120,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: '44444444-4444-4444-8444-444444444443',
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
+      uuid_unidade: UUID_UNIDADE_MORADOR_2,
       nome: 'Usuário Morador 2',
       email: 'morador2@recantoverdeac.com.br',
       celular: '11990000005',

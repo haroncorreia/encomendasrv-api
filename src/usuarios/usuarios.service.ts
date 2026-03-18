@@ -142,9 +142,23 @@ export class UsuariosService {
       );
     }
 
+    const unidadeInicial = await qb('unidades')
+      .where({ uuid_condominio: condominioInicial.uuid })
+      .whereNull('deleted_at')
+      .orderBy('created_at', 'asc')
+      .orderBy('uuid', 'asc')
+      .first<{ uuid: string }>('uuid');
+
+    if (!unidadeInicial) {
+      throw new NotFoundException(
+        'Nenhuma unidade disponível para vincular o usuário.',
+      );
+    }
+
     await qb(TABLE).insert({
       uuid,
       uuid_condominio: condominioInicial.uuid,
+      uuid_unidade: unidadeInicial.uuid,
       nome: dto.nome,
       email: dto.email,
       celular: dto.celular,

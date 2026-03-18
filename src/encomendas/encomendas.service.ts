@@ -14,6 +14,7 @@ import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import { Unidade } from '../unidades/interfaces/unidade.interface';
 import { EncomendasEventosService } from '../encomendas-eventos/encomendas-eventos.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Transportadora } from '../transportadoras/interfaces/transportadora.interface';
@@ -35,6 +36,7 @@ const DEFAULT_PAGE = 1;
 interface UsuarioLookup {
   uuid: string;
   uuid_condominio: string;
+  uuid_unidade: string;
   perfil: Perfil;
 }
 
@@ -45,6 +47,7 @@ type UsuarioEncomendaInfo = Pick<
 
 type EncomendaComRelacionamentos = Encomenda & {
   condominio: Condominio | null;
+  unidade: Unidade | null;
   usuario: UsuarioEncomendaInfo | null;
   transportadora: Transportadora | null;
 };
@@ -210,6 +213,7 @@ export class EncomendasService {
     const usuario = await qb<UsuarioLookup>('usuarios')
       .where({ uuid })
       .whereNull('deleted_at')
+      .select('uuid', 'uuid_condominio', 'uuid_unidade', 'perfil')
       .first();
 
     if (!usuario) {
@@ -301,6 +305,10 @@ export class EncomendasService {
 
     if (filters.uuid_condominio) {
       query.andWhere('uuid_condominio', filters.uuid_condominio);
+    }
+
+    if (filters.uuid_unidade) {
+      query.andWhere('uuid_unidade', filters.uuid_unidade);
     }
 
     if (filters.uuid_usuario) {
@@ -404,34 +412,43 @@ export class EncomendasService {
           .filter((value): value is string => Boolean(value)),
       ),
     );
+    const uuidUnidades = Array.from(
+      new Set(encomendas.map((item) => item.uuid_unidade)),
+    );
 
-    const [condominios, usuarios, transportadoras] = await Promise.all([
-      qb<Condominio>('condominios')
-        .whereIn('uuid', uuidCondominios)
-        .whereNull('deleted_at')
-        .select('*'),
-      qb<Usuario>('usuarios')
-        .whereIn('uuid', uuidUsuarios)
-        .whereNull('deleted_at')
-        .select(
-          'uuid',
-          'uuid_condominio',
-          'nome',
-          'email',
-          'celular',
-          'perfil',
-        ),
-      uuidTransportadoras.length > 0
-        ? qb<Transportadora>('transportadoras')
-            .whereIn('uuid', uuidTransportadoras)
-            .whereNull('deleted_at')
-            .select('*')
-        : Promise.resolve([] as Transportadora[]),
-    ]);
+    const [condominios, unidades, usuarios, transportadoras] =
+      await Promise.all([
+        qb<Condominio>('condominios')
+          .whereIn('uuid', uuidCondominios)
+          .whereNull('deleted_at')
+          .select('*'),
+        qb<Unidade>('unidades')
+          .whereIn('uuid', uuidUnidades)
+          .whereNull('deleted_at')
+          .select('*'),
+        qb<Usuario>('usuarios')
+          .whereIn('uuid', uuidUsuarios)
+          .whereNull('deleted_at')
+          .select(
+            'uuid',
+            'uuid_condominio',
+            'nome',
+            'email',
+            'celular',
+            'perfil',
+          ),
+        uuidTransportadoras.length > 0
+          ? qb<Transportadora>('transportadoras')
+              .whereIn('uuid', uuidTransportadoras)
+              .whereNull('deleted_at')
+              .select('*')
+          : Promise.resolve([] as Transportadora[]),
+      ]);
 
     const condominiosByUuid = new Map(
       condominios.map((item) => [item.uuid, item]),
     );
+    const unidadesByUuid = new Map(unidades.map((item) => [item.uuid, item]));
     const usuariosByUuid = new Map(
       (usuarios as UsuarioEncomendaInfo[]).map((item) => [item.uuid, item]),
     );
@@ -442,6 +459,7 @@ export class EncomendasService {
     return encomendas.map((item) => ({
       ...item,
       condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
+      unidade: unidadesByUuid.get(item.uuid_unidade) ?? null,
       usuario: usuariosByUuid.get(item.uuid_usuario) ?? null,
       transportadora: item.uuid_transportadora
         ? (transportadorasByUuid.get(item.uuid_transportadora) ?? null)
@@ -630,6 +648,7 @@ export class EncomendasService {
     let entregueEm: Date | null = null;
     let entreguePorUuidUsuario: string | null = null;
     let uuidUsuarioEncomenda = actor.uuid;
+    let uuidUnidadeEncomenda = actor.uuid_unidade;
 
     if (actor.perfil === Perfil.MORADOR) {
       if (!dto.palavra_chave || dto.palavra_chave.trim().length === 0) {
@@ -681,6 +700,7 @@ export class EncomendasService {
 
       status = EncomendaStatus.RECEBIDA;
       uuidUsuarioEncomenda = usuarioDestino.uuid;
+      uuidUnidadeEncomenda = usuarioDestino.uuid_unidade;
       recebidoEm = now;
       recebidoPorUuidUsuario = actor.uuid;
     } else {
@@ -725,6 +745,7 @@ export class EncomendasService {
     await qb<Encomenda>(TABLE).insert({
       uuid,
       uuid_condominio: actor.uuid_condominio,
+      uuid_unidade: uuidUnidadeEncomenda,
       uuid_usuario: uuidUsuarioEncomenda,
       uuid_transportadora: uuidTransportadora,
       palavra_chave: dto.palavra_chave ?? null,

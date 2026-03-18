@@ -4,6 +4,8 @@ const UUID_CONDOMINIO = '11111111-1111-4111-8111-111111111111';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
 const UUID_MORADOR_2 = '44444444-4444-4444-8444-444444444443';
+const UUID_UNIDADE_MORADOR_1 = '60000000-0000-4000-8000-000000000001';
+const UUID_UNIDADE_MORADOR_2 = '60000000-0000-4000-8000-000000000002';
 
 export async function seed(knex: Knex): Promise<void> {
   await knex('encomendas').del();
@@ -12,6 +14,7 @@ export async function seed(knex: Knex): Promise<void> {
   //   {
   //     uuid: '80000000-0000-4000-8000-000000000001',
   //     uuid_condominio: UUID_CONDOMINIO,
+  //     uuid_unidade: UUID_UNIDADE_MORADOR_1,
   //     uuid_usuario: UUID_MORADOR,
   //     uuid_transportadora: '70000000-0000-4000-8000-000000000001',
   //     palavra_chave: 'Livro',
@@ -30,6 +33,7 @@ export async function seed(knex: Knex): Promise<void> {
   //   {
   //     uuid: '80000000-0000-4000-8000-000000000002',
   //     uuid_condominio: UUID_CONDOMINIO,
+  //     uuid_unidade: UUID_UNIDADE_MORADOR_2,
   //     uuid_usuario: UUID_MORADOR_2,
   //     uuid_transportadora: '70000000-0000-4000-8000-000000000002',
   //     palavra_chave: 'Eletronico',
@@ -48,6 +52,7 @@ export async function seed(knex: Knex): Promise<void> {
   //   {
   //     uuid: '80000000-0000-4000-8000-000000000003',
   //     uuid_condominio: UUID_CONDOMINIO,
+  //     uuid_unidade: UUID_UNIDADE_MORADOR_1,
   //     uuid_usuario: UUID_MORADOR,
   //     uuid_transportadora: '70000000-0000-4000-8000-000000000003',
   //     palavra_chave: 'Medicamento',
@@ -66,6 +71,7 @@ export async function seed(knex: Knex): Promise<void> {
   //   {
   //     uuid: '80000000-0000-4000-8000-000000000004',
   //     uuid_condominio: UUID_CONDOMINIO,
+  //     uuid_unidade: UUID_UNIDADE_MORADOR_2,
   //     uuid_usuario: UUID_MORADOR_2,
   //     uuid_transportadora: '70000000-0000-4000-8000-000000000004',
   //     palavra_chave: 'Vestuario',
