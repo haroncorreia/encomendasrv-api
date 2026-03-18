@@ -17,14 +17,14 @@ const MORADOR_CELULAR = `${BASE_CELULAR.slice(0, 10)}${
   (Number(BASE_CELULAR[10]) + 1) % 10
 }`;
 
-const UUID_SEED_UNIDADE = '60000000-0000-4000-8000-000000000003';
+const SEED_UNIDADE = '0303';
 
 const usuarioBase = {
   nome: 'Auth Test User',
   email: `auth.test.${RUN_ID}@teste.com`,
   celular: BASE_CELULAR,
   senha: 'Senha@123',
-  uuid_unidade: UUID_SEED_UNIDADE,
+  unidade: SEED_UNIDADE,
 };
 
 describe('AuthModule (e2e)', () => {
@@ -88,7 +88,7 @@ describe('AuthModule (e2e)', () => {
       email: `auth.test.morador.${RUN_ID}@teste.com`,
       celular: MORADOR_CELULAR,
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     const res = await request(app.getHttpServer())
@@ -114,7 +114,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.sem.nome@teste.com',
       celular: '11999990002',
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -128,7 +128,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Email',
       celular: '11999990003',
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -142,7 +142,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Celular',
       email: 'auth.test.sem.celular@teste.com',
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -156,7 +156,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Senha',
       email: 'auth.test.sem.senha@teste.com',
       celular: '11999990004',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -171,7 +171,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.senhacurta@teste.com',
       celular: '11999990010',
       senha: 'S@1a',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -186,7 +186,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.semm@teste.com',
       celular: '11999990011',
       senha: 'SENHA@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -201,7 +201,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.semm@teste.com',
       celular: '11999990012',
       senha: 'senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -216,7 +216,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.semnumero@teste.com',
       celular: '11999990013',
       senha: 'Senha@abc',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -231,7 +231,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.semsimbolo@teste.com',
       celular: '11999990014',
       senha: 'Senha1234',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -253,7 +253,7 @@ describe('AuthModule (e2e)', () => {
       email: 'auth.test.celular.duplicado@teste.com',
       celular: usuarioBase.celular,
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     await request(app.getHttpServer())
@@ -262,7 +262,7 @@ describe('AuthModule (e2e)', () => {
       .expect(409);
   });
 
-  it('POST /authenticate/sign-up deve retornar 400 se não informar o uuid_unidade', async () => {
+  it('POST /authenticate/sign-up deve retornar 400 se não informar a unidade', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
       .send({
@@ -274,30 +274,17 @@ describe('AuthModule (e2e)', () => {
       .expect(400);
   });
 
-  it('POST /authenticate/sign-up deve retornar 400 se o uuid_unidade não for um UUID válido', async () => {
-    await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-up`)
-      .send({
-        nome: 'Auth Test User UUID Invalido',
-        email: 'auth.test.uuid.invalido@teste.com',
-        celular: '11999990021',
-        senha: 'Senha@123',
-        uuid_unidade: 'nao-e-um-uuid',
-      })
-      .expect(400);
-  });
-
-  it('POST /authenticate/sign-up deve retornar 404 se o uuid_unidade não existir', async () => {
+  it('POST /authenticate/sign-up deve retornar 400 se a unidade não existir', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
       .send({
         nome: 'Auth Test User Unidade Inexistente',
         email: 'auth.test.unidade.inexistente@teste.com',
-        celular: '11999990022',
+        celular: '11999990021',
         senha: 'Senha@123',
-        uuid_unidade: '00000000-0000-4000-8000-000000000000',
+        unidade: '9999',
       })
-      .expect(404);
+      .expect(400);
   });
 
   it('POST /authenticate/sign-in deve retornar 200 e autenticar com credenciais válidas', async () => {
@@ -357,7 +344,7 @@ describe('AuthModule (e2e)', () => {
       email: `auth.ghost.${RUN_ID}@teste.com`,
       celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     const signUpRes = await request(app.getHttpServer())
@@ -387,7 +374,7 @@ describe('AuthModule (e2e)', () => {
       email: `auth.activated.${RUN_ID}@teste.com`,
       celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
       senha: 'Senha@123',
-      uuid_unidade: UUID_SEED_UNIDADE,
+      unidade: SEED_UNIDADE,
     };
 
     const signUpRes = await request(app.getHttpServer())

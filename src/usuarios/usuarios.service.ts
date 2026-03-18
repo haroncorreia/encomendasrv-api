@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -169,14 +170,12 @@ export class UsuariosService {
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
 
     const unidade = await qb('unidades')
-      .where({ uuid: dto.uuid_unidade })
+      .where({ unidade: dto.unidade })
       .whereNull('deleted_at')
       .first<{ uuid: string; uuid_condominio: string }>();
 
     if (!unidade) {
-      throw new NotFoundException(
-        `Unidade com uuid ${dto.uuid_unidade} não encontrada.`,
-      );
+      throw new BadRequestException(`Unidade '${dto.unidade}' não encontrada.`);
     }
 
     const uuid = randomUUID();

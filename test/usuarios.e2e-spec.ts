@@ -8,7 +8,7 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
-const UUID_SEED_UNIDADE = '60000000-0000-4000-8000-000000000003';
+const SEED_UNIDADE = '0303';
 
 describe('UsuariosModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -53,7 +53,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111001',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       })
       .expect(201);
 
@@ -67,7 +67,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111002',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       })
       .expect(201);
 
@@ -81,7 +81,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111023',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       })
       .expect(201);
 
@@ -95,7 +95,7 @@ describe('UsuariosModule (e2e)', () => {
         email: 'usuarios.morador@teste.com',
         celular: '11881111003',
         senha: 'Senha@123',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       })
       .expect(201);
 
@@ -110,7 +110,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111901',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -124,7 +124,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111902',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -138,7 +138,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11881111903',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -151,7 +151,7 @@ describe('UsuariosModule (e2e)', () => {
         email: 'usuarios.role.morador.target@teste.com',
         celular: '11881111904',
         senha: 'Senha@123',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       })
       .expect(201);
 
@@ -177,7 +177,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000012',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -198,7 +198,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000013',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -217,7 +217,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000019',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -236,7 +236,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000015',
         senha: 'Senha@123',
         perfil: 'morador',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(403);
   });
@@ -252,7 +252,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990100015',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(403);
   });
@@ -266,7 +266,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000016',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -286,7 +286,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000116',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 
@@ -306,7 +306,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000017',
         senha: 'Senha@123',
         perfil: 'morador',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(403);
   });
@@ -772,7 +772,7 @@ describe('UsuariosModule (e2e)', () => {
         celular: '11990000999',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE,
+        unidade: SEED_UNIDADE,
       }),
     ).expect(201);
 

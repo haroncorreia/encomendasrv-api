@@ -51,7 +51,7 @@ describe('TransportadorasModule (e2e)', () => {
         celular: '11660000001',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -65,7 +65,7 @@ describe('TransportadorasModule (e2e)', () => {
         celular: '11660000002',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -79,7 +79,7 @@ describe('TransportadorasModule (e2e)', () => {
         celular: '11660000003',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -92,7 +92,7 @@ describe('TransportadorasModule (e2e)', () => {
         email: 'transportadora.morador@teste.com',
         celular: '11660000004',
         senha: 'Senha@123',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 

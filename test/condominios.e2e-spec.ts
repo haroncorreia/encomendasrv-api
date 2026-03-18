@@ -52,7 +52,7 @@ describe('CondominiosModule (e2e)', () => {
         celular: `1177${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -67,7 +67,7 @@ describe('CondominiosModule (e2e)', () => {
         celular: `1178${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -82,7 +82,7 @@ describe('CondominiosModule (e2e)', () => {
         celular: `1179${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 
@@ -95,7 +95,7 @@ describe('CondominiosModule (e2e)', () => {
         email: `condominio.morador.${RUN_ID}@teste.com`,
         celular: `1166${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
-        uuid_unidade: '60000000-0000-4000-8000-000000000003',
+        unidade: '0303',
       })
       .expect(201);
 

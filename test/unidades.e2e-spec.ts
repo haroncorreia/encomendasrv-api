@@ -13,6 +13,8 @@ const UUID_SEED_UNIDADE_1 = '60000000-0000-4000-8000-000000000001';
 const UUID_SEED_UNIDADE_2 = '60000000-0000-4000-8000-000000000002';
 const UUID_SEED_UNIDADE_3 = '60000000-0000-4000-8000-000000000003';
 const UUID_SEED_UNIDADE_4 = '60000000-0000-4000-8000-000000000004';
+const SEED_UNIDADE_3 = '0303';
+const SEED_UNIDADE_4 = '0404';
 const UUID_SEED_MORADOR_1 = '44444444-4444-4444-8444-444444444444';
 const UUID_INVALID = '00000000-0000-0000-0000-000000000000';
 
@@ -51,7 +53,7 @@ describe('UnidadesModule (e2e)', () => {
         celular: '11630000001',
         senha: 'Senha@123',
         perfil: 'super',
-        uuid_unidade: UUID_SEED_UNIDADE_3,
+        unidade: SEED_UNIDADE_3,
       })
       .expect(201);
     superToken = superRes.body.access_token as string;
@@ -64,7 +66,7 @@ describe('UnidadesModule (e2e)', () => {
         celular: '11630000002',
         senha: 'Senha@123',
         perfil: 'admin',
-        uuid_unidade: UUID_SEED_UNIDADE_3,
+        unidade: SEED_UNIDADE_3,
       })
       .expect(201);
     adminToken = adminRes.body.access_token as string;
@@ -77,7 +79,7 @@ describe('UnidadesModule (e2e)', () => {
         celular: '11630000003',
         senha: 'Senha@123',
         perfil: 'portaria',
-        uuid_unidade: UUID_SEED_UNIDADE_3,
+        unidade: SEED_UNIDADE_3,
       })
       .expect(201);
     portariaToken = portariaRes.body.access_token as string;
@@ -98,7 +100,7 @@ describe('UnidadesModule (e2e)', () => {
         email: 'unidades.morador@teste.com',
         celular: '11630000004',
         senha: 'Senha@123',
-        uuid_unidade: UUID_SEED_UNIDADE_4,
+        unidade: SEED_UNIDADE_4,
       })
       .expect(201);
     moradorSemUnidadeToken = moradorSemUnidadeRes.body.access_token as string;

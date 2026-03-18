@@ -4,7 +4,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
 } from 'class-validator';
 import { Perfil } from '../enums/perfil.enum';
@@ -34,9 +33,9 @@ export class CreateUsuarioDto {
   })
   senha: string;
 
-  @IsNotEmpty({ message: 'O uuid_unidade é obrigatório.' })
-  @IsUUID('4', { message: 'O campo uuid_unidade deve ser um UUID válido.' })
-  uuid_unidade: string;
+  @IsNotEmpty({ message: 'A unidade é obrigatória.' })
+  @IsString({ message: 'A unidade deve ser válida.' })
+  unidade: string;
 
   @IsOptional()
   @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {
