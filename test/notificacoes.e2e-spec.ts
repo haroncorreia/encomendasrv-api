@@ -58,7 +58,7 @@ describe('NotificacoesModule (e2e)', () => {
     superToken = await signIn('haroncorreia@hotmail.com');
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador@recantoverdeac.com.br');
+    moradorToken = await signIn('morador1@recantoverdeac.com.br');
   });
 
   afterAll(async () => {
@@ -251,7 +251,7 @@ describe('NotificacoesModule (e2e)', () => {
       .first('deleted_at', 'deleted_by');
 
     expect(deleted?.deleted_at).toBeTruthy();
-    expect(deleted?.deleted_by).toBe('morador@recantoverdeac.com.br');
+    expect(deleted?.deleted_by).toBe('morador1@recantoverdeac.com.br');
   });
 
   it('DELETE /notificacoes/:id/hard deve validar UUID e permitir apenas super', async () => {

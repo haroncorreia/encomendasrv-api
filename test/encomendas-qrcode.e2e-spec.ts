@@ -39,7 +39,9 @@ describe('Encomendas QRCode (e2e)', () => {
   let moradorToken: string;
 
   const qrSecret =
-    process.env.JWT_QRCODE_SECRET ?? process.env.JWT_SECRET ?? 'test_jwt_secret';
+    process.env.JWT_QRCODE_SECRET ??
+    process.env.JWT_SECRET ??
+    'test_jwt_secret';
 
   const auth = (token: string, req: request.Test) =>
     req.set('Authorization', `Bearer ${token}`);
@@ -74,7 +76,7 @@ describe('Encomendas QRCode (e2e)', () => {
     superToken = await signIn('haroncorreia@hotmail.com');
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador@recantoverdeac.com.br');
+    moradorToken = await signIn('morador1@recantoverdeac.com.br');
   });
 
   afterAll(async () => {
@@ -328,11 +330,13 @@ describe('Encomendas QRCode (e2e)', () => {
   it('POST /encomendas/ler-qrcode deve processar entrega com sucesso e registrar usuário que entregou', async () => {
     const created = await auth(
       moradorToken,
-      request(app.getHttpServer()).post(BASE_URL).send({
-        palavra_chave: 'QRCodeValido',
-        descricao: 'Fluxo de retirada por QRCode',
-        codigo_rastreamento: `QRC-${Date.now()}`,
-      }),
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeValido',
+          descricao: 'Fluxo de retirada por QRCode',
+          codigo_rastreamento: `QRC-${Date.now()}`,
+        }),
     ).expect(201);
 
     const uuidEncomenda = created.body.uuid as string;
@@ -356,7 +360,9 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(delivered.body.entregue_por_uuid_usuario).toBe(UUID_PORTARIA);
     expect(delivered.body.entregue_em).toBeTruthy();
 
-    const registro = await knex('encomendas').where({ uuid: uuidEncomenda }).first();
+    const registro = await knex('encomendas')
+      .where({ uuid: uuidEncomenda })
+      .first();
 
     expect(registro).toBeDefined();
     expect(registro.status).toBe('retirada');

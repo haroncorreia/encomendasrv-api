@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
 } from 'class-validator';
 import { Perfil } from '../enums/perfil.enum';
@@ -32,6 +33,10 @@ export class CreateUsuarioDto {
       'A senha deve ter no mínimo 8 caracteres, com letra maiúscula, minúscula, número e símbolo.',
   })
   senha: string;
+
+  @IsNotEmpty({ message: 'O uuid_unidade é obrigatório.' })
+  @IsUUID('4', { message: 'O campo uuid_unidade deve ser um UUID válido.' })
+  uuid_unidade: string;
 
   @IsOptional()
   @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {

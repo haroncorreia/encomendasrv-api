@@ -59,7 +59,7 @@ describe('EncomendasModule (e2e)', () => {
     superToken = await signIn('haroncorreia@hotmail.com');
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador@recantoverdeac.com.br');
+    moradorToken = await signIn('morador1@recantoverdeac.com.br');
   });
 
   afterAll(async () => {

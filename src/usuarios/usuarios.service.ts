@@ -129,36 +129,22 @@ export class UsuariosService {
 
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
 
+    const unidade = await qb('unidades')
+      .where({ uuid: dto.uuid_unidade })
+      .whereNull('deleted_at')
+      .first<{ uuid: string; uuid_condominio: string }>();
+
+    if (!unidade) {
+      throw new NotFoundException(
+        `Unidade com uuid ${dto.uuid_unidade} não encontrada.`,
+      );
+    }
+
     const uuid = randomUUID();
-    const condominioInicial = await qb('condominios')
-      .whereNull('deleted_at')
-      .orderBy('created_at', 'asc')
-      .orderBy('uuid', 'asc')
-      .first<{ uuid: string }>('uuid');
-
-    if (!condominioInicial) {
-      throw new NotFoundException(
-        'Nenhum condomínio disponível para vincular o usuário.',
-      );
-    }
-
-    const unidadeInicial = await qb('unidades')
-      .where({ uuid_condominio: condominioInicial.uuid })
-      .whereNull('deleted_at')
-      .orderBy('created_at', 'asc')
-      .orderBy('uuid', 'asc')
-      .first<{ uuid: string }>('uuid');
-
-    if (!unidadeInicial) {
-      throw new NotFoundException(
-        'Nenhuma unidade disponível para vincular o usuário.',
-      );
-    }
-
     await qb(TABLE).insert({
       uuid,
-      uuid_condominio: condominioInicial.uuid,
-      uuid_unidade: unidadeInicial.uuid,
+      uuid_condominio: unidade.uuid_condominio,
+      uuid_unidade: unidade.uuid,
       nome: dto.nome,
       email: dto.email,
       celular: dto.celular,
