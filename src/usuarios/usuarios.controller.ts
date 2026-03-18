@@ -139,6 +139,31 @@ export class UsuariosController {
     });
   }
 
+  @Patch(':id/aprove-user')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  aprovarUsuario(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const usuario = await this.usuariosService.aprovarUsuario(
+        id,
+        user.sub,
+        trx,
+      );
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Usuário morador aprovado. (uuid: ${id})`,
+        },
+        trx,
+      );
+      return usuario;
+    });
+  }
+
   @Patch(':id/update-role')
   @Roles(Perfil.SUPER, Perfil.ADMIN)
   updateRole(

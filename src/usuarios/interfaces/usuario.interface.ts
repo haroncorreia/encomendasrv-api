@@ -10,6 +10,10 @@ export interface Usuario {
   senha: string;
   perfil: Perfil;
 
+  // Aprovação de morador
+  aproved_at: Date | null;
+  aproved_by_uuid_usuario: string | null;
+
   // Ativação
   activated_at: Date | null;
   activation_code_hash: string | null;

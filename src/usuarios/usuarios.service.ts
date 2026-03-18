@@ -356,6 +356,52 @@ export class UsuariosService {
     await qb<Usuario>(TABLE).where({ uuid }).delete();
   }
 
+  async aprovarUsuario(
+    uuid: string,
+    aprovadoPorUuid: string,
+    trx?: Knex.Transaction,
+  ): Promise<UsuarioComCondominio> {
+    const usuario = await this.query.where({ uuid }).first();
+    if (!usuario) {
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    if (usuario.perfil !== Perfil.MORADOR) {
+      throw new BadRequestException(
+        'Apenas usuários com perfil morador podem ser aprovados por esta rota.',
+      );
+    }
+
+    const qb = trx ?? this.knex;
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      aproved_at: new Date(),
+      aproved_by_uuid_usuario: aprovadoPorUuid,
+      updated_at: new Date(),
+      updated_by: aprovadoPorUuid,
+    });
+
+    const atualizado = await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .first();
+
+    const semCredenciais = this.omitSenha(atualizado!);
+    const [condominio, unidade] = await Promise.all([
+      qb<Condominio>('condominios')
+        .where({ uuid: semCredenciais.uuid_condominio })
+        .whereNull('deleted_at')
+        .first()
+        .then((r) => r ?? null),
+      qb<Unidade>('unidades')
+        .where({ uuid: semCredenciais.uuid_unidade })
+        .whereNull('deleted_at')
+        .first()
+        .then((r) => r ?? null),
+    ]);
+
+    return { ...semCredenciais, condominio, unidade };
+  }
+
   /** Persiste o código de ativação e sua expiração no banco. */
   async saveCodigoAtivacao(
     uuid: string,
