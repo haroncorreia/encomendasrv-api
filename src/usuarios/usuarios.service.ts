@@ -34,6 +34,7 @@ type UsuarioSemCredenciais = Omit<
 type UsuarioComCondominio = UsuarioSemCredenciais & {
   condominio: Condominio | null;
   unidade: Unidade | null;
+  aprovado_por: UsuarioSemCredenciais | null;
 };
 
 @Injectable()
@@ -77,8 +78,15 @@ export class UsuariosService {
       ...new Set(usuarios.map((u) => u.uuid_condominio)),
     ];
     const unidadeUuids = [...new Set(usuarios.map((u) => u.uuid_unidade))];
+    const aprovadorUuids = [
+      ...new Set(
+        usuarios
+          .map((u) => u.aproved_by_uuid_usuario)
+          .filter((uuid): uuid is string => uuid !== null),
+      ),
+    ];
 
-    const [condominios, unidades] = await Promise.all([
+    const [condominios, unidades, aprovadores] = await Promise.all([
       this.knex<Condominio>('condominios')
         .whereIn('uuid', condominioUuids)
         .whereNull('deleted_at')
@@ -87,15 +95,24 @@ export class UsuariosService {
         .whereIn('uuid', unidadeUuids)
         .whereNull('deleted_at')
         .select('*'),
+      aprovadorUuids.length > 0
+        ? this.knex<Usuario>(TABLE).whereIn('uuid', aprovadorUuids).select('*')
+        : Promise.resolve([] as Usuario[]),
     ]);
 
     const condominioMap = new Map(condominios.map((c) => [c.uuid, c]));
     const unidadeMap = new Map(unidades.map((u) => [u.uuid, u]));
+    const aprovadorMap = new Map(aprovadores.map((u) => [u.uuid, u]));
 
     return usuarios.map((u) => ({
       ...this.omitSenha(u),
       condominio: condominioMap.get(u.uuid_condominio) ?? null,
       unidade: unidadeMap.get(u.uuid_unidade) ?? null,
+      aprovado_por: u.aproved_by_uuid_usuario
+        ? aprovadorMap.has(u.aproved_by_uuid_usuario)
+          ? this.omitSenha(aprovadorMap.get(u.aproved_by_uuid_usuario)!)
+          : null
+        : null,
     }));
   }
 
@@ -126,7 +143,7 @@ export class UsuariosService {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
 
-    const [condominio, unidade] = await Promise.all([
+    const [condominio, unidade, aprovadorRaw] = await Promise.all([
       this.knex<Condominio>('condominios')
         .where({ uuid: usuario.uuid_condominio })
         .whereNull('deleted_at')
@@ -137,12 +154,19 @@ export class UsuariosService {
         .whereNull('deleted_at')
         .first()
         .then((r) => r ?? null),
+      usuario.aproved_by_uuid_usuario
+        ? this.knex<Usuario>(TABLE)
+            .where({ uuid: usuario.aproved_by_uuid_usuario })
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
     ]);
 
     return {
       ...this.omitSenha(usuario),
       condominio,
       unidade,
+      aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
     };
   }
 
@@ -263,7 +287,7 @@ export class UsuariosService {
       .first();
 
     const usuarioSemCredenciais = this.omitSenha(atualizado!);
-    const [condominio, unidade] = await Promise.all([
+    const [condominio, unidade, aprovadorRaw] = await Promise.all([
       qb<Condominio>('condominios')
         .where({ uuid: usuarioSemCredenciais.uuid_condominio })
         .whereNull('deleted_at')
@@ -274,12 +298,19 @@ export class UsuariosService {
         .whereNull('deleted_at')
         .first()
         .then((r) => r ?? null),
+      atualizado!.aproved_by_uuid_usuario
+        ? qb<Usuario>(TABLE)
+            .where({ uuid: atualizado!.aproved_by_uuid_usuario })
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
     ]);
 
     return {
       ...usuarioSemCredenciais,
       condominio,
       unidade,
+      aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
     };
   }
 
@@ -306,7 +337,7 @@ export class UsuariosService {
       .first();
 
     const usuarioSemCredenciais = this.omitSenha(atualizado!);
-    const [condominio, unidade] = await Promise.all([
+    const [condominio, unidade, aprovadorRaw] = await Promise.all([
       qb<Condominio>('condominios')
         .where({ uuid: usuarioSemCredenciais.uuid_condominio })
         .whereNull('deleted_at')
@@ -317,12 +348,19 @@ export class UsuariosService {
         .whereNull('deleted_at')
         .first()
         .then((r) => r ?? null),
+      atualizado!.aproved_by_uuid_usuario
+        ? qb<Usuario>(TABLE)
+            .where({ uuid: atualizado!.aproved_by_uuid_usuario })
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
     ]);
 
     return {
       ...usuarioSemCredenciais,
       condominio,
       unidade,
+      aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
     };
   }
 
@@ -386,7 +424,7 @@ export class UsuariosService {
       .first();
 
     const semCredenciais = this.omitSenha(atualizado!);
-    const [condominio, unidade] = await Promise.all([
+    const [condominio, unidade, aprovadorRaw] = await Promise.all([
       qb<Condominio>('condominios')
         .where({ uuid: semCredenciais.uuid_condominio })
         .whereNull('deleted_at')
@@ -397,9 +435,18 @@ export class UsuariosService {
         .whereNull('deleted_at')
         .first()
         .then((r) => r ?? null),
+      qb<Usuario>(TABLE)
+        .where({ uuid: aprovadoPorUuid })
+        .first()
+        .then((r) => r ?? null),
     ]);
 
-    return { ...semCredenciais, condominio, unidade };
+    return {
+      ...semCredenciais,
+      condominio,
+      unidade,
+      aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
+    };
   }
 
   /** Persiste o código de ativação e sua expiração no banco. */

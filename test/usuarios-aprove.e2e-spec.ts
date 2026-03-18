@@ -225,6 +225,9 @@ describe('UsuariosAprovarModule (e2e)', () => {
     expect(res.body.perfil).toBe('morador');
     expect(res.body.aproved_at).toBeDefined();
     expect(res.body.aproved_by_uuid_usuario).toBeDefined();
+    expect(res.body.aprovado_por).not.toBeNull();
+    expect(res.body.aprovado_por.nome).toBeDefined();
+    expect(res.body.aprovado_por.senha).toBeUndefined();
     expect(res.body.senha).toBeUndefined();
     expect(res.body.condominio).toBeDefined();
     expect(res.body.unidade).toBeDefined();
@@ -296,6 +299,7 @@ describe('UsuariosAprovarModule (e2e)', () => {
     ).expect(200);
 
     const auditoria = await knex('auditoria')
+      .whereRaw('description LIKE ?', [`%${alvoUuid}%`])
       .orderBy('created_at', 'desc')
       .first();
 

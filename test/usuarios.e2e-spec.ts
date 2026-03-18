@@ -439,6 +439,9 @@ describe('UsuariosModule (e2e)', () => {
     expect(item.condominio.uuid).toBe(item.uuid_condominio);
     expect(item.unidade).toBeDefined();
     expect(item.unidade.uuid).toBe(item.uuid_unidade);
+    expect(item).toHaveProperty('aproved_at');
+    expect(item).toHaveProperty('aproved_by_uuid_usuario');
+    expect(item).toHaveProperty('aprovado_por');
     expect(item.senha).toBeUndefined();
   });
 
@@ -457,6 +460,9 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.unidade).toBeDefined();
     expect(res.body.unidade.uuid).toBe(res.body.uuid_unidade);
     expect(typeof res.body.unidade.unidade).toBe('string');
+    expect(res.body).toHaveProperty('aproved_at');
+    expect(res.body).toHaveProperty('aproved_by_uuid_usuario');
+    expect(res.body).toHaveProperty('aprovado_por');
 
     expect(res.body.senha).toBeUndefined();
     expect(res.body.activation_code_hash).toBeUndefined();
@@ -499,6 +505,9 @@ describe('UsuariosModule (e2e)', () => {
       expect(res.body[0]?.condominio.uuid).toBe(res.body[0]?.uuid_condominio);
       expect(res.body[0]?.unidade).toBeDefined();
       expect(res.body[0]?.unidade.uuid).toBe(res.body[0]?.uuid_unidade);
+      expect(res.body[0]).toHaveProperty('aproved_at');
+      expect(res.body[0]).toHaveProperty('aproved_by_uuid_usuario');
+      expect(res.body[0]).toHaveProperty('aprovado_por');
     }
   });
 
