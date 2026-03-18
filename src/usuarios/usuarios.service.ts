@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
+import { Unidade } from '../unidades/interfaces/unidade.interface';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { Perfil } from './enums/perfil.enum';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -31,6 +32,7 @@ type UsuarioSemCredenciais = Omit<
 
 type UsuarioComCondominio = UsuarioSemCredenciais & {
   condominio: Condominio | null;
+  unidade: Unidade | null;
 };
 
 @Injectable()
@@ -67,25 +69,54 @@ export class UsuariosService {
       .first();
   }
 
-  async findAll(): Promise<UsuarioSemCredenciais[]> {
-    const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
-    return usuarios.map((u) => this.omitSenha(u));
+  private async enrichWithRelations(
+    usuarios: Usuario[],
+  ): Promise<UsuarioComCondominio[]> {
+    const condominioUuids = [
+      ...new Set(usuarios.map((u) => u.uuid_condominio)),
+    ];
+    const unidadeUuids = [...new Set(usuarios.map((u) => u.uuid_unidade))];
+
+    const [condominios, unidades] = await Promise.all([
+      this.knex<Condominio>('condominios')
+        .whereIn('uuid', condominioUuids)
+        .whereNull('deleted_at')
+        .select('*'),
+      this.knex<Unidade>('unidades')
+        .whereIn('uuid', unidadeUuids)
+        .whereNull('deleted_at')
+        .select('*'),
+    ]);
+
+    const condominioMap = new Map(condominios.map((c) => [c.uuid, c]));
+    const unidadeMap = new Map(unidades.map((u) => [u.uuid, u]));
+
+    return usuarios.map((u) => ({
+      ...this.omitSenha(u),
+      condominio: condominioMap.get(u.uuid_condominio) ?? null,
+      unidade: unidadeMap.get(u.uuid_unidade) ?? null,
+    }));
   }
 
-  async findRemoved(): Promise<UsuarioSemCredenciais[]> {
+  async findAll(): Promise<UsuarioComCondominio[]> {
+    const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
+    return this.enrichWithRelations(usuarios);
+  }
+
+  async findRemoved(): Promise<UsuarioComCondominio[]> {
     const usuarios = await this.knex<Usuario>(TABLE)
       .whereNotNull('deleted_at')
       .select('*')
       .orderBy('deleted_at', 'desc');
-    return usuarios.map((u) => this.omitSenha(u));
+    return this.enrichWithRelations(usuarios);
   }
 
-  async findMoradores(): Promise<UsuarioSemCredenciais[]> {
+  async findMoradores(): Promise<UsuarioComCondominio[]> {
     const usuarios = await this.query
       .where({ perfil: Perfil.MORADOR })
       .select('*')
       .orderBy('created_at', 'desc');
-    return usuarios.map((u) => this.omitSenha(u));
+    return this.enrichWithRelations(usuarios);
   }
 
   async findOne(uuid: string): Promise<UsuarioComCondominio> {
@@ -94,15 +125,23 @@ export class UsuariosService {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
 
-    const condominio =
-      (await this.knex<Condominio>('condominios')
+    const [condominio, unidade] = await Promise.all([
+      this.knex<Condominio>('condominios')
         .where({ uuid: usuario.uuid_condominio })
         .whereNull('deleted_at')
-        .first()) ?? null;
+        .first()
+        .then((r) => r ?? null),
+      this.knex<Unidade>('unidades')
+        .where({ uuid: usuario.uuid_unidade })
+        .whereNull('deleted_at')
+        .first()
+        .then((r) => r ?? null),
+    ]);
 
     return {
       ...this.omitSenha(usuario),
       condominio,
+      unidade,
     };
   }
 
@@ -225,15 +264,23 @@ export class UsuariosService {
       .first();
 
     const usuarioSemCredenciais = this.omitSenha(atualizado!);
-    const condominio =
-      (await qb<Condominio>('condominios')
+    const [condominio, unidade] = await Promise.all([
+      qb<Condominio>('condominios')
         .where({ uuid: usuarioSemCredenciais.uuid_condominio })
         .whereNull('deleted_at')
-        .first()) ?? null;
+        .first()
+        .then((r) => r ?? null),
+      qb<Unidade>('unidades')
+        .where({ uuid: usuarioSemCredenciais.uuid_unidade })
+        .whereNull('deleted_at')
+        .first()
+        .then((r) => r ?? null),
+    ]);
 
     return {
       ...usuarioSemCredenciais,
       condominio,
+      unidade,
     };
   }
 
@@ -260,15 +307,23 @@ export class UsuariosService {
       .first();
 
     const usuarioSemCredenciais = this.omitSenha(atualizado!);
-    const condominio =
-      (await qb<Condominio>('condominios')
+    const [condominio, unidade] = await Promise.all([
+      qb<Condominio>('condominios')
         .where({ uuid: usuarioSemCredenciais.uuid_condominio })
         .whereNull('deleted_at')
-        .first()) ?? null;
+        .first()
+        .then((r) => r ?? null),
+      qb<Unidade>('unidades')
+        .where({ uuid: usuarioSemCredenciais.uuid_unidade })
+        .whereNull('deleted_at')
+        .first()
+        .then((r) => r ?? null),
+    ]);
 
     return {
       ...usuarioSemCredenciais,
       condominio,
+      unidade,
     };
   }
 

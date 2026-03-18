@@ -431,9 +431,18 @@ describe('UsuariosModule (e2e)', () => {
     expect(
       res.body.some((u: { uuid: string }) => u.uuid === usuarioCriadoUuid),
     ).toBe(true);
+
+    const item = res.body.find(
+      (u: { uuid: string }) => u.uuid === usuarioCriadoUuid,
+    );
+    expect(item.condominio).toBeDefined();
+    expect(item.condominio.uuid).toBe(item.uuid_condominio);
+    expect(item.unidade).toBeDefined();
+    expect(item.unidade.uuid).toBe(item.uuid_unidade);
+    expect(item.senha).toBeUndefined();
   });
 
-  it('GET /usuarios/:id deve retornar 200 com o condomínio vinculado', async () => {
+  it('GET /usuarios/:id deve retornar 200 com o condomínio e unidade vinculados', async () => {
     const res = await auth(
       adminToken,
       request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
@@ -444,6 +453,10 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.condominio).toBeDefined();
     expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
     expect(typeof res.body.condominio.nome).toBe('string');
+    expect(res.body.uuid_unidade).toBeDefined();
+    expect(res.body.unidade).toBeDefined();
+    expect(res.body.unidade.uuid).toBe(res.body.uuid_unidade);
+    expect(typeof res.body.unidade.unidade).toBe('string');
 
     expect(res.body.senha).toBeUndefined();
     expect(res.body.activation_code_hash).toBeUndefined();
@@ -482,6 +495,10 @@ describe('UsuariosModule (e2e)', () => {
       expect(res.body[0]?.activation_code_hash).toBeUndefined();
       expect(res.body[0]?.reset_password_token_hash).toBeUndefined();
       expect(res.body[0]?.refresh_token_hash).toBeUndefined();
+      expect(res.body[0]?.condominio).toBeDefined();
+      expect(res.body[0]?.condominio.uuid).toBe(res.body[0]?.uuid_condominio);
+      expect(res.body[0]?.unidade).toBeDefined();
+      expect(res.body[0]?.unidade.uuid).toBe(res.body[0]?.uuid_unidade);
     }
   });
 
@@ -515,6 +532,10 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.condominio).toBeDefined();
     expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
     expect(typeof res.body.condominio.nome).toBe('string');
+    expect(res.body.uuid_unidade).toBeDefined();
+    expect(res.body.unidade).toBeDefined();
+    expect(res.body.unidade.uuid).toBe(res.body.uuid_unidade);
+    expect(typeof res.body.unidade.unidade).toBe('string');
 
     expect(res.body.senha).toBeUndefined();
     expect(res.body.activation_code_hash).toBeUndefined();
