@@ -40,14 +40,18 @@ export class UsuariosController {
   ) {}
 
   @Get()
-  findAll() {
-    return this.usuariosService.findAll();
+  async findAll(@CurrentUser() user: JwtPayload) {
+    const result = await this.usuariosService.findAll();
+    if (user.perfil === Perfil.SUPER) return result;
+    return result.filter((u) => u.perfil !== Perfil.SUPER);
   }
 
   @Get('removed')
   @Roles(Perfil.ADMIN, Perfil.SUPER)
-  findRemoved() {
-    return this.usuariosService.findRemoved();
+  async findRemoved(@CurrentUser() user: JwtPayload) {
+    const result = await this.usuariosService.findRemoved();
+    if (user.perfil === Perfil.SUPER) return result;
+    return result.filter((u) => u.perfil !== Perfil.SUPER);
   }
 
   @Get('moradores')
@@ -57,8 +61,15 @@ export class UsuariosController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPtPipe) id: string) {
-    return this.usuariosService.findOne(id);
+  async findOne(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const result = await this.usuariosService.findOne(id);
+    if (result.perfil === Perfil.SUPER && user.perfil !== Perfil.SUPER) {
+      throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+    }
+    return result;
   }
 
   @Post()

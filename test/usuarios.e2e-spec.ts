@@ -442,9 +442,25 @@ describe('UsuariosModule (e2e)', () => {
 
   // Rotas GET
 
-  it('GET /usuarios deve retornar 200 e listar usuários não excluídos', async () => {
+  it('GET /usuarios deve retornar 200 e listar usuários não excluídos (sem expor supers para admin)', async () => {
     const res = await auth(
       adminToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    // Usuários super não devem aparecer para admin
+    expect(
+      res.body.every((u: { perfil: string }) => u.perfil !== 'super'),
+    ).toBe(true);
+    expect(
+      res.body.some((u: { uuid: string }) => u.uuid === usuarioCriadoUuid),
+    ).toBe(false);
+  });
+
+  it('GET /usuarios deve retornar 200 e incluir usuários super apenas para perfil super', async () => {
+    const res = await auth(
+      superToken,
       request(app.getHttpServer()).get(BASE_URL),
     ).expect(200);
 
@@ -468,7 +484,7 @@ describe('UsuariosModule (e2e)', () => {
 
   it('GET /usuarios/:id deve retornar 200 com o condomínio e unidade vinculados', async () => {
     const res = await auth(
-      adminToken,
+      superToken,
       request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
     ).expect(200);
 
@@ -493,7 +509,12 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.refresh_token_hash).toBeUndefined();
     expect(res.body.refresh_token_exp).toBeUndefined();
   });
-
+  it('GET /usuarios/:id deve retornar 404 ao tentar acessar usuário super com token admin', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
+    ).expect(404);
+  });
   it('GET /usuarios/moradores deve retornar 200 para super, admin e portaria, listando apenas moradores', async () => {
     const superRes = await auth(
       superToken,
