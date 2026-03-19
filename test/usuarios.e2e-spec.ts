@@ -184,6 +184,8 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.uuid).toBeDefined();
     expect(res.body.nome).toBe('Usuario Super Criado');
     expect(res.body.perfil).toBe('super');
+    expect(res.body.aproved_at).toBeTruthy();
+    expect(res.body.aproved_by_uuid_usuario).toBeTruthy();
     expect(res.body.senha).toBeUndefined();
 
     usuarioCriadoUuid = res.body.uuid as string;
@@ -227,7 +229,7 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.senha).toBeUndefined();
   });
 
-  it('POST /usuarios deve retornar 403 se tentar criar usuário morador, com token super', async () => {
+  it('POST /usuarios deve retornar 400 se tentar criar usuário morador, com token super', async () => {
     await auth(
       superToken,
       request(app.getHttpServer()).post(BASE_URL).send({
@@ -238,7 +240,26 @@ describe('UsuariosModule (e2e)', () => {
         perfil: 'morador',
         unidade: SEED_UNIDADE,
       }),
-    ).expect(403);
+    ).expect(400);
+  });
+
+  it('POST /usuarios deve retornar 201 e criar usuário admin sem informar unidade, com token super', async () => {
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Admin Sem Unidade',
+        email: 'usuarios.admin.semunidade@teste.com',
+        celular: '11990000091',
+        senha: 'Senha@123',
+        perfil: 'admin',
+      }),
+    ).expect(201);
+
+    expect(res.body.uuid).toBeDefined();
+    expect(res.body.perfil).toBe('admin');
+    expect(res.body.uuid_condominio).toBeNull();
+    expect(res.body.uuid_unidade).toBeNull();
+    expect(res.body.senha).toBeUndefined();
   });
 
   // Testes de criação de usuários com token admin
@@ -297,7 +318,7 @@ describe('UsuariosModule (e2e)', () => {
     usuarioPortariaCriadoAdminUuid = res.body.uuid as string;
   });
 
-  it('POST /usuarios deve retornar 403 se tentar criar usuário morador, com token admin', async () => {
+  it('POST /usuarios deve retornar 400 se tentar criar usuário morador, com token admin', async () => {
     await auth(
       adminToken,
       request(app.getHttpServer()).post(BASE_URL).send({
@@ -308,7 +329,7 @@ describe('UsuariosModule (e2e)', () => {
         perfil: 'morador',
         unidade: SEED_UNIDADE,
       }),
-    ).expect(403);
+    ).expect(400);
   });
 
   // Testes de criação de usuários com token portaria

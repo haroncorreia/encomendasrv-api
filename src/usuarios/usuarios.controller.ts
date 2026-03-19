@@ -24,7 +24,7 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from './enums/perfil.enum';
-import { CreateUsuarioDto } from './dto/create-usuario.dto';
+import { CreateFuncionarioDto } from './dto/create-funcionario.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateUsuarioRoleDto } from './dto/update-usuario-role.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -65,35 +65,25 @@ export class UsuariosController {
   @HttpCode(HttpStatus.CREATED)
   @Roles(Perfil.ADMIN, Perfil.SUPER)
   create(
-    @Body() createUsuarioDto: CreateUsuarioDto,
+    @Body() createFuncionarioDto: CreateFuncionarioDto,
     @CurrentUser() user: JwtPayload,
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
-    const perfilAlvo = createUsuarioDto.perfil;
-
-    if (!perfilAlvo || perfilAlvo === Perfil.MORADOR) {
-      throw new ForbiddenException(
-        'A rota POST /usuarios não permite criação de usuário com perfil morador.',
-      );
-    }
-
-    if (user.perfil === Perfil.ADMIN && perfilAlvo === Perfil.SUPER) {
+    if (
+      user.perfil === Perfil.ADMIN &&
+      createFuncionarioDto.perfil === Perfil.SUPER
+    ) {
       throw new ForbiddenException(
         'Usuário admin não pode criar usuário com perfil super.',
       );
     }
 
-    if (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para criar usuários por esta rota.',
-      );
-    }
-
     return this.knex.transaction(async (trx) => {
       const usuario = await this.usuariosService.create(
-        createUsuarioDto,
+        createFuncionarioDto,
         user.email,
         trx,
+        user.sub,
       );
       await this.auditoriaService.registrarEmTrx(
         {
