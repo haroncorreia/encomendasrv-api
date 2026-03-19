@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Perfil } from '../../usuarios/enums/perfil.enum';
 import { ROLES_KEY } from '../decorators/roles.decorator';
@@ -20,6 +25,12 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest<{ user: JwtPayload }>();
 
-    return requiredRoles.includes(user.perfil);
+    if (!requiredRoles.includes(user.perfil)) {
+      throw new ForbiddenException(
+        'Recurso não permitido para o seu perfil de usuário.',
+      );
+    }
+
+    return true;
   }
 }
