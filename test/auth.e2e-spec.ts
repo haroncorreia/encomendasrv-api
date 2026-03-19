@@ -307,7 +307,7 @@ describe('AuthModule (e2e)', () => {
       .expect(401);
   });
 
-  it('POST /authenticate/sign-in deve retornar 401 para morador pendente de aprovação', async () => {
+  it('POST /authenticate/sign-in deve retornar 401 para usuário pendente de aprovação', async () => {
     const moradorPendente = {
       nome: 'Morador Pendente Aprovacao',
       email: `auth.morador.pendente.${RUN_ID}@teste.com`,

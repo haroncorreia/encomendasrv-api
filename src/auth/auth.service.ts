@@ -18,7 +18,6 @@ import { AuditoriaContext } from '../auditoria/interfaces/auditoria-context.inte
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EmailService } from '../email/email.service';
 import { CreateUsuarioDto } from '../usuarios/dto/create-usuario.dto';
-import { Perfil } from '../usuarios/enums/perfil.enum';
 import { Usuario } from '../usuarios/interfaces/usuario.interface';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { SignInDto } from './dto/signin.dto';
@@ -136,11 +135,11 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
 
-    if (usuario.perfil === Perfil.MORADOR && !usuario.aproved_at) {
+    if (!usuario.aproved_at) {
       await this.auditoriaService.registrar({
         ctx,
         user_mail: usuario.email,
-        description: 'Tentativa de login de morador pendente de aprovação.',
+        description: 'Tentativa de login de usuário com acesso não aprovado.',
       });
       throw new UnauthorizedException(
         'Sua conta está aguardando aprovação da administração.',
@@ -153,7 +152,6 @@ export class AuthService {
       description: 'Login realizado com sucesso.',
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { senha: _, ...usuarioSemSenha } = usuario;
     return this.buildAuthResponse(usuarioSemSenha);
   }

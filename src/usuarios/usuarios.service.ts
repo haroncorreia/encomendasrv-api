@@ -234,8 +234,7 @@ export class UsuariosService {
     }
 
     const perfil = dto.perfil ?? 'morador';
-    const isAutoAprovado =
-      aprovadoPorUuid !== undefined && perfil !== Perfil.MORADOR;
+    const isAutoAprovado = perfil !== Perfil.MORADOR;
 
     const uuid = randomUUID();
     await qb(TABLE).insert({
@@ -248,7 +247,7 @@ export class UsuariosService {
       senha: senhaHash,
       perfil,
       aproved_at: isAutoAprovado ? new Date() : null,
-      aproved_by_uuid_usuario: isAutoAprovado ? aprovadoPorUuid : null,
+      aproved_by_uuid_usuario: isAutoAprovado ? (aprovadoPorUuid ?? null) : null,
       created_by: criadoPor ?? 'system',
       updated_by: criadoPor ?? 'system',
     });
@@ -447,6 +446,12 @@ export class UsuariosService {
     const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    if (usuario.perfil !== Perfil.MORADOR) {
+      throw new BadRequestException(
+        'Apenas moradores podem ser aprovados através deste endpoint.',
+      );
     }
 
     const qb = trx ?? this.knex;

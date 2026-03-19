@@ -21,7 +21,7 @@ export async function seed(knex: Knex): Promise<void> {
       celular: '11990000001',
       senha: senhaHash,
       perfil: 'super',
-      aproved_at: null,
+      aproved_at: knex.fn.now(),
       aproved_by_uuid_usuario: null,
       activation_code_hash: null,
       activation_code_exp: null,
