@@ -185,7 +185,7 @@ export class UsuariosController {
       if (user.perfil === Perfil.SUPER) {
         if (perfilAlvoAtual === Perfil.SUPER) {
           throw new ForbiddenException(
-            'Usuário super não pode modificar o perfil de outro usuário super.',
+            'Recurso não permitido para o seu perfil de usuário.',
           );
         }
       }
@@ -196,20 +196,20 @@ export class UsuariosController {
           perfilAlvoAtual === Perfil.ADMIN
         ) {
           throw new ForbiddenException(
-            'Usuário admin não pode modificar perfil de usuário super ou admin.',
+            'Recurso não permitido para o seu perfil de usuário.',
           );
         }
 
         if (novoPerfil === Perfil.SUPER) {
           throw new ForbiddenException(
-            'Usuário admin não pode definir perfil super.',
+            'Recurso não permitido para o seu perfil de usuário.',
           );
         }
       }
 
       if (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) {
         throw new ForbiddenException(
-          'Seu perfil não possui permissão para modificar perfil de usuário.',
+          'Recurso não permitido para o seu perfil de usuário.',
         );
       }
 
