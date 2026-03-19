@@ -449,12 +449,6 @@ export class UsuariosService {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
 
-    if (usuario.perfil !== Perfil.MORADOR) {
-      throw new BadRequestException(
-        'Apenas usuários com perfil morador podem ser aprovados por esta rota.',
-      );
-    }
-
     const qb = trx ?? this.knex;
     await qb<Usuario>(TABLE).where({ uuid }).update({
       aproved_at: new Date(),
@@ -495,6 +489,55 @@ export class UsuariosService {
       condominio,
       unidade,
       aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
+    };
+  }
+
+  async revogarUsuario(
+    uuid: string,
+    revogadoPorUuid: string,
+    trx?: Knex.Transaction,
+  ): Promise<UsuarioComCondominio> {
+    const usuario = await this.query.where({ uuid }).first();
+    if (!usuario) {
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    const qb = trx ?? this.knex;
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      aproved_at: null,
+      aproved_by_uuid_usuario: null,
+      updated_at: new Date(),
+      updated_by: revogadoPorUuid,
+    });
+
+    const atualizado = await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .first();
+
+    const semCredenciais = this.omitSenha(atualizado!);
+    const [condominio, unidade] = await Promise.all([
+      semCredenciais.uuid_condominio
+        ? qb<Condominio>('condominios')
+            .where({ uuid: semCredenciais.uuid_condominio })
+            .whereNull('deleted_at')
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
+      semCredenciais.uuid_unidade
+        ? qb<Unidade>('unidades')
+            .where({ uuid: semCredenciais.uuid_unidade })
+            .whereNull('deleted_at')
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      ...semCredenciais,
+      condominio,
+      unidade,
+      aprovado_por: null,
     };
   }
 

@@ -165,6 +165,48 @@ export class UsuariosController {
     });
   }
 
+  @Patch(':id/revoke-user')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  revogarUsuario(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      if (usuarioAlvo.perfil === Perfil.SUPER) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
+      if (user.perfil === Perfil.ADMIN && usuarioAlvo.perfil === Perfil.ADMIN) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
+      const usuario = await this.usuariosService.revogarUsuario(
+        id,
+        user.sub,
+        trx,
+      );
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Acesso do usuário revogado. (uuid: ${id})`,
+        },
+        trx,
+      );
+      return usuario;
+    });
+  }
+
   @Patch(':id/update-role')
   @Roles(Perfil.SUPER, Perfil.ADMIN)
   updateRole(
