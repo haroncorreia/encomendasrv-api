@@ -448,12 +448,6 @@ export class UsuariosService {
       throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
     }
 
-    if (usuario.perfil !== Perfil.MORADOR) {
-      throw new BadRequestException(
-        'Apenas moradores podem ser aprovados através deste endpoint.',
-      );
-    }
-
     const qb = trx ?? this.knex;
     await qb<Usuario>(TABLE).where({ uuid }).update({
       aproved_at: new Date(),

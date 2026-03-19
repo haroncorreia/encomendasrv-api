@@ -148,6 +148,23 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      if (usuarioAlvo.perfil === Perfil.SUPER) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
+      if (user.perfil === Perfil.ADMIN && usuarioAlvo.perfil === Perfil.ADMIN) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
       const usuario = await this.usuariosService.aprovarUsuario(
         id,
         user.sub,
@@ -157,7 +174,7 @@ export class UsuariosController {
         {
           ctx,
           user_mail: user.email,
-          description: `Usuário morador aprovado. (uuid: ${id})`,
+          description: `Acesso do usuário aprovado. (uuid: ${id})`,
         },
         trx,
       );

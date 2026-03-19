@@ -149,16 +149,39 @@ describe('UsuariosAprovarModule (e2e)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Validação de perfil do usuário alvo
+  // Validação da hierarquia de perfis
   // ---------------------------------------------------------------------------
 
-  it('PATCH /usuarios/:id/aprove-user deve retornar 400 ao tentar aprovar usuário não-morador (admin)', async () => {
+  it('PATCH /usuarios/:id/aprove-user deve retornar 403 ao tentar aprovar usuário super', async () => {
+    const superAlvoRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Aprove Super Alvo',
+        email: 'aprove.super.alvo@teste.com',
+        celular: '11720000011',
+        senha: 'Senha@123',
+        perfil: 'super',
+        unidade: SEED_UNIDADE,
+      })
+      .expect(201);
+
+    const superAlvoUuid = superAlvoRes.body.usuario.uuid as string;
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(
+        `${BASE_URL}/${superAlvoUuid}/aprove-user`,
+      ),
+    ).expect(403);
+  });
+
+  it('PATCH /usuarios/:id/aprove-user deve retornar 403 para admin ao tentar aprovar outro admin', async () => {
     const adminAlvoRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Aprove Admin Alvo',
         email: 'aprove.admin.alvo@teste.com',
-        celular: '11720000011',
+        celular: '11720000012',
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE,
@@ -172,30 +195,7 @@ describe('UsuariosAprovarModule (e2e)', () => {
       request(app.getHttpServer()).patch(
         `${BASE_URL}/${adminAlvoUuid}/aprove-user`,
       ),
-    ).expect(400);
-  });
-
-  it('PATCH /usuarios/:id/aprove-user deve retornar 400 ao tentar aprovar usuário não-morador (portaria)', async () => {
-    const portariaAlvoRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Aprove Portaria Alvo',
-        email: 'aprove.portaria.alvo@teste.com',
-        celular: '11720000012',
-        senha: 'Senha@123',
-        perfil: 'portaria',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-
-    const portariaAlvoUuid = portariaAlvoRes.body.usuario.uuid as string;
-
-    await auth(
-      superToken,
-      request(app.getHttpServer()).patch(
-        `${BASE_URL}/${portariaAlvoUuid}/aprove-user`,
-      ),
-    ).expect(400);
+    ).expect(403);
   });
 
   // ---------------------------------------------------------------------------
@@ -260,6 +260,38 @@ describe('UsuariosAprovarModule (e2e)', () => {
     expect(res.body.aproved_at).toBeDefined();
     expect(res.body.aproved_by_uuid_usuario).toBeDefined();
     expect(res.body.senha).toBeUndefined();
+  });
+
+  it('PATCH /usuarios/:id/aprove-user deve retornar 200 e super pode aprovar portaria', async () => {
+    const portariaAlvoRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Portaria Para Aprovar',
+        email: 'aprove.portaria.para.aprovar@teste.com',
+        celular: '11720000013',
+        senha: 'Senha@123',
+        perfil: 'portaria',
+        unidade: SEED_UNIDADE,
+      })
+      .expect(201);
+
+    const alvoUuid = portariaAlvoRes.body.usuario.uuid as string;
+
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${alvoUuid}/aprove-user`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(alvoUuid);
+    expect(res.body.perfil).toBe('portaria');
+    expect(res.body.aproved_at).toBeDefined();
+    expect(res.body.aproved_by_uuid_usuario).toBeDefined();
+    expect(res.body.aprovado_por).not.toBeNull();
+    expect(res.body.senha).toBeUndefined();
+
+    const row = await knex('usuarios').where({ uuid: alvoUuid }).first();
+    expect(row.aproved_at).toBeTruthy();
+    expect(row.aproved_by_uuid_usuario).toBeTruthy();
   });
 
   it('PATCH /usuarios/:id/aprove-user não deve expor credenciais na resposta', async () => {
