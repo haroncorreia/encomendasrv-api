@@ -14,9 +14,9 @@ const AUTH_BASE = '/authenticate';
 const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
-const UUID_ENCOMENDA_MORADOR = '80000000-0000-4000-8000-000000000001';
-const UUID_SEED_EVENTO_MORADOR = '90000000-0000-4000-8000-000000000001';
-const UUID_SEED_EVENTO_NAO_MORADOR = '90000000-0000-4000-8000-000000000002';
+let UUID_ENCOMENDA_MORADOR: string;
+let UUID_SEED_EVENTO_MORADOR: string;
+let UUID_SEED_EVENTO_NAO_MORADOR: string;
 
 describe('EncomendasEventosModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -56,6 +56,38 @@ describe('EncomendasEventosModule (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    // Fixtures: seeds 05/06/07 no longer insert encomenda/evento records
+    const encResp = await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
+        uuid_usuario: UUID_MORADOR,
+        palavra_chave: 'FixtureEvento',
+        codigo_rastreamento: 'EVTFIXT001',
+      }),
+    ).expect(201);
+    UUID_ENCOMENDA_MORADOR = encResp.body.uuid as string;
+
+    UUID_SEED_EVENTO_MORADOR = randomUUID();
+    UUID_SEED_EVENTO_NAO_MORADOR = randomUUID();
+    await knex('encomendas_eventos').insert([
+      {
+        uuid: UUID_SEED_EVENTO_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        evento: 'Evento fixture morador',
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: UUID_SEED_EVENTO_NAO_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_usuario: UUID_ADMIN,
+        evento: 'Evento fixture admin',
+        created_by: 'test',
+        updated_by: 'test',
+      },
+    ]);
   });
 
   afterAll(async () => {

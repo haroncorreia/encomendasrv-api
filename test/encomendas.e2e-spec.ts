@@ -13,9 +13,10 @@ const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
 
-const UUID_SEED_PREVISTA_MORADOR = '80000000-0000-4000-8000-000000000001';
-const UUID_SEED_RECEBIDA_ADMIN = '80000000-0000-4000-8000-000000000002';
-const UUID_SEED_RETIRADA_MORADOR = '80000000-0000-4000-8000-000000000003';
+let UUID_SEED_PREVISTA_MORADOR: string;
+let UUID_SEED_RECEBIDA_ADMIN: string;
+let UUID_SEED_RETIRADA_MORADOR: string;
+let UUID_SEED_CANCELADA_SHP321: string;
 
 describe('EncomendasModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -60,6 +61,60 @@ describe('EncomendasModule (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    // Fixtures: seeds 05/06/07 no longer insert encomenda records
+    const prevResp = await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_transportadora: '70000000-0000-4000-8000-000000000001',
+        palavra_chave: 'FixturePrevista',
+        descricao: 'Encomenda fixture prevista',
+        codigo_rastreamento: 'FIXT001BR',
+      }),
+    ).expect(201);
+    UUID_SEED_PREVISTA_MORADOR = prevResp.body.uuid as string;
+
+    const recResp = await auth(
+      adminToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        palavra_chave: 'FixtureRecebida',
+        codigo_rastreamento: 'FIXT002BR',
+        recebido_por_uuid_usuario: UUID_PORTARIA,
+      }),
+    ).expect(201);
+    UUID_SEED_RECEBIDA_ADMIN = recResp.body.uuid as string;
+
+    const retResp = await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        palavra_chave: 'FixtureRetirada',
+        codigo_rastreamento: 'ML123123123',
+      }),
+    ).expect(201);
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${retResp.body.uuid as string}/update-status`)
+        .send({ status: 'retirada' }),
+    ).expect(200);
+    UUID_SEED_RETIRADA_MORADOR = retResp.body.uuid as string;
+
+    const shpResp = await auth(
+      adminToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        palavra_chave: 'FixtureCancelada',
+        codigo_rastreamento: 'SHP321',
+        recebido_por_uuid_usuario: UUID_PORTARIA,
+      }),
+    ).expect(201);
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${shpResp.body.uuid as string}/update-status`)
+        .send({ status: 'cancelada' }),
+    ).expect(200);
+    UUID_SEED_CANCELADA_SHP321 = shpResp.body.uuid as string;
   });
 
   afterAll(async () => {
@@ -181,7 +236,7 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(200);
 
     expect(res.body).toHaveLength(1);
-    expect(res.body[0].uuid).toBe('80000000-0000-4000-8000-000000000004');
+    expect(res.body[0].uuid).toBe(UUID_SEED_CANCELADA_SHP321);
     expect(res.body[0].status).toBe('cancelada');
   });
 

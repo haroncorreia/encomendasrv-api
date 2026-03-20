@@ -14,7 +14,8 @@ const AUTH_BASE = '/authenticate';
 
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
-const UUID_SEED_ENCOMENDA = '80000000-0000-4000-8000-000000000001';
+let UUID_SEED_ENCOMENDA: string;
+let UUID_ENCOMENDA_SEM_IMAGEM: string;
 const UUID_SEED_TRANSPORTADORA = '70000000-0000-4000-8000-000000000005';
 
 const FAKE_JPEG_BUFFER = Buffer.from('fake-jpeg-binary-content-for-e2e-test');
@@ -78,6 +79,27 @@ describe('ImagensModule (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    // Fixtures: seeds 05/06/07 no longer insert encomenda records
+    const enc1 = await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        uuid_transportadora: UUID_SEED_TRANSPORTADORA,
+        palavra_chave: 'EncomendaParaImagem',
+      }),
+    ).expect(201);
+    UUID_SEED_ENCOMENDA = enc1.body.uuid as string;
+
+    const enc2 = await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        uuid_transportadora: UUID_SEED_TRANSPORTADORA,
+        palavra_chave: 'EncomendaSemImagem',
+      }),
+    ).expect(201);
+    UUID_ENCOMENDA_SEM_IMAGEM = enc2.body.uuid as string;
   });
 
   afterAll(async () => {
@@ -629,7 +651,7 @@ describe('ImagensModule (e2e)', () => {
     const res = await auth(
       adminToken,
       request(app.getHttpServer()).get(
-        `${ENCOMENDAS_URL}/80000000-0000-4000-8000-000000000002`,
+        `${ENCOMENDAS_URL}/${UUID_ENCOMENDA_SEM_IMAGEM}`,
       ),
     ).expect(200);
 

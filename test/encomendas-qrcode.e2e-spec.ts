@@ -15,9 +15,9 @@ const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
 
-const UUID_ENCOMENDA_MORADOR_ATIVA = '80000000-0000-4000-8000-000000000001';
-const UUID_ENCOMENDA_MORADOR_RETIRADA = '80000000-0000-4000-8000-000000000003';
-const UUID_ENCOMENDA_ADMIN_CANCELADA = '80000000-0000-4000-8000-000000000004';
+let UUID_ENCOMENDA_MORADOR_ATIVA: string;
+let UUID_ENCOMENDA_MORADOR_RETIRADA: string;
+let UUID_ENCOMENDA_ADMIN_CANCELADA: string;
 
 interface QrPayload {
   tipo: 'retirada';
@@ -77,6 +77,54 @@ describe('Encomendas QRCode (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    // Fixtures: seeds 05/06/07 no longer insert encomenda records
+    const ativaResp = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeAtiva',
+          codigo_rastreamento: `QRATIVO-${Date.now()}`,
+        }),
+    ).expect(201);
+    UUID_ENCOMENDA_MORADOR_ATIVA = ativaResp.body.uuid as string;
+
+    const retResp = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          palavra_chave: 'QRCodeRetirada',
+          codigo_rastreamento: `QRRET-${Date.now()}`,
+        }),
+    ).expect(201);
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${retResp.body.uuid as string}/update-status`)
+        .send({ status: 'retirada' }),
+    ).expect(200);
+    UUID_ENCOMENDA_MORADOR_RETIRADA = retResp.body.uuid as string;
+
+    const canResp = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeCancelada',
+          codigo_rastreamento: `QRCAN-${Date.now()}`,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+        }),
+    ).expect(201);
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${canResp.body.uuid as string}/update-status`)
+        .send({ status: 'cancelada' }),
+    ).expect(200);
+    UUID_ENCOMENDA_ADMIN_CANCELADA = canResp.body.uuid as string;
   });
 
   afterAll(async () => {

@@ -15,9 +15,9 @@ const AUTH_BASE = '/authenticate';
 const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
-const UUID_ENCOMENDA_MORADOR = '80000000-0000-4000-8000-000000000001';
-const UUID_SEED_NOTIFICACAO_PORTARIA = 'a0000000-0000-4000-8000-000000000001';
-const UUID_SEED_NOTIFICACAO_ADMIN = 'a0000000-0000-4000-8000-000000000002';
+let UUID_ENCOMENDA_MORADOR: string;
+let UUID_SEED_NOTIFICACAO_PORTARIA: string;
+let UUID_SEED_NOTIFICACAO_ADMIN: string;
 
 describe('NotificacoesModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -59,6 +59,45 @@ describe('NotificacoesModule (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    // Fixtures: seeds 05/06/07 no longer insert encomenda/notificacao records
+    const encResp = await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
+        palavra_chave: 'FixtureNotificacao',
+        codigo_rastreamento: 'NOTFIXT001',
+      }),
+    ).expect(201);
+    UUID_ENCOMENDA_MORADOR = encResp.body.uuid as string;
+
+    UUID_SEED_NOTIFICACAO_PORTARIA = randomUUID();
+    UUID_SEED_NOTIFICACAO_ADMIN = randomUUID();
+    await knex('notificacoes').insert([
+      {
+        uuid: UUID_SEED_NOTIFICACAO_PORTARIA,
+        uuid_usuario: UUID_PORTARIA,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Notificação fixture portaria',
+        mensagem: 'Fixture para teste de escopo de portaria',
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: UUID_SEED_NOTIFICACAO_ADMIN,
+        uuid_usuario: UUID_ADMIN,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Notificação fixture admin',
+        mensagem: 'Fixture para teste de escopo de admin',
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
+    ]);
   });
 
   afterAll(async () => {
