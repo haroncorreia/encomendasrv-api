@@ -735,6 +735,15 @@ export class EncomendasService {
         'recebido_por_uuid_usuario',
         trx,
       );
+
+      if (dto.uuid_usuario) {
+        const usuarioDestino = await this.findUsuarioAtivo(
+          dto.uuid_usuario,
+          trx,
+        );
+        uuidUsuarioEncomenda = usuarioDestino.uuid;
+        uuidUnidadeEncomenda = usuarioDestino.uuid_unidade;
+      }
     }
 
     if (dto.entregue_por_uuid_usuario) {
@@ -815,10 +824,7 @@ export class EncomendasService {
       trx,
     );
 
-    if (
-      actor.perfil === Perfil.PORTARIA &&
-      status === EncomendaStatus.RECEBIDA
-    ) {
+    if (status === EncomendaStatus.RECEBIDA) {
       status = EncomendaStatus.AGUARDANDO_RETIRADA;
 
       await qb<Encomenda>(TABLE).where({ uuid }).update({
