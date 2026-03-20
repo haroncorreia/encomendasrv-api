@@ -32,7 +32,13 @@ import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
 import { EncomendasService } from './encomendas.service';
 
 @Controller('encomendas')
-@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }),
+)
 export class EncomendasController {
   constructor(
     private readonly encomendasService: EncomendasService,

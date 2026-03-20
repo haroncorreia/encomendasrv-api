@@ -11,6 +11,7 @@ import { CondominiosModule } from './condominios/condominios.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './email/email.module';
 import { EncomendasModule } from './encomendas/encomendas.module';
+import { ImagensModule } from './imagens/imagens.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
 import { UnidadesModule } from './unidades/unidades.module';
@@ -30,6 +31,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     UnidadesModule,
     TransportadorasModule,
     EncomendasModule,
+    ImagensModule,
     NotificacoesModule,
     AuthModule,
   ],

@@ -16,6 +16,8 @@ import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Unidade } from '../unidades/interfaces/unidade.interface';
 import { EncomendasEventosService } from '../encomendas-eventos/encomendas-eventos.service';
+import { ImagensService } from '../imagens/imagens.service';
+import type { Imagem } from '../imagens/interfaces/imagem.interface';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Transportadora } from '../transportadoras/interfaces/transportadora.interface';
 import { Usuario } from '../usuarios/interfaces/usuario.interface';
@@ -50,6 +52,7 @@ type EncomendaComRelacionamentos = Encomenda & {
   unidade: Unidade | null;
   usuario: UsuarioEncomendaInfo | null;
   transportadora: Transportadora | null;
+  imagens: Imagem[];
 };
 
 interface QrCodeEncomendaPayload {
@@ -69,6 +72,7 @@ export class EncomendasService {
     private readonly notificacoesService: NotificacoesService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly imagensService: ImagensService,
   ) {}
 
   private getQrCodeSecret(): string {
@@ -456,6 +460,20 @@ export class EncomendasService {
       transportadoras.map((item) => [item.uuid, item]),
     );
 
+    const uuidEncomendas = encomendas.map((item) => item.uuid);
+    const imagens = await qb<Imagem>('imagens')
+      .whereIn('uuid_referencia', uuidEncomendas)
+      .where('tabela_referencia', 'encomendas')
+      .whereNull('deleted_at')
+      .select('*');
+
+    const imagensByEncomendaUuid = new Map<string, Imagem[]>();
+    for (const imagem of imagens) {
+      const lista = imagensByEncomendaUuid.get(imagem.uuid_referencia) ?? [];
+      lista.push(imagem);
+      imagensByEncomendaUuid.set(imagem.uuid_referencia, lista);
+    }
+
     return encomendas.map((item) => ({
       ...item,
       condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
@@ -464,6 +482,7 @@ export class EncomendasService {
       transportadora: item.uuid_transportadora
         ? (transportadorasByUuid.get(item.uuid_transportadora) ?? null)
         : null,
+      imagens: imagensByEncomendaUuid.get(item.uuid) ?? [],
     }));
   }
 
@@ -759,6 +778,19 @@ export class EncomendasService {
       created_by: user.email,
       updated_by: user.email,
     });
+
+    if (dto.imagem_base64 && dto.imagem) {
+      await this.imagensService.salvarDeBase64(
+        {
+          imagemBase64: dto.imagem_base64,
+          metadados: dto.imagem,
+          uuidReferencia: uuid,
+          tabelaReferencia: TABLE,
+          actorEmail: user.email,
+        },
+        trx,
+      );
+    }
 
     await this.registerStatusEvent(
       {

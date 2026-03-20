@@ -1,10 +1,13 @@
+import { Type } from 'class-transformer';
 import {
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { ImagemMetadadosDto } from '../../imagens/dto/imagem-metadados.dto';
 
 export class CreateEncomendaDto {
   @IsOptional()
@@ -45,4 +48,13 @@ export class CreateEncomendaDto {
     message: 'O campo entregue_por_uuid_usuario deve ser um UUID válido.',
   })
   entregue_por_uuid_usuario?: string;
+
+  @IsOptional()
+  @IsString()
+  imagem_base64?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ImagemMetadadosDto)
+  imagem?: ImagemMetadadosDto;
 }

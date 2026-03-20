@@ -1,13 +1,10 @@
-import {
-  IsString,
-  IsUUID,
-  MaxLength,
-  ValidateIf,
-} from 'class-validator';
+import { IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
 
 export class UpdateEncomendaDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
-  @IsUUID('4', { message: 'O campo uuid_transportadora deve ser um UUID válido.' })
+  @IsUUID('4', {
+    message: 'O campo uuid_transportadora deve ser um UUID válido.',
+  })
   uuid_transportadora?: string | null;
 
   @ValidateIf((_, value) => value !== null && value !== undefined)

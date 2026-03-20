@@ -57,7 +57,8 @@ export default async function globalSetup(): Promise<void> {
     !tableNames.includes('transportadoras') ||
     !tableNames.includes('usuarios') ||
     !tableNames.includes('auditoria') ||
-    !tableNames.includes('notificacoes')
+    !tableNames.includes('notificacoes') ||
+    !tableNames.includes('imagens')
   ) {
     throw new Error(
       `Migrations não aplicadas corretamente no banco ${database}. Tabelas encontradas: ${tableNames.join(', ')}`,
