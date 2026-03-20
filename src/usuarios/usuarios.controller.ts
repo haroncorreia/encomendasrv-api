@@ -60,6 +60,12 @@ export class UsuariosController {
     return this.usuariosService.findMoradores();
   }
 
+  @Get('porteiros')
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
+  findPorteiros() {
+    return this.usuariosService.findPorteiros();
+  }
+
   @Get(':id')
   async findOne(
     @Param('id', ParseUUIDPtPipe) id: string,

@@ -153,6 +153,14 @@ export class UsuariosService {
     return this.enrichWithRelations(usuarios);
   }
 
+  async findPorteiros(): Promise<UsuarioComCondominio[]> {
+    const usuarios = await this.query
+      .where({ perfil: Perfil.PORTARIA })
+      .select('*')
+      .orderBy('created_at', 'desc');
+    return this.enrichWithRelations(usuarios);
+  }
+
   async findOne(uuid: string): Promise<UsuarioComCondominio> {
     const usuario = await this.query.where({ uuid }).first();
     if (!usuario) {
@@ -247,7 +255,9 @@ export class UsuariosService {
       senha: senhaHash,
       perfil,
       aproved_at: isAutoAprovado ? new Date() : null,
-      aproved_by_uuid_usuario: isAutoAprovado ? (aprovadoPorUuid ?? null) : null,
+      aproved_by_uuid_usuario: isAutoAprovado
+        ? (aprovadoPorUuid ?? null)
+        : null,
       created_by: criadoPor ?? 'system',
       updated_by: criadoPor ?? 'system',
     });
