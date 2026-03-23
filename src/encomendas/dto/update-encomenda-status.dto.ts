@@ -1,4 +1,6 @@
-import { IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { ImagemMetadadosDto } from '../../imagens/dto/imagem-metadados.dto';
 import { EncomendaStatus } from '../enums/encomenda-status.enum';
 
 export class UpdateEncomendaStatusDto {
@@ -19,4 +21,13 @@ export class UpdateEncomendaStatusDto {
     | EncomendaStatus.AGUARDANDO_RETIRADA
     | EncomendaStatus.RETIRADA
     | EncomendaStatus.CANCELADA;
+
+  @IsOptional()
+  @IsString()
+  imagem_base64?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ImagemMetadadosDto)
+  imagem?: ImagemMetadadosDto;
 }

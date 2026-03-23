@@ -557,8 +557,8 @@ describe('ImagensModule (e2e)', () => {
     ).expect(400);
   });
 
-  it('POST /encomendas deve retornar 400 ao enviar imagem com base64 vazio', async () => {
-    await auth(
+  it('POST /encomendas deve ignorar imagem quando imagem_base64 estiver vazio', async () => {
+    const res = await auth(
       portariaToken,
       request(app.getHttpServer())
         .post(ENCOMENDAS_URL)
@@ -572,7 +572,17 @@ describe('ImagensModule (e2e)', () => {
             tamanho: 100,
           },
         }),
-    ).expect(400);
+    ).expect(201);
+
+    const imagens = await knex('imagens')
+      .where({
+        uuid_referencia: res.body.uuid as string,
+        tabela_referencia: 'encomendas',
+      })
+      .whereNull('deleted_at')
+      .select('uuid');
+
+    expect(imagens).toHaveLength(0);
   });
 
   it('POST /encomendas deve criar encomenda com imagem pela portaria e persistir a imagem', async () => {
@@ -603,6 +613,7 @@ describe('ImagensModule (e2e)', () => {
 
     expect(imagensDB).toHaveLength(1);
     expect(imagensDB[0].tipo).toBe('jpeg');
+    expect(imagensDB[0].status_momento_captura).toBe('recebida');
     expect(imagensDB[0].nome_original).toBe('encomenda_test.jpeg');
     expect(imagensDB[0].altura).toBe(1280);
     expect(imagensDB[0].largura).toBe(960);
@@ -616,6 +627,38 @@ describe('ImagensModule (e2e)', () => {
     imagemCriadaViaEncomendaUuid = imagensDB[0].uuid as string;
   });
 
+  it('PATCH /encomendas/:id/update-status com retirada deve persistir imagem com momento de captura retirada', async () => {
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${ENCOMENDAS_URL}/${encomendaComImagemUuid}/update-status`)
+        .send({
+          status: 'retirada',
+          ...buildImagemPayload(),
+        }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(encomendaComImagemUuid);
+    expect(res.body.status).toBe('retirada');
+
+    const imagensDB = await knex('imagens')
+      .where({
+        uuid_referencia: encomendaComImagemUuid,
+        tabela_referencia: 'encomendas',
+      })
+      .whereNull('deleted_at')
+      .select('*');
+
+    expect(imagensDB).toHaveLength(2);
+    expect(
+      imagensDB.some((imagem) => imagem.status_momento_captura === 'recebida'),
+    ).toBe(true);
+    expect(
+      imagensDB.some((imagem) => imagem.status_momento_captura === 'retirada'),
+    ).toBe(true);
+    expect(imagensDB.every((imagem) => imagem.tipo === 'jpeg')).toBe(true);
+  });
+
   it('GET /encomendas/:id deve incluir o array imagens no retorno com a imagem criada', async () => {
     const res = await auth(
       portariaToken,
@@ -626,7 +669,7 @@ describe('ImagensModule (e2e)', () => {
 
     expect(res.body.uuid).toBe(encomendaComImagemUuid);
     expect(Array.isArray(res.body.imagens)).toBe(true);
-    expect(res.body.imagens).toHaveLength(1);
+    expect(res.body.imagens).toHaveLength(2);
     expect(res.body.imagens[0].tipo).toBe('jpeg');
     expect(res.body.imagens[0].nome_original).toBe('encomenda_test.jpeg');
     expect(res.body.imagens[0].uuid_referencia).toBe(encomendaComImagemUuid);

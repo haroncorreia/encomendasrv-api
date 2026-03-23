@@ -759,6 +759,7 @@ export class EncomendasService {
           metadados: dto.imagem,
           uuidReferencia: uuid,
           tabelaReferencia: TABLE,
+          statusMomentoCaptura: EncomendaStatus.RECEBIDA,
           actorEmail: user.email,
         },
         trx,
@@ -949,6 +950,20 @@ export class EncomendasService {
         updated_at: new Date(),
         updated_by: user.email,
       });
+
+      if (dto.imagem_base64 && dto.imagem) {
+        await this.imagensService.salvarDeBase64(
+          {
+            imagemBase64: dto.imagem_base64,
+            metadados: dto.imagem,
+            uuidReferencia: uuid,
+            tabelaReferencia: TABLE,
+            statusMomentoCaptura: EncomendaStatus.RETIRADA,
+            actorEmail: user.email,
+          },
+          trx,
+        );
+      }
     } else {
       await qb<Encomenda>(TABLE).where({ uuid }).update({
         status: dto.status,

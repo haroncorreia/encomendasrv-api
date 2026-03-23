@@ -29,6 +29,7 @@ export interface SalvarImagemBase64Params {
   metadados: ImagemMetadadosDto;
   uuidReferencia: string;
   tabelaReferencia: string;
+  statusMomentoCaptura?: string | null;
   actorEmail: string;
 }
 
@@ -50,6 +51,7 @@ interface PersistirParams {
   caminho: string;
   uuidReferencia: string;
   tabelaReferencia: string;
+  statusMomentoCaptura: string | null;
   actorEmail: string;
 }
 
@@ -98,6 +100,7 @@ export class ImagensService {
       uuidReferencia,
       tabelaReferencia,
       actorEmail,
+      statusMomentoCaptura,
     } = params;
 
     const tipoNormalizado = this.normalizarTipo(metadados.tipo);
@@ -138,6 +141,7 @@ export class ImagensService {
           caminho: caminhoRel,
           uuidReferencia,
           tabelaReferencia,
+          statusMomentoCaptura: statusMomentoCaptura ?? null,
           actorEmail,
         },
         trx,
@@ -175,6 +179,7 @@ export class ImagensService {
         caminho: caminhoRel,
         uuidReferencia,
         tabelaReferencia,
+        statusMomentoCaptura: null,
         actorEmail,
       },
       trx,
@@ -203,6 +208,7 @@ export class ImagensService {
       accuracy: params.coordenadas?.accuracy ?? null,
       caminho: params.caminho,
       created_by: params.actorEmail,
+      status_momento_captura: params.statusMomentoCaptura,
       updated_by: params.actorEmail,
     });
 

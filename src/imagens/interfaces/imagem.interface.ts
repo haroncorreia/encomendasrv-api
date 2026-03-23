@@ -5,6 +5,7 @@ export interface Imagem {
   nome_arquivo: string;
   nome_original: string;
   tipo: string;
+  status_momento_captura: string | null;
   tamanho: number;
   altura: number | null;
   largura: number | null;
