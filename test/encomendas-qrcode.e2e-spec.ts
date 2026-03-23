@@ -333,7 +333,7 @@ describe('Encomendas QRCode (e2e)', () => {
     ).expect(400);
   });
 
-  it('POST /encomendas/ler-qrcode deve impedir entrega de encomenda retirada ou cancelada', async () => {
+  it('POST /encomendas/ler-qrcode deve retornar informações mesmo para encomenda retirada ou cancelada', async () => {
     const tokenRetirada = jwtService.sign(
       {
         tipo: 'retirada',
@@ -360,22 +360,27 @@ describe('Encomendas QRCode (e2e)', () => {
       },
     );
 
-    await auth(
+    const retiradaRes = await auth(
       portariaToken,
       request(app.getHttpServer())
         .post(`${BASE_URL}/ler-qrcode`)
         .send({ token: tokenRetirada }),
-    ).expect(400);
+    ).expect(201);
 
-    await auth(
+    const canceladaRes = await auth(
       portariaToken,
       request(app.getHttpServer())
         .post(`${BASE_URL}/ler-qrcode`)
         .send({ token: tokenCancelada }),
-    ).expect(400);
+    ).expect(201);
+
+    expect(retiradaRes.body.uuid).toBe(UUID_ENCOMENDA_MORADOR_RETIRADA);
+    expect(retiradaRes.body.status).toBe('retirada');
+    expect(canceladaRes.body.uuid).toBe(UUID_ENCOMENDA_ADMIN_CANCELADA);
+    expect(canceladaRes.body.status).toBe('cancelada');
   });
 
-  it('POST /encomendas/ler-qrcode deve processar entrega com sucesso e registrar usuário que entregou', async () => {
+  it('POST /encomendas/ler-qrcode deve apenas ler QRCode sem registrar retirada', async () => {
     const created = await auth(
       moradorToken,
       request(app.getHttpServer())
@@ -396,24 +401,25 @@ describe('Encomendas QRCode (e2e)', () => {
       ),
     ).expect(201);
 
-    const delivered = await auth(
+    const leitura = await auth(
       portariaToken,
       request(app.getHttpServer())
         .post(`${BASE_URL}/ler-qrcode`)
         .send({ token: generated.body.token }),
     ).expect(201);
 
-    expect(delivered.body.uuid).toBe(uuidEncomenda);
-    expect(delivered.body.status).toBe('retirada');
-    expect(delivered.body.entregue_por_uuid_usuario).toBe(UUID_PORTARIA);
-    expect(delivered.body.entregue_em).toBeTruthy();
+    expect(leitura.body.uuid).toBe(uuidEncomenda);
+    expect(leitura.body.status).toBe('prevista');
+    expect(leitura.body.entregue_por_uuid_usuario).toBeNull();
+    expect(leitura.body.entregue_em).toBeNull();
 
     const registro = await knex('encomendas')
       .where({ uuid: uuidEncomenda })
       .first();
 
     expect(registro).toBeDefined();
-    expect(registro.status).toBe('retirada');
-    expect(registro.entregue_por_uuid_usuario).toBe(UUID_PORTARIA);
+    expect(registro.status).toBe('prevista');
+    expect(registro.entregue_por_uuid_usuario).toBeNull();
+    expect(registro.entregue_em).toBeNull();
   });
 });

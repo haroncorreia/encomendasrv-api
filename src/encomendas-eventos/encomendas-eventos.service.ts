@@ -22,7 +22,9 @@ export class EncomendasEventosService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   private scopedQuery(user: JwtPayload, trx?: Knex.Transaction) {
-    const qb = (trx ?? this.knex)<EncomendaEvento>(TABLE).whereNull('deleted_at');
+    const qb = (trx ?? this.knex)<EncomendaEvento>(TABLE).whereNull(
+      'deleted_at',
+    );
 
     if (user.perfil === Perfil.MORADOR) {
       qb.andWhere('uuid_usuario', user.sub);

@@ -554,9 +554,9 @@ export class EncomendasService {
 
   async readQrCodeToken(
     dto: LerQrCodeEncomendaDto,
-    user: JwtPayload,
+    _user: JwtPayload,
     trx?: Knex.Transaction,
-  ): Promise<Encomenda> {
+  ): Promise<EncomendaComRelacionamentos> {
     const qb = trx ?? this.knex;
     const payload = this.verifyQrCodeToken(dto.token);
 
@@ -602,47 +602,11 @@ export class EncomendasService {
       );
     }
 
-    if (
-      encomenda.status === EncomendaStatus.RETIRADA ||
-      encomenda.status === EncomendaStatus.CANCELADA
-    ) {
-      throw new BadRequestException(
-        'A encomenda não pode ser entregue pois já está retirada ou cancelada.',
-      );
-    }
+    const [encomendaComRelacionamentos] = await this.enrichWithRelacionamentos([
+      encomenda,
+    ]);
 
-    await qb<Encomenda>(TABLE).where({ uuid: encomenda.uuid }).update({
-      status: EncomendaStatus.RETIRADA,
-      entregue_em: new Date(),
-      entregue_por_uuid_usuario: user.sub,
-      updated_at: new Date(),
-      updated_by: user.email,
-    });
-
-    await this.registerStatusEvent(
-      {
-        uuid_encomenda: encomenda.uuid,
-        uuid_usuario: encomenda.uuid_usuario,
-        status: EncomendaStatus.RETIRADA,
-        acao: 'atualizada',
-        actorEmail: user.email,
-      },
-      trx,
-    );
-
-    await this.registerStatusNotification(
-      {
-        uuid_encomenda: encomenda.uuid,
-        uuid_usuario: encomenda.uuid_usuario,
-        status: EncomendaStatus.RETIRADA,
-        acao: 'atualizada',
-        actorEmail: user.email,
-        actorPerfil: user.perfil,
-      },
-      trx,
-    );
-
-    return this.findActiveByUuid(encomenda.uuid, trx);
+    return encomendaComRelacionamentos;
   }
 
   async create(

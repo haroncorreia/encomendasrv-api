@@ -97,7 +97,7 @@ export class EncomendasController {
         {
           ctx,
           user_mail: user.email,
-          description: `Entrega de encomenda processada via QRCode. (uuid: ${encomenda.uuid})`,
+          description: `Leitura de QRCode de encomenda realizada. (uuid: ${encomenda.uuid})`,
         },
         trx,
       );
