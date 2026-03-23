@@ -902,13 +902,79 @@ export class EncomendasService {
     trx?: Knex.Transaction,
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
-    await this.findActiveByUuid(uuid, trx);
-    const usuarioEncomenda = await this.knex<Encomenda>(TABLE)
-      .where({ uuid })
-      .first('uuid_usuario');
+    const encomenda = await this.findActiveByUuid(uuid, trx);
+    const usuarioEncomenda = encomenda.uuid_usuario;
 
-    if (!usuarioEncomenda) {
-      throw new NotFoundException(`Encomenda com uuid ${uuid} não encontrada.`);
+    if (dto.status === EncomendaStatus.RECEBIDA) {
+      if (encomenda.status !== EncomendaStatus.PREVISTA) {
+        throw new BadRequestException(
+          'A encomenda só pode ser marcada como recebida quando estiver com status prevista.',
+        );
+      }
+
+      const now = new Date();
+
+      await qb<Encomenda>(TABLE).where({ uuid }).update({
+        status: EncomendaStatus.RECEBIDA,
+        recebido_em: now,
+        recebido_por_uuid_usuario: user.sub,
+        updated_at: now,
+        updated_by: user.email,
+      });
+
+      await this.registerStatusEvent(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: usuarioEncomenda,
+          status: EncomendaStatus.RECEBIDA,
+          acao: 'atualizada',
+          actorEmail: user.email,
+        },
+        trx,
+      );
+
+      await this.registerStatusNotification(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: usuarioEncomenda,
+          status: EncomendaStatus.RECEBIDA,
+          acao: 'atualizada',
+          actorEmail: user.email,
+          actorPerfil: user.perfil,
+        },
+        trx,
+      );
+
+      await qb<Encomenda>(TABLE).where({ uuid }).update({
+        status: EncomendaStatus.AGUARDANDO_RETIRADA,
+        updated_at: new Date(),
+        updated_by: user.email,
+      });
+
+      await this.registerStatusEvent(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: usuarioEncomenda,
+          status: EncomendaStatus.AGUARDANDO_RETIRADA,
+          acao: 'atualizada',
+          actorEmail: user.email,
+        },
+        trx,
+      );
+
+      await this.registerStatusNotification(
+        {
+          uuid_encomenda: uuid,
+          uuid_usuario: usuarioEncomenda,
+          status: EncomendaStatus.AGUARDANDO_RETIRADA,
+          acao: 'atualizada',
+          actorEmail: user.email,
+          actorPerfil: user.perfil,
+        },
+        trx,
+      );
+
+      return this.findActiveByUuid(uuid, trx);
     }
 
     if (dto.status === EncomendaStatus.RETIRADA) {
@@ -930,7 +996,7 @@ export class EncomendasService {
     await this.registerStatusEvent(
       {
         uuid_encomenda: uuid,
-        uuid_usuario: usuarioEncomenda.uuid_usuario,
+        uuid_usuario: usuarioEncomenda,
         status: dto.status,
         acao: 'atualizada',
         actorEmail: user.email,
@@ -941,7 +1007,7 @@ export class EncomendasService {
     await this.registerStatusNotification(
       {
         uuid_encomenda: uuid,
-        uuid_usuario: usuarioEncomenda.uuid_usuario,
+        uuid_usuario: usuarioEncomenda,
         status: dto.status,
         acao: 'atualizada',
         actorEmail: user.email,

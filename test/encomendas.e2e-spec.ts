@@ -454,7 +454,7 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(201);
 
     expect(res.body.uuid_usuario).toBe(UUID_ADMIN);
-    expect(res.body.status).toBe('recebida');
+    expect(res.body.status).toBe('aguardando retirada');
     expect(res.body.recebido_por_uuid_usuario).toBe(UUID_PORTARIA);
 
     encomendaAdminUuid = res.body.uuid as string;
@@ -527,6 +527,44 @@ describe('EncomendasModule (e2e)', () => {
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
         .send({ status: 'prevista' }),
+    ).expect(400);
+  });
+
+  it('PATCH /encomendas/:id/update-status deve atualizar para recebida apenas quando estiver prevista e em seguida para aguardando retirada', async () => {
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${encomendaMoradorUuid}/update-status`)
+        .send({ status: 'recebida' }),
+    ).expect(200);
+
+    expect(res.body.status).toBe('aguardando retirada');
+    expect(res.body.recebido_por_uuid_usuario).toBe(UUID_PORTARIA);
+    expect(res.body.recebido_em).toBeTruthy();
+
+    const [eventoRecebida, eventoAguardando] = await Promise.all([
+      knex('encomendas_eventos')
+        .where({ uuid_encomenda: encomendaMoradorUuid })
+        .where('evento', 'like', '%status recebida%')
+        .whereNull('deleted_at')
+        .first('uuid'),
+      knex('encomendas_eventos')
+        .where({ uuid_encomenda: encomendaMoradorUuid })
+        .where('evento', 'like', '%status aguardando retirada%')
+        .whereNull('deleted_at')
+        .first('uuid'),
+    ]);
+
+    expect(eventoRecebida).toBeTruthy();
+    expect(eventoAguardando).toBeTruthy();
+  });
+
+  it('PATCH /encomendas/:id/update-status deve rejeitar recebida quando status atual não for prevista', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
+        .send({ status: 'recebida' }),
     ).expect(400);
   });
 
