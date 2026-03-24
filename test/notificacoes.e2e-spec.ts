@@ -15,6 +15,7 @@ const AUTH_BASE = '/authenticate';
 const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
 const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
 const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
+let UUID_SUPER: string;
 let UUID_ENCOMENDA_MORADOR: string;
 let UUID_SEED_NOTIFICACAO_PORTARIA: string;
 let UUID_SEED_NOTIFICACAO_ADMIN: string;
@@ -60,6 +61,12 @@ describe('NotificacoesModule (e2e)', () => {
     adminToken = await signIn('admin@recantoverdeac.com.br');
     portariaToken = await signIn('portaria@recantoverdeac.com.br');
     moradorToken = await signIn('morador1@recantoverdeac.com.br');
+
+    const superUser = await knex('usuarios')
+      .where({ email: 'haroncorreia@hotmail.com' })
+      .whereNull('deleted_at')
+      .first('uuid');
+    UUID_SUPER = superUser.uuid as string;
 
     // Fixtures: seeds 05/06/07 no longer insert encomenda/notificacao records
     const encResp = await auth(
@@ -229,6 +236,219 @@ describe('NotificacoesModule (e2e)', () => {
         `${BASE_URL}/${UUID_SEED_NOTIFICACAO_ADMIN}`,
       ),
     ).expect(403);
+  });
+
+  it('GET /notificacoes/not-read deve retornar apenas notificações não lidas vinculadas ao usuário autenticado', async () => {
+    const uuidMoradorUnread = randomUUID();
+    const uuidMoradorRead = randomUUID();
+    const uuidPortariaUnread = randomUUID();
+    const uuidAdminUnread = randomUUID();
+    const uuidSuperUnread = randomUUID();
+
+    await knex('notificacoes').insert([
+      {
+        uuid: uuidMoradorUnread,
+        uuid_usuario: UUID_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Unread morador',
+        mensagem: 'Notificação não lida do morador',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: uuidMoradorRead,
+        uuid_usuario: UUID_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Read morador',
+        mensagem: 'Notificação já lida do morador',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: uuidPortariaUnread,
+        uuid_usuario: UUID_PORTARIA,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Unread portaria',
+        mensagem: 'Notificação não lida da portaria',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: uuidAdminUnread,
+        uuid_usuario: UUID_ADMIN,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Unread admin',
+        mensagem: 'Notificação não lida do admin',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: uuidSuperUnread,
+        uuid_usuario: UUID_SUPER,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Unread super',
+        mensagem: 'Notificação não lida do super',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+    ]);
+
+    await request(app.getHttpServer()).get(`${BASE_URL}/not-read`).expect(401);
+
+    const moradorRes = await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/not-read`),
+    ).expect(200);
+    expect(
+      moradorRes.body.every(
+        (item: { uuid_usuario: string; lido_em: string | null }) =>
+          item.uuid_usuario === UUID_MORADOR && item.lido_em === null,
+      ),
+    ).toBe(true);
+    expect(
+      moradorRes.body.some(
+        (item: { uuid: string }) => item.uuid === uuidMoradorUnread,
+      ),
+    ).toBe(true);
+    expect(
+      moradorRes.body.some(
+        (item: { uuid: string }) => item.uuid === uuidMoradorRead,
+      ),
+    ).toBe(false);
+
+    const portariaRes = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/not-read`),
+    ).expect(200);
+    expect(
+      portariaRes.body.every(
+        (item: { uuid_usuario: string; lido_em: string | null }) =>
+          item.uuid_usuario === UUID_PORTARIA && item.lido_em === null,
+      ),
+    ).toBe(true);
+    expect(
+      portariaRes.body.some(
+        (item: { uuid: string }) => item.uuid === uuidPortariaUnread,
+      ),
+    ).toBe(true);
+
+    const adminRes = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/not-read`),
+    ).expect(200);
+    expect(
+      adminRes.body.every(
+        (item: { uuid_usuario: string; lido_em: string | null }) =>
+          item.uuid_usuario === UUID_ADMIN && item.lido_em === null,
+      ),
+    ).toBe(true);
+    expect(
+      adminRes.body.some(
+        (item: { uuid: string }) => item.uuid === uuidAdminUnread,
+      ),
+    ).toBe(true);
+
+    const superRes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/not-read`),
+    ).expect(200);
+    expect(
+      superRes.body.every(
+        (item: { uuid_usuario: string; lido_em: string | null }) =>
+          item.uuid_usuario === UUID_SUPER && item.lido_em === null,
+      ),
+    ).toBe(true);
+    expect(
+      superRes.body.some(
+        (item: { uuid: string }) => item.uuid === uuidSuperUnread,
+      ),
+    ).toBe(true);
+  });
+
+  it('PATCH /notificacoes/:id/read deve registrar lido_em e respeitar vínculo para portaria e morador', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/invalido/read`),
+    ).expect(400);
+
+    const uuidMorador = randomUUID();
+    const uuidAdmin = randomUUID();
+
+    await knex('notificacoes').insert([
+      {
+        uuid: uuidMorador,
+        uuid_usuario: UUID_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Leitura morador',
+        mensagem: 'Notificação para marcar leitura pelo morador',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+      {
+        uuid: uuidAdmin,
+        uuid_usuario: UUID_ADMIN,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Leitura admin',
+        mensagem: 'Notificação de terceiro para teste de bloqueio',
+        canal: 'app',
+        enviado_em: new Date(),
+        lido_em: null,
+        created_by: 'test',
+        updated_by: 'test',
+      },
+    ]);
+
+    await request(app.getHttpServer())
+      .patch(`${BASE_URL}/${uuidMorador}/read`)
+      .expect(401);
+
+    const moradorRead = await auth(
+      moradorToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${uuidMorador}/read`),
+    ).expect(200);
+
+    expect(moradorRead.body.uuid).toBe(uuidMorador);
+    expect(moradorRead.body.uuid_usuario).toBe(UUID_MORADOR);
+    expect(moradorRead.body.lido_em).toBeTruthy();
+
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${uuidAdmin}/read`),
+    ).expect(403);
+
+    const adminRead = await auth(
+      adminToken,
+      request(app.getHttpServer()).patch(`${BASE_URL}/${uuidAdmin}/read`),
+    ).expect(200);
+
+    expect(adminRead.body.uuid).toBe(uuidAdmin);
+    expect(adminRead.body.uuid_usuario).toBe(UUID_ADMIN);
+    expect(adminRead.body.lido_em).toBeTruthy();
   });
 
   it('PATCH /notificacoes/:id/restore deve permitir apenas super e admin e validar UUID', async () => {

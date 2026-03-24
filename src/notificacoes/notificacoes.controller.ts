@@ -51,12 +51,43 @@ export class NotificacoesController {
     return this.notificacoesService.findByFilters(filters, user);
   }
 
+  @Get('not-read')
+  findNotRead(@CurrentUser() user: JwtPayload) {
+    return this.notificacoesService.findNotRead(user);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.notificacoesService.findOne(id, user);
+  }
+
+  @Patch(':id/read')
+  markAsRead(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const notificacao = await this.notificacoesService.markAsRead(
+        id,
+        user,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Notificação marcada como lida. (uuid: ${id})`,
+        },
+        trx,
+      );
+
+      return notificacao;
+    });
   }
 
   @Patch(':id/restore')

@@ -362,10 +362,37 @@ export class NotificacoesService {
     return query.orderBy('created_at', 'desc').offset(offset).limit(limit);
   }
 
+  async findNotRead(user: JwtPayload): Promise<Notificacao[]> {
+    return this.knex<Notificacao>(TABLE)
+      .whereNull('deleted_at')
+      .andWhere('uuid_usuario', user.sub)
+      .whereNull('lido_em')
+      .orderBy('created_at', 'desc')
+      .select('*');
+  }
+
   async findOne(uuid: string, user: JwtPayload): Promise<Notificacao> {
     const notificacao = await this.findActiveByUuid(uuid);
     this.assertReadAccess(notificacao, user);
     return notificacao;
+  }
+
+  async markAsRead(
+    uuid: string,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<Notificacao> {
+    const qb = trx ?? this.knex;
+    const notificacao = await this.findActiveByUuid(uuid, trx);
+    this.assertWriteAccess(notificacao, user);
+
+    await qb<Notificacao>(TABLE).where({ uuid }).update({
+      lido_em: new Date(),
+      updated_at: new Date(),
+      updated_by: user.email,
+    });
+
+    return this.findActiveByUuid(uuid, trx);
   }
 
   async restore(
