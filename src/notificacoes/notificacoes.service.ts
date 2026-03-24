@@ -352,8 +352,12 @@ export class NotificacoesService {
   ): Promise<Notificacao[]> {
     const { offset, limit } = this.resolvePagination(filters);
     const query = this.scopedQuery(user).select('*');
+    const effectiveFilters: FilterNotificacoesDto =
+      user.perfil === Perfil.MORADOR
+        ? { ...filters, uuid_usuario: user.sub }
+        : filters;
 
-    this.applyFilters(query, filters);
+    this.applyFilters(query, effectiveFilters);
 
     return query.orderBy('created_at', 'desc').offset(offset).limit(limit);
   }

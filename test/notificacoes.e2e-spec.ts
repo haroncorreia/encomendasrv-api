@@ -18,6 +18,7 @@ const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
 let UUID_ENCOMENDA_MORADOR: string;
 let UUID_SEED_NOTIFICACAO_PORTARIA: string;
 let UUID_SEED_NOTIFICACAO_ADMIN: string;
+let UUID_SEED_NOTIFICACAO_MORADOR: string;
 
 describe('NotificacoesModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -72,6 +73,7 @@ describe('NotificacoesModule (e2e)', () => {
 
     UUID_SEED_NOTIFICACAO_PORTARIA = randomUUID();
     UUID_SEED_NOTIFICACAO_ADMIN = randomUUID();
+    UUID_SEED_NOTIFICACAO_MORADOR = randomUUID();
     await knex('notificacoes').insert([
       {
         uuid: UUID_SEED_NOTIFICACAO_PORTARIA,
@@ -97,6 +99,18 @@ describe('NotificacoesModule (e2e)', () => {
         created_by: 'test',
         updated_by: 'test',
       },
+      {
+        uuid: UUID_SEED_NOTIFICACAO_MORADOR,
+        uuid_usuario: UUID_MORADOR,
+        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        tipo: 'ALERTA_SISTEMA',
+        titulo: 'Notificação fixture morador',
+        mensagem: 'Fixture para teste de escopo de morador',
+        canal: 'app',
+        enviado_em: new Date(),
+        created_by: 'test',
+        updated_by: 'test',
+      },
     ]);
   });
 
@@ -112,7 +126,7 @@ describe('NotificacoesModule (e2e)', () => {
     await request(app.getHttpServer()).get(BASE_URL).expect(401);
   });
 
-  it('GET /notificacoes deve permitir apenas super e admin com limite padrão de 50', async () => {
+  it('GET /notificacoes deve permitir super, admin e morador com limite padrão de 50 e escopo por perfil', async () => {
     for (let i = 1; i <= 55; i++) {
       await knex('notificacoes').insert({
         uuid: randomUUID(),
@@ -128,9 +142,12 @@ describe('NotificacoesModule (e2e)', () => {
       });
     }
 
-    const [superRes, adminRes] = await Promise.all([
+    const [superRes, adminRes, moradorRes] = await Promise.all([
       auth(superToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
       auth(adminToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
+      auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+        200,
+      ),
     ]);
 
     expect(superRes.body).toHaveLength(50);
@@ -140,14 +157,22 @@ describe('NotificacoesModule (e2e)', () => {
         item.titulo.startsWith('PAGINACAO_NOTIFICACOES_'),
       ),
     ).toBe(true);
+    expect(moradorRes.body.length).toBeGreaterThan(0);
+    expect(
+      moradorRes.body.every(
+        (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
+      ),
+    ).toBe(true);
+    expect(
+      moradorRes.body.some(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_MORADOR,
+      ),
+    ).toBe(true);
 
     await auth(
       portariaToken,
       request(app.getHttpServer()).get(BASE_URL),
     ).expect(403);
-    await auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
-      403,
-    );
   });
 
   it('GET /notificacoes/filter deve aplicar filtros e escopo por perfil', async () => {
@@ -168,9 +193,15 @@ describe('NotificacoesModule (e2e)', () => {
         .query({ uuid_usuario: UUID_ADMIN }),
     ).expect(200);
 
+    expect(moradorRes.body.length).toBeGreaterThan(0);
     expect(
       moradorRes.body.every(
         (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
+      ),
+    ).toBe(true);
+    expect(
+      moradorRes.body.some(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_MORADOR,
       ),
     ).toBe(true);
   });
