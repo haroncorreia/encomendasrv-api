@@ -51,6 +51,8 @@ type EncomendaComRelacionamentos = Encomenda & {
   condominio: Condominio | null;
   unidade: Unidade | null;
   usuario: UsuarioEncomendaInfo | null;
+  recebido_por_usuario: UsuarioEncomendaInfo | null;
+  entregue_por_usuario: UsuarioEncomendaInfo | null;
   transportadora: Transportadora | null;
   imagens: Imagem[];
 };
@@ -409,6 +411,19 @@ export class EncomendasService {
     const uuidUsuarios = Array.from(
       new Set(encomendas.map((item) => item.uuid_usuario)),
     );
+    const uuidUsuariosRecebimentoOuEntrega = Array.from(
+      new Set(
+        encomendas
+          .flatMap((item) => [
+            item.recebido_por_uuid_usuario,
+            item.entregue_por_uuid_usuario,
+          ])
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    const uuidUsuariosRelacionados = Array.from(
+      new Set([...uuidUsuarios, ...uuidUsuariosRecebimentoOuEntrega]),
+    );
     const uuidTransportadoras = Array.from(
       new Set(
         encomendas
@@ -431,7 +446,7 @@ export class EncomendasService {
           .whereNull('deleted_at')
           .select('*'),
         qb<Usuario>('usuarios')
-          .whereIn('uuid', uuidUsuarios)
+          .whereIn('uuid', uuidUsuariosRelacionados)
           .whereNull('deleted_at')
           .select(
             'uuid',
@@ -479,6 +494,12 @@ export class EncomendasService {
       condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
       unidade: unidadesByUuid.get(item.uuid_unidade) ?? null,
       usuario: usuariosByUuid.get(item.uuid_usuario) ?? null,
+      recebido_por_usuario: item.recebido_por_uuid_usuario
+        ? (usuariosByUuid.get(item.recebido_por_uuid_usuario) ?? null)
+        : null,
+      entregue_por_usuario: item.entregue_por_uuid_usuario
+        ? (usuariosByUuid.get(item.entregue_por_uuid_usuario) ?? null)
+        : null,
       transportadora: item.uuid_transportadora
         ? (transportadorasByUuid.get(item.uuid_transportadora) ?? null)
         : null,

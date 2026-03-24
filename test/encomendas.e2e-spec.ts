@@ -143,12 +143,22 @@ describe('EncomendasModule (e2e)', () => {
       const itemComRelacionamentos = res.body.find(
         (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
       );
+      const itemRecebido = res.body.find(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_RECEBIDA_ADMIN,
+      );
+      const itemRetirado = res.body.find(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_RETIRADA_MORADOR,
+      );
 
       expect(itemComRelacionamentos).toBeDefined();
       expect(itemComRelacionamentos.condominio).toBeDefined();
       expect(itemComRelacionamentos.usuario).toBeDefined();
       expect(itemComRelacionamentos.transportadora).toBeDefined();
       expect(itemComRelacionamentos.usuario.senha).toBeUndefined();
+      expect(itemRecebido.recebido_por_usuario).toBeDefined();
+      expect(itemRecebido.recebido_por_usuario.uuid).toBe(UUID_PORTARIA);
+      expect(itemRetirado.entregue_por_usuario).toBeDefined();
+      expect(itemRetirado.entregue_por_usuario.uuid).toBe(UUID_PORTARIA);
       expect(
         res.body.some(
           (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
@@ -311,6 +321,8 @@ describe('EncomendasModule (e2e)', () => {
     expect(ownRes.body.usuario).toBeDefined();
     expect(ownRes.body.usuario.uuid).toBe(ownRes.body.uuid_usuario);
     expect(ownRes.body.usuario.senha).toBeUndefined();
+    expect(ownRes.body.recebido_por_usuario).toBeNull();
+    expect(ownRes.body.entregue_por_usuario).toBeNull();
     if (ownRes.body.uuid_transportadora) {
       expect(ownRes.body.transportadora).toBeDefined();
       expect(ownRes.body.transportadora.uuid).toBe(
