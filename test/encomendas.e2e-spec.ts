@@ -235,6 +235,12 @@ describe('EncomendasModule (e2e)', () => {
         (item: { uuid: string }) => item.uuid === UUID_SEED_RECEBIDA_ADMIN,
       ),
     ).toBe(false);
+
+    for (let i = 1; i < res.body.length; i++) {
+      const current = new Date(res.body[i - 1].created_at).getTime();
+      const next = new Date(res.body[i].created_at).getTime();
+      expect(current).toBeGreaterThanOrEqual(next);
+    }
   });
 
   it('GET /encomendas/filter deve aplicar filtros para perfis com visão total', async () => {
@@ -248,6 +254,44 @@ describe('EncomendasModule (e2e)', () => {
     expect(res.body).toHaveLength(1);
     expect(res.body[0].uuid).toBe(UUID_SEED_CANCELADA_SHP321);
     expect(res.body[0].status).toBe('cancelada');
+  });
+
+  it('GET /encomendas/previstas deve permitir apenas portaria e retornar apenas status prevista', async () => {
+    await request(app.getHttpServer()).get(`${BASE_URL}/previstas`).expect(401);
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/previstas`),
+    ).expect(403);
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/previstas`),
+    ).expect(403);
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/previstas`),
+    ).expect(403);
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/previstas`),
+    ).expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(
+      res.body.every((item: { status: string }) => item.status === 'prevista'),
+    ).toBe(true);
+    expect(
+      res.body.some(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
+      ),
+    ).toBe(true);
+    expect(
+      res.body.some(
+        (item: { uuid: string }) => item.uuid === UUID_SEED_RECEBIDA_ADMIN,
+      ),
+    ).toBe(false);
   });
 
   it('GET /encomendas/filter deve usar limite padrão de 50 registros', async () => {

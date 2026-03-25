@@ -539,6 +539,17 @@ export class EncomendasService {
     return this.enrichWithRelacionamentos(encomendas);
   }
 
+  async findPrevistas(
+    user: JwtPayload,
+  ): Promise<EncomendaComRelacionamentos[]> {
+    const encomendas = await this.scopedQuery(user)
+      .andWhere('status', EncomendaStatus.PREVISTA)
+      .select('*')
+      .orderBy('created_at', 'desc');
+
+    return this.enrichWithRelacionamentos(encomendas);
+  }
+
   async findOne(
     uuid: string,
     user: JwtPayload,
@@ -907,6 +918,20 @@ export class EncomendasService {
         updated_at: now,
         updated_by: user.email,
       });
+
+      if (dto.imagem_base64 && dto.imagem) {
+        await this.imagensService.salvarDeBase64(
+          {
+            imagemBase64: dto.imagem_base64,
+            metadados: dto.imagem,
+            uuidReferencia: uuid,
+            tabelaReferencia: TABLE,
+            statusMomentoCaptura: EncomendaStatus.RECEBIDA,
+            actorEmail: user.email,
+          },
+          trx,
+        );
+      }
 
       await this.registerStatusEvent(
         {

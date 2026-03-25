@@ -62,6 +62,12 @@ export class EncomendasController {
     return this.encomendasService.findByFilters(filters, user);
   }
 
+  @Get('previstas')
+  @Roles(Perfil.PORTARIA)
+  findPrevistas(@CurrentUser() user: JwtPayload) {
+    return this.encomendasService.findPrevistas(user);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPtPipe) id: string,
