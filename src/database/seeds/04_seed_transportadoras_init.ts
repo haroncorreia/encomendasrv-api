@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import type { Knex } from 'knex';
 
 export async function seed(knex: Knex): Promise<void> {
@@ -5,7 +6,7 @@ export async function seed(knex: Knex): Promise<void> {
 
   await knex('transportadoras').insert([
     {
-      uuid: '70000000-0000-4000-8000-000000000001',
+      uuid: uuidv4(),
       nome: 'Correios',
       created_by: 'seed',
       updated_by: 'seed',
@@ -13,7 +14,7 @@ export async function seed(knex: Knex): Promise<void> {
       deleted_by: null,
     },
     {
-      uuid: '70000000-0000-4000-8000-000000000002',
+      uuid: uuidv4(),
       nome: 'Amazon',
       created_by: 'seed',
       updated_by: 'seed',
@@ -21,7 +22,7 @@ export async function seed(knex: Knex): Promise<void> {
       deleted_by: null,
     },
     {
-      uuid: '70000000-0000-4000-8000-000000000003',
+      uuid: uuidv4(),
       nome: 'Mercado Livre',
       created_by: 'seed',
       updated_by: 'seed',
@@ -29,7 +30,7 @@ export async function seed(knex: Knex): Promise<void> {
       deleted_by: null,
     },
     {
-      uuid: '70000000-0000-4000-8000-000000000004',
+      uuid: uuidv4(),
       nome: 'Shopee',
       created_by: 'seed',
       updated_by: 'seed',
@@ -37,7 +38,7 @@ export async function seed(knex: Knex): Promise<void> {
       deleted_by: null,
     },
     {
-      uuid: '70000000-0000-4000-8000-000000000005',
+      uuid: uuidv4(),
       nome: 'Jadlog',
       created_by: 'seed',
       updated_by: 'seed',
@@ -45,7 +46,7 @@ export async function seed(knex: Knex): Promise<void> {
       deleted_by: null,
     },
     {
-      uuid: '70000000-0000-4000-8000-000000000006',
+      uuid: uuidv4(),
       nome: 'Loggi',
       created_by: 'seed',
       updated_by: 'seed',

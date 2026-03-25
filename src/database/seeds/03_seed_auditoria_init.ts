@@ -1,10 +1,11 @@
 import type { Knex } from 'knex';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function seed(knex: Knex): Promise<void> {
   await knex('auditoria').del();
 
   await knex('auditoria').insert({
-    uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    uuid: uuidv4(),
     method: 'SYSTEM',
     route: '/audit/init',
     params: JSON.stringify({ origem: 'seed' }),

@@ -8,8 +8,8 @@ export async function up(knex: Knex): Promise<void> {
     table.string('nome', 255).notNullable();
     table.string('cpf', 11).notNullable().unique();
     table.string('rg', 15).nullable().unique();
-    table.string('email', 255).notNullable().unique();
-    table.string('celular', 11).notNullable().unique();
+    table.string('email', 255).nullable().unique();
+    table.string('celular', 11).nullable().unique();
     table.string('senha', 255).notNullable();
     table
       .enum('perfil', ['super', 'admin', 'portaria', 'morador'])
