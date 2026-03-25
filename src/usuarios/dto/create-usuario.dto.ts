@@ -2,6 +2,7 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
+  MaxLength,
   IsOptional,
   IsString,
   Matches,
@@ -15,6 +16,17 @@ export class CreateUsuarioDto {
     message: 'Informe o nome e o sobrenome.',
   })
   nome: string;
+
+  @IsNotEmpty({ message: 'O CPF é obrigatório.' })
+  @Matches(/^\d{11}$/, {
+    message: 'O CPF deve conter exatamente 11 dígitos numéricos.',
+  })
+  cpf: string;
+
+  @IsOptional()
+  @IsString({ message: 'O RG deve ser válido.' })
+  @MaxLength(15, { message: 'O RG deve conter no máximo 15 caracteres.' })
+  rg?: string | null;
 
   @IsNotEmpty({ message: 'O e-mail é obrigatório.' })
   @IsEmail({}, { message: 'Informe um e-mail válido.' })

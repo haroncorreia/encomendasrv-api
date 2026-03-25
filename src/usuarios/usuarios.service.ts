@@ -220,6 +220,20 @@ export class UsuariosService {
       throw new ConflictException('Já existe um usuário com este celular.');
     }
 
+    const cpfEmUso = await qb<Usuario>(TABLE).where({ cpf: dto.cpf }).first();
+
+    if (cpfEmUso) {
+      throw new ConflictException('Já existe um usuário com este CPF.');
+    }
+
+    if (dto.rg) {
+      const rgEmUso = await qb<Usuario>(TABLE).where({ rg: dto.rg }).first();
+
+      if (rgEmUso) {
+        throw new ConflictException('Já existe um usuário com este RG.');
+      }
+    }
+
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
 
     let uuid_condominio: string | null = null;
@@ -250,6 +264,8 @@ export class UsuariosService {
       uuid_condominio,
       uuid_unidade,
       nome: dto.nome,
+      cpf: dto.cpf,
+      rg: dto.rg ?? null,
       email: dto.email,
       celular: dto.celular,
       senha: senhaHash,
@@ -311,8 +327,38 @@ export class UsuariosService {
       }
     }
 
+    if (dto.cpf) {
+      const cpfEmUso = await this.knex<Usuario>(TABLE)
+        .where({ cpf: dto.cpf })
+        .whereNot({ uuid })
+        .whereNull('deleted_at')
+        .first();
+
+      if (cpfEmUso) {
+        throw new ConflictException(
+          'Este CPF já está em uso por outro usuário.',
+        );
+      }
+    }
+
+    if (dto.rg) {
+      const rgEmUso = await this.knex<Usuario>(TABLE)
+        .where({ rg: dto.rg })
+        .whereNot({ uuid })
+        .whereNull('deleted_at')
+        .first();
+
+      if (rgEmUso) {
+        throw new ConflictException(
+          'Este RG já está em uso por outro usuário.',
+        );
+      }
+    }
+
     const payload: Partial<Usuario> = {
       ...(dto.nome !== undefined && { nome: dto.nome }),
+      ...(dto.cpf !== undefined && { cpf: dto.cpf }),
+      ...(dto.rg !== undefined && { rg: dto.rg }),
       ...(dto.email !== undefined && { email: dto.email }),
       ...(dto.celular !== undefined && { celular: dto.celular }),
       updated_at: new Date(),

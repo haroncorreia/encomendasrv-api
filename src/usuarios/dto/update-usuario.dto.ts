@@ -1,9 +1,26 @@
-import { IsEmail, IsOptional, IsString, Matches } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdateUsuarioDto {
   @IsOptional()
   @IsString()
   nome?: string;
+
+  @IsOptional()
+  @Matches(/^\d{11}$/, {
+    message: 'O CPF deve conter exatamente 11 dígitos numéricos.',
+  })
+  cpf?: string;
+
+  @IsOptional()
+  @IsString({ message: 'O RG deve ser válido.' })
+  @MaxLength(15, { message: 'O RG deve conter no máximo 15 caracteres.' })
+  rg?: string | null;
 
   @IsOptional()
   @IsEmail({}, { message: 'Informe um e-mail válido.' })

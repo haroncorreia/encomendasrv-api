@@ -29,7 +29,7 @@ export interface AuthTokens {
 }
 
 export interface AuthResponse extends AuthTokens {
-  usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>;
+  usuario: Pick<Usuario, 'uuid' | 'nome' | 'cpf' | 'rg' | 'email' | 'perfil'>;
 }
 
 @Injectable()
@@ -78,14 +78,14 @@ export class AuthService {
   }
 
   private buildAuthResponse(
-    usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>,
+    usuario: Pick<Usuario, 'uuid' | 'nome' | 'cpf' | 'rg' | 'email' | 'perfil'>,
   ): AuthResponse {
     const payload = this.buildPayload(usuario);
-    const { uuid, nome, email, perfil } = usuario;
+    const { uuid, nome, cpf, rg, email, perfil } = usuario;
     return {
       access_token: this.gerarAccessToken(payload),
       refresh_token: this.gerarRefreshToken(payload),
-      usuario: { uuid, nome, email, perfil },
+      usuario: { uuid, nome, cpf, rg, email, perfil },
     };
   }
 
