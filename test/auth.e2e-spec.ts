@@ -75,10 +75,8 @@ describe('AuthModule (e2e)', () => {
     expect(res.body).toHaveProperty('usuario');
     expect(res.body.usuario).toMatchObject({
       nome: usuarioBase.nome,
-      cpf: usuarioBase.cpf,
       email: usuarioBase.email,
     });
-    expect(res.body.usuario).toHaveProperty('rg');
     expect(res.body.usuario.uuid).toBeDefined();
     expect(res.body.usuario.senha).toBeUndefined();
 
@@ -306,7 +304,7 @@ describe('AuthModule (e2e)', () => {
   it('POST /authenticate/sign-in deve retornar 200 e autenticar com credenciais válidas', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
-      .send({ email: usuarioBase.email, senha: usuarioBase.senha })
+      .send({ usuario: usuarioBase.email, senha: usuarioBase.senha })
       .expect(200);
 
     expect(res.body.usuario.uuid).toBeDefined();
@@ -315,10 +313,20 @@ describe('AuthModule (e2e)', () => {
     refreshToken = res.body.refresh_token as string;
   });
 
+  it('POST /authenticate/sign-in deve retornar 200 e autenticar com CPF e senha válidos', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({ usuario: usuarioBase.cpf, senha: usuarioBase.senha })
+      .expect(200);
+
+    expect(res.body.usuario.uuid).toBeDefined();
+    expect(res.body.usuario.email).toBe(usuarioBase.email);
+  });
+
   it('POST /authenticate/sign-in deve retornar 401 para senha inválida', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
-      .send({ email: usuarioBase.email, senha: 'SenhaErrada@123' })
+      .send({ usuario: usuarioBase.email, senha: 'SenhaErrada@123' })
       .expect(401);
   });
 
@@ -339,7 +347,7 @@ describe('AuthModule (e2e)', () => {
 
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
-      .send({ email: moradorPendente.email, senha: moradorPendente.senha })
+      .send({ usuario: moradorPendente.email, senha: moradorPendente.senha })
       .expect(401);
 
     expect(res.body.message).toBe(

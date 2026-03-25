@@ -71,6 +71,16 @@ export class UsuariosService {
       .first();
   }
 
+  async findByEmailOuCpfComSenha(login: string): Promise<Usuario | undefined> {
+    const loginNormalizado = login.trim();
+    const campo = /^\d{11}$/.test(loginNormalizado) ? 'cpf' : 'email';
+
+    return this.knex<Usuario>(TABLE)
+      .where({ [campo]: loginNormalizado })
+      .whereNull('deleted_at')
+      .first();
+  }
+
   private async enrichWithRelations(
     usuarios: Usuario[],
   ): Promise<UsuarioComCondominio[]> {

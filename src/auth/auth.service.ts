@@ -114,13 +114,14 @@ export class AuthService {
   }
 
   async signIn(dto: SignInDto, ctx: AuditoriaContext): Promise<AuthResponse> {
-    const usuario = await this.usuariosService.findByEmailComSenha(dto.email);
+    const login = dto.usuario.trim();
+    const usuario = await this.usuariosService.findByEmailOuCpfComSenha(login);
 
     if (!usuario) {
       await this.auditoriaService.registrar({
         ctx,
-        user_mail: dto.email,
-        description: 'Tentativa de login com e-mail não cadastrado.',
+        user_mail: login,
+        description: 'Tentativa de login com e-mail ou CPF não cadastrado.',
       });
       throw new UnauthorizedException('Credenciais inválidas.');
     }
@@ -129,7 +130,7 @@ export class AuthService {
     if (!senhaValida) {
       await this.auditoriaService.registrar({
         ctx,
-        user_mail: dto.email,
+        user_mail: login,
         description: 'Tentativa de login com senha incorreta.',
       });
       throw new UnauthorizedException('Credenciais inválidas.');

@@ -590,7 +590,7 @@ describe('UsuariosModule (e2e)', () => {
   it('PATCH /usuarios/:id deve retornar 200 e modificar o próprio usuário', async () => {
     const signInRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ email: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
+      .send({ usuario: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
       .expect(200);
 
     const proprioToken = signInRes.body.access_token as string;
@@ -641,12 +641,12 @@ describe('UsuariosModule (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ email: 'usuarios.portaria@teste.com', senha: 'Senha@123' })
+      .send({ usuario: 'usuarios.portaria@teste.com', senha: 'Senha@123' })
       .expect(401);
 
     await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ email: 'usuarios.portaria@teste.com', senha: 'SenhaNova@123' })
+      .send({ usuario: 'usuarios.portaria@teste.com', senha: 'SenhaNova@123' })
       .expect(200);
   });
 
@@ -662,7 +662,7 @@ describe('UsuariosModule (e2e)', () => {
   it('PATCH /usuarios/:id não deve permitir alterar perfil de usuário', async () => {
     const signInRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ email: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
+      .send({ usuario: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
       .expect(200);
 
     const proprioToken = signInRes.body.access_token as string;

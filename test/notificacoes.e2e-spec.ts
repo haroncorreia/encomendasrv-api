@@ -51,7 +51,7 @@ describe('NotificacoesModule (e2e)', () => {
     const signIn = async (email: string, senha = 'Senha@123') => {
       const res = await request(app.getHttpServer())
         .post(`${AUTH_BASE}/sign-in`)
-        .send({ email, senha })
+        .send({ usuario: email, senha })
         .expect(200);
 
       return res.body.access_token as string;

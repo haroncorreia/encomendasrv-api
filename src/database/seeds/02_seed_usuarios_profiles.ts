@@ -17,7 +17,7 @@ export async function seed(knex: Knex): Promise<void> {
       uuid_condominio: UUID_CONDOMINIO_INICIAL,
       uuid_unidade: UUID_UNIDADE_PADRAO,
       nome: 'Haron Correia',
-      cpf: '11111111111',
+      cpf: '77210310282',
       rg: 'RG1111111111111',
       email: 'haroncorreia@hotmail.com',
       celular: '11990000001',

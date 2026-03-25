@@ -88,7 +88,10 @@ describe('UnidadesModule (e2e)', () => {
     moradorToken = (
       await request(app.getHttpServer())
         .post(`${AUTH_BASE}/sign-in`)
-        .send({ email: 'morador1@recantoverdeac.com.br', senha: 'Senha@123' })
+        .send({
+          usuario: 'morador1@recantoverdeac.com.br',
+          senha: 'Senha@123',
+        })
         .expect(200)
     ).body.access_token as string;
 
