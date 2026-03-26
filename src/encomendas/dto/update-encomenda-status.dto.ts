@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { ImagemMetadadosDto } from '../../imagens/dto/imagem-metadados.dto';
 import { EncomendaStatus } from '../enums/encomenda-status.enum';
 
@@ -25,6 +32,18 @@ export class UpdateEncomendaStatusDto {
   @IsOptional()
   @IsString()
   imagem_base64?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  entregador_externo_nome?: string;
+
+  @IsOptional()
+  @Matches(/^\d{11}$/, {
+    message:
+      'O campo entregador_externo_cpf deve conter exatamente 11 dígitos numéricos.',
+  })
+  entregador_externo_cpf?: string;
 
   @IsOptional()
   @ValidateNested()

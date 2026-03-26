@@ -921,13 +921,21 @@ export class EncomendasService {
 
       const now = new Date();
 
-      await qb<Encomenda>(TABLE).where({ uuid }).update({
-        status: EncomendaStatus.RECEBIDA,
-        recebido_em: now,
-        recebido_por_uuid_usuario: user.sub,
-        updated_at: now,
-        updated_by: user.email,
-      });
+      await qb<Encomenda>(TABLE)
+        .where({ uuid })
+        .update({
+          status: EncomendaStatus.RECEBIDA,
+          recebido_em: now,
+          recebido_por_uuid_usuario: user.sub,
+          ...(dto.entregador_externo_nome !== undefined && {
+            entregador_externo_nome: dto.entregador_externo_nome,
+          }),
+          ...(dto.entregador_externo_cpf !== undefined && {
+            entregador_externo_cpf: dto.entregador_externo_cpf,
+          }),
+          updated_at: now,
+          updated_by: user.email,
+        });
 
       if (dto.imagem_base64 && dto.imagem) {
         await this.imagensService.salvarDeBase64(
