@@ -491,6 +491,8 @@ export class EncomendasService {
 
     return encomendas.map((item) => ({
       ...item,
+      entregador_externo_nome: item.entregador_externo_nome ?? null,
+      entregador_externo_cpf: item.entregador_externo_cpf ?? null,
       condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
       unidade: unidadesByUuid.get(item.uuid_unidade) ?? null,
       usuario: usuariosByUuid.get(item.uuid_usuario) ?? null,
@@ -775,6 +777,8 @@ export class EncomendasService {
       palavra_chave: dto.palavra_chave ?? null,
       descricao: dto.descricao ?? null,
       codigo_rastreamento: dto.codigo_rastreamento ?? null,
+      entregador_externo_nome: dto.entregador_externo_nome ?? null,
+      entregador_externo_cpf: dto.entregador_externo_cpf ?? null,
       status,
       recebido_em: recebidoEm,
       recebido_por_uuid_usuario: recebidoPorUuidUsuario,
@@ -884,6 +888,12 @@ export class EncomendasService {
         ...(dto.descricao !== undefined && { descricao: dto.descricao }),
         ...(dto.codigo_rastreamento !== undefined && {
           codigo_rastreamento: dto.codigo_rastreamento,
+        }),
+        ...(dto.entregador_externo_nome !== undefined && {
+          entregador_externo_nome: dto.entregador_externo_nome,
+        }),
+        ...(dto.entregador_externo_cpf !== undefined && {
+          entregador_externo_cpf: dto.entregador_externo_cpf,
         }),
         updated_at: new Date(),
         updated_by: user.email,

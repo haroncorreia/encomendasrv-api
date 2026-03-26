@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsOptional,
   IsString,
+  Matches,
   IsUUID,
   MaxLength,
   ValidateIf,
@@ -36,6 +37,18 @@ export class CreateEncomendaDto {
   @IsString()
   @MaxLength(100)
   codigo_rastreamento?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsString()
+  @MaxLength(255)
+  entregador_externo_nome?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @Matches(/^\d{11}$/, {
+    message:
+      'O campo entregador_externo_cpf deve conter exatamente 11 dígitos numéricos.',
+  })
+  entregador_externo_cpf?: string | null;
 
   @IsOptional()
   @IsUUID('4', {

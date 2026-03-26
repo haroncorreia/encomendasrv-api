@@ -17,6 +17,8 @@ export async function up(knex: Knex): Promise<void> {
     table.string('palavra_chave', 20).nullable();
     table.string('descricao', 255).nullable();
     table.string('codigo_rastreamento', 100).nullable();
+    table.string('entregador_externo_nome', 255).nullable();
+    table.string('entregador_externo_cpf', 11).nullable();
     table
       .enum('status', [...STATUS_VALUES])
       .notNullable()
