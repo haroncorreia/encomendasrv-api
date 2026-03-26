@@ -71,9 +71,13 @@ export class UsuariosService {
       .first();
   }
 
-  async findByEmailOuCpfComSenha(login: string): Promise<Usuario | undefined> {
+  async findByEmailOuCpfCnpjComSenha(
+    login: string,
+  ): Promise<Usuario | undefined> {
     const loginNormalizado = login.trim();
-    const campo = /^\d{11}$/.test(loginNormalizado) ? 'cpf' : 'email';
+    const campo = /^\d{11}$|^\d{14}$/.test(loginNormalizado)
+      ? 'cpf_cnpj'
+      : 'email';
 
     return this.knex<Usuario>(TABLE)
       .where({ [campo]: loginNormalizado })
@@ -230,10 +234,12 @@ export class UsuariosService {
       throw new ConflictException('Já existe um usuário com este celular.');
     }
 
-    const cpfEmUso = await qb<Usuario>(TABLE).where({ cpf: dto.cpf }).first();
+    const cpfCnpjEmUso = await qb<Usuario>(TABLE)
+      .where({ cpf_cnpj: dto.cpf_cnpj })
+      .first();
 
-    if (cpfEmUso) {
-      throw new ConflictException('Já existe um usuário com este CPF.');
+    if (cpfCnpjEmUso) {
+      throw new ConflictException('Já existe um usuário com este CPF/CNPJ.');
     }
 
     if (dto.rg) {
@@ -274,7 +280,7 @@ export class UsuariosService {
       uuid_condominio,
       uuid_unidade,
       nome: dto.nome,
-      cpf: dto.cpf,
+      cpf_cnpj: dto.cpf_cnpj,
       rg: dto.rg ?? null,
       email: dto.email,
       celular: dto.celular,
@@ -337,16 +343,16 @@ export class UsuariosService {
       }
     }
 
-    if (dto.cpf) {
-      const cpfEmUso = await this.knex<Usuario>(TABLE)
-        .where({ cpf: dto.cpf })
+    if (dto.cpf_cnpj) {
+      const cpfCnpjEmUso = await this.knex<Usuario>(TABLE)
+        .where({ cpf_cnpj: dto.cpf_cnpj })
         .whereNot({ uuid })
         .whereNull('deleted_at')
         .first();
 
-      if (cpfEmUso) {
+      if (cpfCnpjEmUso) {
         throw new ConflictException(
-          'Este CPF já está em uso por outro usuário.',
+          'Este CPF/CNPJ já está em uso por outro usuário.',
         );
       }
     }
@@ -367,7 +373,7 @@ export class UsuariosService {
 
     const payload: Partial<Usuario> = {
       ...(dto.nome !== undefined && { nome: dto.nome }),
-      ...(dto.cpf !== undefined && { cpf: dto.cpf }),
+      ...(dto.cpf_cnpj !== undefined && { cpf_cnpj: dto.cpf_cnpj }),
       ...(dto.rg !== undefined && { rg: dto.rg }),
       ...(dto.email !== undefined && { email: dto.email }),
       ...(dto.celular !== undefined && { celular: dto.celular }),

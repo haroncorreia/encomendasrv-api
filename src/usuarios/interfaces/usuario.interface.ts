@@ -5,7 +5,7 @@ export interface Usuario {
   uuid_condominio: string | null;
   uuid_unidade: string | null;
   nome: string;
-  cpf: string;
+  cpf_cnpj: string;
   rg: string | null;
   email: string;
   celular: string;

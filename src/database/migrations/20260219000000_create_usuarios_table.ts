@@ -6,7 +6,7 @@ export async function up(knex: Knex): Promise<void> {
     table.string('uuid', 36).primary().notNullable();
     table.string('uuid_condominio', 36).notNullable();
     table.string('nome', 255).notNullable();
-    table.string('cpf', 11).notNullable().unique();
+    table.string('cpf_cnpj', 14).notNullable().unique();
     table.string('rg', 15).nullable().unique();
     table.string('email', 255).nullable().unique();
     table.string('celular', 11).nullable().unique();

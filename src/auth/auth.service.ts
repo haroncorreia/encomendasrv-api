@@ -115,13 +115,15 @@ export class AuthService {
 
   async signIn(dto: SignInDto, ctx: AuditoriaContext): Promise<AuthResponse> {
     const login = dto.usuario.trim();
-    const usuario = await this.usuariosService.findByEmailOuCpfComSenha(login);
+    const usuario =
+      await this.usuariosService.findByEmailOuCpfCnpjComSenha(login);
 
     if (!usuario) {
       await this.auditoriaService.registrar({
         ctx,
         user_mail: login,
-        description: 'Tentativa de login com e-mail ou CPF não cadastrado.',
+        description:
+          'Tentativa de login com e-mail ou CPF/CNPJ não cadastrado.',
       });
       throw new UnauthorizedException('Credenciais inválidas.');
     }

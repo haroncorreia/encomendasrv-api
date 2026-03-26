@@ -17,11 +17,11 @@ export class CreateUsuarioDto {
   })
   nome: string;
 
-  @IsNotEmpty({ message: 'O CPF é obrigatório.' })
-  @Matches(/^\d{11}$/, {
-    message: 'O CPF deve conter exatamente 11 dígitos numéricos.',
+  @IsNotEmpty({ message: 'O CPF/CNPJ é obrigatório.' })
+  @Matches(/^\d{11}$|^\d{14}$/, {
+    message: 'O CPF/CNPJ deve conter 11 ou 14 dígitos numéricos.',
   })
-  cpf: string;
+  cpf_cnpj: string;
 
   @IsOptional()
   @IsString({ message: 'O RG deve ser válido.' })
