@@ -510,6 +510,32 @@ export class UsuariosService {
     await qb<Usuario>(TABLE).where({ uuid }).delete();
   }
 
+  async restore(
+    uuid: string,
+    restauradoPor?: string,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    const qb = trx ?? this.knex;
+    const usuario = await qb<Usuario>(TABLE).where({ uuid }).first();
+
+    if (!usuario) {
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    if (!usuario.deleted_at) {
+      throw new BadRequestException('Usuário informado não está removido.');
+    }
+
+    await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .update({
+        deleted_at: null,
+        deleted_by: null,
+        updated_at: new Date(),
+        updated_by: restauradoPor ?? 'system',
+      });
+  }
+
   async aprovarUsuario(
     uuid: string,
     aprovadoPorUuid: string,

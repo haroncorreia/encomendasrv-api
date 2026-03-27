@@ -380,4 +380,25 @@ export class UsuariosController {
       );
     });
   }
+
+  @Patch(':id/restore')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  restore(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      await this.usuariosService.restore(id, user.email, trx);
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Usuário restaurado (soft delete revertido). (uuid: ${id})`,
+        },
+        trx,
+      );
+    });
+  }
 }
