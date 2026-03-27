@@ -159,6 +159,15 @@ export class AuthService {
     return this.buildAuthResponse(usuarioSemSenha);
   }
 
+  async checkPassword(userId: string, senha: string): Promise<boolean> {
+    const usuario = await this.usuariosService.findByIdInterno(userId);
+    if (!usuario) {
+      throw new UnauthorizedException('Usuário não autenticado.');
+    }
+
+    return bcrypt.compare(senha, usuario.senha);
+  }
+
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
     try {
       const payload = this.jwtService.verify<JwtPayload>(refreshToken, {

@@ -15,6 +15,7 @@ import { CreateUsuarioDto } from '../usuarios/dto/create-usuario.dto';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { CheckPasswordDto } from './dto/check-password.dto';
 import { ConfirmActivationDto } from './dto/confirm-activation.dto';
 import { ConfirmResetPasswordDto } from './dto/confirm-reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -48,6 +49,19 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   signIn(@Body() dto: SignInDto, @AuditoriaCtx() ctx: AuditoriaContext) {
     return this.authService.signIn(dto, ctx);
+  }
+
+  /**
+   * Valida a senha do usuário autenticado e retorna true/false.
+   * POST /authenticate/check-password
+   */
+  @Post('check-password')
+  @HttpCode(HttpStatus.OK)
+  checkPassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CheckPasswordDto,
+  ) {
+    return this.authService.checkPassword(user.sub, dto.senha);
   }
 
   /**
