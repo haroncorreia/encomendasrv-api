@@ -233,6 +233,13 @@ describe('TransportadorasModule (e2e)', () => {
     ).expect(403);
   });
 
+  it('POST /transportadoras deve retornar 409 ao tentar criar nome duplicado', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer()).post(BASE_URL).send({ nome: 'Correios' }),
+    ).expect(409);
+  });
+
   it('PATCH /transportadoras/:id deve retornar 200 para admin', async () => {
     const res = await auth(
       adminToken,
@@ -273,6 +280,15 @@ describe('TransportadorasModule (e2e)', () => {
         .patch(`${BASE_URL}/${criadaAdminUuid}`)
         .send({ nome: 'Nao Pode Morador' }),
     ).expect(403);
+  });
+
+  it('PATCH /transportadoras/:id deve retornar 409 ao tentar atualizar para nome duplicado', async () => {
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${criadaAdminUuid}`)
+        .send({ nome: 'Amazon' }),
+    ).expect(409);
   });
 
   it('DELETE /transportadoras/:id deve fazer soft delete para admin', async () => {

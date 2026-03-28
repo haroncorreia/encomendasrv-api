@@ -1,4 +1,9 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
@@ -14,6 +19,28 @@ export class TransportadorasService {
 
   private get query() {
     return this.knex<Transportadora>(TABLE).whereNull('deleted_at');
+  }
+
+  private async assertNomeDisponivel(
+    nome: string,
+    trx?: Knex.Transaction,
+    uuidIgnorar?: string,
+  ): Promise<void> {
+    const qb = trx ?? this.knex;
+    const existing = await qb<Transportadora>(TABLE)
+      .where({ nome })
+      .modify((queryBuilder) => {
+        if (uuidIgnorar) {
+          queryBuilder.whereNot({ uuid: uuidIgnorar });
+        }
+      })
+      .first();
+
+    if (existing) {
+      throw new ConflictException(
+        'Já existe uma transportadora com este nome.',
+      );
+    }
   }
 
   async findAll(): Promise<Transportadora[]> {
@@ -47,6 +74,8 @@ export class TransportadorasService {
     const qb = trx ?? this.knex;
     const uuid = randomUUID();
 
+    await this.assertNomeDisponivel(dto.nome, trx);
+
     await qb<Transportadora>(TABLE).insert({
       uuid,
       nome: dto.nome,
@@ -75,6 +104,10 @@ export class TransportadorasService {
     trx?: Knex.Transaction,
   ): Promise<Transportadora> {
     await this.findOne(uuid);
+
+    if (dto.nome !== undefined) {
+      await this.assertNomeDisponivel(dto.nome, trx, uuid);
+    }
 
     const qb = trx ?? this.knex;
 
@@ -133,6 +166,8 @@ export class TransportadorasService {
         `Transportadora com uuid ${uuid} não encontrada para restauração.`,
       );
     }
+
+    await this.assertNomeDisponivel(removida.nome, trx, uuid);
 
     await qb<Transportadora>(TABLE).where({ uuid }).update({
       deleted_at: null,
