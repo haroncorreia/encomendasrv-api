@@ -88,6 +88,7 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
         uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
         palavra_chave: 'FixtureRetirada',
         codigo_rastreamento: 'ML123123123',
       }),
@@ -420,6 +421,7 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
         uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
         uuid_transportadora: '70000000-0000-4000-8000-000000000006',
         palavra_chave: 'Documento',
         descricao: 'Recebido pela portaria',
@@ -477,6 +479,7 @@ describe('EncomendasModule (e2e)', () => {
     await auth(
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
+        recebido_por_uuid_usuario: UUID_PORTARIA,
         palavra_chave: 'SemUsuario',
       }),
     ).expect(400);
@@ -485,7 +488,18 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer()).post(BASE_URL).send({
         uuid_usuario: UUID_ADMIN,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
         palavra_chave: 'UsuarioInvalido',
+      }),
+    ).expect(400);
+  });
+
+  it('POST /encomendas deve exigir recebido_por_uuid_usuario para criação por portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        palavra_chave: 'SemRecebedorPortaria',
       }),
     ).expect(400);
   });

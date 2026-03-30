@@ -686,6 +686,12 @@ export class EncomendasService {
         );
       }
 
+      if (!dto.recebido_por_uuid_usuario) {
+        throw new BadRequestException(
+          'O campo recebido_por_uuid_usuario é obrigatório para usuários com perfil portaria.',
+        );
+      }
+
       const usuarioDestino = await this.findUsuarioAtivo(dto.uuid_usuario, trx);
 
       if (usuarioDestino.perfil !== Perfil.MORADOR) {
@@ -700,15 +706,6 @@ export class EncomendasService {
         );
       }
 
-      if (
-        dto.recebido_por_uuid_usuario &&
-        dto.recebido_por_uuid_usuario !== actor.uuid
-      ) {
-        throw new BadRequestException(
-          'Usuários com perfil portaria não podem informar outro recebedor na criação da encomenda.',
-        );
-      }
-
       if (dto.entregue_por_uuid_usuario) {
         throw new BadRequestException(
           'Usuários com perfil portaria só podem criar encomendas com status recebida.',
@@ -719,7 +716,11 @@ export class EncomendasService {
       uuidUsuarioEncomenda = usuarioDestino.uuid;
       uuidUnidadeEncomenda = usuarioDestino.uuid_unidade;
       recebidoEm = now;
-      recebidoPorUuidUsuario = actor.uuid;
+      recebidoPorUuidUsuario = await this.validateUsuarioPortaria(
+        dto.recebido_por_uuid_usuario,
+        'recebido_por_uuid_usuario',
+        trx,
+      );
     } else {
       if (!dto.recebido_por_uuid_usuario) {
         throw new BadRequestException(
