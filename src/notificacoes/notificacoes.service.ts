@@ -37,7 +37,11 @@ export class NotificacoesService {
   private scopedQuery(user: JwtPayload, trx?: Knex.Transaction) {
     const qb = (trx ?? this.knex)<Notificacao>(TABLE).whereNull('deleted_at');
 
-    if (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) {
+    if (
+      user.perfil === Perfil.ADMIN ||
+      user.perfil === Perfil.PORTARIA ||
+      user.perfil === Perfil.MORADOR
+    ) {
       qb.andWhere('uuid_usuario', user.sub);
     }
 
@@ -57,7 +61,9 @@ export class NotificacoesService {
 
   private assertReadAccess(notificacao: Notificacao, user: JwtPayload): void {
     if (
-      (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) &&
+      (user.perfil === Perfil.ADMIN ||
+        user.perfil === Perfil.PORTARIA ||
+        user.perfil === Perfil.MORADOR) &&
       notificacao.uuid_usuario !== user.sub
     ) {
       throw new ForbiddenException(
@@ -68,7 +74,9 @@ export class NotificacoesService {
 
   private assertWriteAccess(notificacao: Notificacao, user: JwtPayload): void {
     if (
-      (user.perfil === Perfil.PORTARIA || user.perfil === Perfil.MORADOR) &&
+      (user.perfil === Perfil.ADMIN ||
+        user.perfil === Perfil.PORTARIA ||
+        user.perfil === Perfil.MORADOR) &&
       notificacao.uuid_usuario !== user.sub
     ) {
       throw new ForbiddenException(
