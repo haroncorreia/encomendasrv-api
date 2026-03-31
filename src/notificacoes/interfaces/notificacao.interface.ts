@@ -3,7 +3,7 @@ import { TipoNotificacao } from '../enums/tipo-notificacao.enum';
 export interface Notificacao {
   uuid: string;
   uuid_usuario: string;
-  uuid_encomenda: string;
+  uuid_encomenda: string | null;
   tipo: TipoNotificacao;
   titulo: string;
   mensagem: string;

@@ -17,7 +17,9 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuditoriaContext } from '../auditoria/interfaces/auditoria-context.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EmailService } from '../email/email.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { CreateUsuarioDto } from '../usuarios/dto/create-usuario.dto';
+import { Perfil } from '../usuarios/enums/perfil.enum';
 import { Usuario } from '../usuarios/interfaces/usuario.interface';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { SignInDto } from './dto/signin.dto';
@@ -39,6 +41,7 @@ export class AuthService {
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly emailService: EmailService,
+    private readonly notificacoesService: NotificacoesService,
     private readonly auditoriaService: AuditoriaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -99,6 +102,17 @@ export class AuthService {
   ): Promise<AuthResponse> {
     return this.knex.transaction(async (trx) => {
       const usuario = await this.usuariosService.create(dto, 'SignUp', trx);
+
+      if (usuario.perfil === Perfil.MORADOR) {
+        await this.notificacoesService.registrarNotificacoesNovoMoradorEmTrx(
+          {
+            uuid_usuario_novo: usuario.uuid,
+            nome_usuario_novo: usuario.nome,
+            actorEmail: usuario.email,
+          },
+          trx,
+        );
+      }
 
       await this.auditoriaService.registrarEmTrx(
         {

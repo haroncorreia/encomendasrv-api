@@ -22,7 +22,7 @@ const DEFAULT_PAGE = 1;
 
 interface NotificationInsertInput {
   uuid_usuario: string;
-  uuid_encomenda: string;
+  uuid_encomenda: string | null;
   tipo: TipoNotificacao;
   titulo: string;
   mensagem: string;
@@ -310,6 +310,34 @@ export class NotificacoesService {
         trx,
       );
     }
+  }
+
+  async registrarNotificacoesNovoMoradorEmTrx(
+    params: {
+      uuid_usuario_novo: string;
+      nome_usuario_novo: string;
+      actorEmail: string;
+    },
+    trx: Knex.Transaction,
+  ): Promise<void> {
+    const admins = await trx('usuarios')
+      .where({ perfil: Perfil.ADMIN })
+      .whereNull('deleted_at')
+      .select('uuid');
+
+    await this.insertManyInTrx(
+      admins.map((admin: { uuid: string }) => ({
+        uuid_usuario: admin.uuid,
+        uuid_encomenda: null,
+        tipo: TipoNotificacao.ALERTA_SISTEMA,
+        titulo: 'Novo morador aguardando liberação',
+        mensagem: `O usuário ${params.nome_usuario_novo} (uuid: ${params.uuid_usuario_novo}) se cadastrou e aguarda liberação de acesso.`,
+        canal: 'app',
+        enviado_em: new Date(),
+      })),
+      params.actorEmail,
+      trx,
+    );
   }
 
   @Cron('0 0 * * *')
