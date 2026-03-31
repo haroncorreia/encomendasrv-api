@@ -2,7 +2,12 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import type { Auditoria } from './interfaces/auditoria.interface';
+import { PaginationAuditoriaDto } from './dto/pagination-auditoria.dto';
 import { AuditoriaContext } from './interfaces/auditoria-context.interface';
+
+const DEFAULT_LIMIT = 20;
+const DEFAULT_PAGE = 1;
 
 export interface RegistrarAuditoriaDto {
   ctx: AuditoriaContext;
@@ -24,11 +29,83 @@ interface AuditInsert {
   description: string;
 }
 
+interface AuditRow {
+  uuid: string;
+  created_at: Date;
+  method: string;
+  route: string;
+  params: unknown;
+  body: unknown;
+  query: unknown;
+  user_ip: string | null;
+  user_mail: string | null;
+  description: string;
+}
+
 @Injectable()
 export class AuditoriaService {
   private readonly logger = new Logger(AuditoriaService.name);
 
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+
+  private resolvePagination(pagination: PaginationAuditoriaDto): {
+    limit: number;
+    offset: number;
+  } {
+    const page = pagination.page ?? DEFAULT_PAGE;
+    const limit = DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+
+    return { limit, offset };
+  }
+
+  private parseJsonField(value: unknown): Record<string, unknown> | null {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : null;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  async findAllPaginated(
+    pagination: PaginationAuditoriaDto,
+  ): Promise<Auditoria[]> {
+    const { offset, limit } = this.resolvePagination(pagination);
+
+    const rows = await this.knex<AuditRow>('auditoria')
+      .select('*')
+      .orderBy('created_at', 'desc')
+      .offset(offset)
+      .limit(limit);
+
+    return rows.map((row) => ({
+      uuid: row.uuid,
+      created_at: row.created_at,
+      method: row.method,
+      route: row.route,
+      params: this.parseJsonField(row.params),
+      body: this.parseJsonField(row.body),
+      query: this.parseJsonField(row.query),
+      user_ip: row.user_ip,
+      user_mail: row.user_mail,
+      description: row.description,
+    }));
+  }
 
   /**
    * Registra um evento de auditoria. Nunca lança exceções — falhas são apenas
