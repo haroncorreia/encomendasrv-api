@@ -199,7 +199,10 @@ export class AuthService {
   // Ativação de conta
   // ---------------------------------------------------------------------------
 
-  async requestActivation(userId: string): Promise<{ message: string }> {
+  async requestActivation(
+    userId: string,
+    ctx: AuditoriaContext,
+  ): Promise<{ message: string }> {
     const GENERIC_MESSAGE =
       'Se sua conta existir e ainda não estiver ativada, um código será enviado para o e-mail cadastrado.';
 
@@ -222,7 +225,17 @@ export class AuthService {
         usuario.nome,
         codigo,
       );
+      await this.auditoriaService.registrar({
+        ctx,
+        user_mail: usuario.email,
+        description: 'E-mail com código de ativação enviado com sucesso.',
+      });
     } catch {
+      await this.auditoriaService.registrar({
+        ctx,
+        user_mail: usuario.email,
+        description: 'Falha ao enviar e-mail com código de ativação.',
+      });
       // Resposta genérica para não vazar informações sobre existência da conta.
     }
 
@@ -261,7 +274,10 @@ export class AuthService {
    * armazena-o criptograficamente no banco com expiração de 10 minutos e envia
    * por e-mail. A resposta é sempre genérica para evitar enumeração.
    */
-  async requestResetPassword(email: string): Promise<{ message: string }> {
+  async requestResetPassword(
+    email: string,
+    ctx: AuditoriaContext,
+  ): Promise<{ message: string }> {
     const GENERIC_MESSAGE =
       'Se o e-mail estiver cadastrado, as instruções de redefinição serão enviadas em breve.';
 
@@ -279,7 +295,19 @@ export class AuthService {
         usuario.nome,
         token,
       );
+      await this.auditoriaService.registrar({
+        ctx,
+        user_mail: usuario.email,
+        description:
+          'E-mail com instruções de redefinição de senha enviado com sucesso.',
+      });
     } catch {
+      await this.auditoriaService.registrar({
+        ctx,
+        user_mail: usuario.email,
+        description:
+          'Falha ao enviar e-mail com instruções de redefinição de senha.',
+      });
       // Silencia erro de envio — não vaza informações ao cliente
     }
 

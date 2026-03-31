@@ -100,8 +100,11 @@ export class AuthController {
    */
   @Post('request-user-activation')
   @HttpCode(HttpStatus.OK)
-  requestUserActivation(@CurrentUser() user: JwtPayload) {
-    return this.authService.requestActivation(user.sub);
+  requestUserActivation(
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.authService.requestActivation(user.sub, ctx);
   }
 
   /**
@@ -124,8 +127,11 @@ export class AuthController {
   @Public()
   @Post('request-reset-password')
   @HttpCode(HttpStatus.OK)
-  requestResetPassword(@Body() dto: RequestResetPasswordDto) {
-    return this.authService.requestResetPassword(dto.email);
+  requestResetPassword(
+    @Body() dto: RequestResetPasswordDto,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.authService.requestResetPassword(dto.email, ctx);
   }
 
   /**

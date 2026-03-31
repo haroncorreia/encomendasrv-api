@@ -1,4 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -8,6 +10,7 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 import { EmailService } from '../src/email/email.service';
 
 const BASE_URL = '/authenticate';
+const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
 
 const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 const BASE_CELULAR = `11${String(
@@ -34,6 +37,12 @@ describe('AuthModule (e2e)', () => {
   let knex: Knex;
   let accessToken: string;
   let refreshToken: string;
+  let jwtService: JwtService;
+  let configService: ConfigService;
+  let emailServiceMock: {
+    sendActivationCode: jest.Mock;
+    sendResetPasswordToken: jest.Mock;
+  };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -57,7 +66,35 @@ describe('AuthModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    jwtService = app.get(JwtService);
+    configService = app.get(ConfigService);
+    emailServiceMock = app.get(EmailService) as {
+      sendActivationCode: jest.Mock;
+      sendResetPasswordToken: jest.Mock;
+    };
   });
+
+  const getSeededSuperToken = async (): Promise<string> => {
+    const usuario = await knex('usuarios')
+      .where({ email: SEEDED_SUPER_EMAIL })
+      .whereNull('deleted_at')
+      .first('uuid', 'nome', 'email', 'perfil');
+
+    expect(usuario).toBeTruthy();
+
+    return jwtService.sign(
+      {
+        sub: usuario.uuid as string,
+        nome: (usuario.nome as string) ?? 'Super Usuário',
+        email: usuario.email as string,
+        perfil: usuario.perfil as string,
+      },
+      {
+        secret: configService.get<string>('JWT_SECRET'),
+        expiresIn: '15m',
+      },
+    );
+  };
 
   afterAll(async () => {
     await app.close();
@@ -387,6 +424,60 @@ describe('AuthModule (e2e)', () => {
     });
   });
 
+  it('POST /authenticate/request-user-activation deve registrar auditoria de sucesso quando o e-mail for enviado', async () => {
+    const seededToken = await getSeededSuperToken();
+
+    emailServiceMock.sendActivationCode.mockResolvedValueOnce(undefined);
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-user-activation`)
+      .set('Authorization', `Bearer ${seededToken}`)
+      .expect(200);
+
+    const auditoria = await knex('auditoria')
+      .where({
+        method: 'POST',
+        route: '/authenticate/request-user-activation',
+        user_mail: SEEDED_SUPER_EMAIL,
+      })
+      .whereRaw('description LIKE ?', [
+        '%E-mail com código de ativação enviado com sucesso%',
+      ])
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeTruthy();
+    expect(auditoria.uuid).toBeDefined();
+  });
+
+  it('POST /authenticate/request-user-activation deve registrar auditoria de falha quando o e-mail não for enviado', async () => {
+    const seededToken = await getSeededSuperToken();
+
+    emailServiceMock.sendActivationCode.mockRejectedValueOnce(
+      new Error('SMTP indisponível'),
+    );
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-user-activation`)
+      .set('Authorization', `Bearer ${seededToken}`)
+      .expect(200);
+
+    const auditoria = await knex('auditoria')
+      .where({
+        method: 'POST',
+        route: '/authenticate/request-user-activation',
+        user_mail: SEEDED_SUPER_EMAIL,
+      })
+      .whereRaw('description LIKE ?', [
+        '%Falha ao enviar e-mail com código de ativação%',
+      ])
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeTruthy();
+    expect(auditoria.uuid).toBeDefined();
+  });
+
   it('POST /authenticate/request-user-activation deve retornar 200 com mensagem genérica para usuário inexistente', async () => {
     const ghostUser = {
       nome: 'Ghost User',
@@ -459,6 +550,56 @@ describe('AuthModule (e2e)', () => {
       .first();
     expect(row.reset_password_token_hash).toBeTruthy();
     expect(row.reset_password_exp).toBeTruthy();
+  });
+
+  it('POST /authenticate/request-reset-password deve registrar auditoria de sucesso quando o e-mail for enviado', async () => {
+    emailServiceMock.sendResetPasswordToken.mockResolvedValueOnce(undefined);
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-reset-password`)
+      .send({ email: SEEDED_SUPER_EMAIL })
+      .expect(200);
+
+    const auditoria = await knex('auditoria')
+      .where({
+        method: 'POST',
+        route: '/authenticate/request-reset-password',
+        user_mail: SEEDED_SUPER_EMAIL,
+      })
+      .whereRaw('description LIKE ?', [
+        '%E-mail com instruções de redefinição de senha enviado com sucesso%',
+      ])
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeTruthy();
+    expect(auditoria.uuid).toBeDefined();
+  });
+
+  it('POST /authenticate/request-reset-password deve registrar auditoria de falha quando o e-mail não for enviado', async () => {
+    emailServiceMock.sendResetPasswordToken.mockRejectedValueOnce(
+      new Error('SMTP indisponível'),
+    );
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/request-reset-password`)
+      .send({ email: SEEDED_SUPER_EMAIL })
+      .expect(200);
+
+    const auditoria = await knex('auditoria')
+      .where({
+        method: 'POST',
+        route: '/authenticate/request-reset-password',
+        user_mail: SEEDED_SUPER_EMAIL,
+      })
+      .whereRaw('description LIKE ?', [
+        '%Falha ao enviar e-mail com instruções de redefinição de senha%',
+      ])
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeTruthy();
+    expect(auditoria.uuid).toBeDefined();
   });
 
   it('SYSTEM deve registrar auditoria de login na tabela auditoria', async () => {
