@@ -43,7 +43,7 @@ export class EmailService {
   ): Promise<void> {
     try {
       await this.transporter.sendMail({
-        from: `"EncomendasRV" <${this.fromAddress}>`,
+        from: `"Condomínio Recanto Verde" <${this.fromAddress}>`,
         to,
         subject: 'Código de ativação da sua conta',
         text: `Olá, ${nome}!\n\nSeu código de ativação é: ${codigo}\n\nEste código é válido por 15 minutos.\n\nCaso não tenha solicitado, ignore este e-mail.`,
@@ -68,16 +68,15 @@ export class EmailService {
   ): Promise<void> {
     try {
       await this.transporter.sendMail({
-        from: `"EncomendasRV" <${this.fromAddress}>`,
+        from: `"Condomínio Recanto Verde" <${this.fromAddress}>`,
         to,
         subject: 'Redefinição de senha',
         text: `Olá, ${nome}!\n\nVocê solicitou a redefinição de senha.\n\nSeu token de redefinição é: ${token}\n\nEste token é válido por 10 minutos.\n\nCaso não tenha solicitado, ignore este e-mail.`,
         html: `
           <p>Olá, <strong>${nome}</strong>!</p>
-          <p>Você solicitou a redefinição de senha.</p>
-          <p>Seu token de redefinição é:</p>
-          <h2 style="letter-spacing: 4px; font-family: monospace;">${token}</h2>
-          <p>Este token é válido por <strong>10 minutos</strong>.</p>
+          <p>Você solicitou um link para redefinição de senha.</p>
+          <p><a href="http://localhost:9000/auth/reset-password?token=${token}">Redefinir senha</a></p>
+          <p>Este link é válido por <strong>10 minutos</strong>.</p>
           <p><small>Caso não tenha solicitado, ignore este e-mail.</small></p>
         `,
       });
