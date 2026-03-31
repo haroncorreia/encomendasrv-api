@@ -1,4 +1,10 @@
-import { Controller, Get, Query, UsePipes, ValidationPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { PaginationAuditoriaDto } from './dto/pagination-auditoria.dto';
