@@ -26,7 +26,7 @@ const usuarioBase = {
   nome: 'Auth Test User',
   email: `auth.test.${RUN_ID}@teste.com`,
   celular: BASE_CELULAR,
-  cpf: BASE_CELULAR,
+  cpf_cnpj: BASE_CELULAR,
   senha: 'Senha@123',
   perfil: 'admin',
   unidade: SEED_UNIDADE,
@@ -68,10 +68,7 @@ describe('AuthModule (e2e)', () => {
     knex = app.get<Knex>(KNEX_CONNECTION);
     jwtService = app.get(JwtService);
     configService = app.get(ConfigService);
-    emailServiceMock = app.get(EmailService) as {
-      sendActivationCode: jest.Mock;
-      sendResetPasswordToken: jest.Mock;
-    };
+    emailServiceMock = app.get(EmailService);
   });
 
   const getSeededSuperToken = async (): Promise<string> => {
@@ -126,7 +123,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test Morador',
       email: `auth.test.morador.${RUN_ID}@teste.com`,
       celular: MORADOR_CELULAR,
-      cpf: MORADOR_CELULAR,
+      cpf_cnpj: MORADOR_CELULAR,
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -153,7 +150,7 @@ describe('AuthModule (e2e)', () => {
     const usuarioSemNome = {
       email: 'auth.test.sem.nome@teste.com',
       celular: '11999990002',
-      cpf: '11999990002',
+      cpf_cnpj: '11999990002',
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -168,7 +165,7 @@ describe('AuthModule (e2e)', () => {
     const usuarioSemEmail = {
       nome: 'Auth Test User Sem Email',
       celular: '11999990003',
-      cpf: '11999990003',
+      cpf_cnpj: '11999990003',
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -198,7 +195,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Senha',
       email: 'auth.test.sem.senha@teste.com',
       celular: '11999990004',
-      cpf: '11999990004',
+      cpf_cnpj: '11999990004',
       unidade: SEED_UNIDADE,
     };
 
@@ -213,7 +210,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Senha Curta',
       email: 'auth.test.senhacurta@teste.com',
       celular: '11999990010',
-      cpf: '11999990010',
+      cpf_cnpj: '11999990010',
       senha: 'S@1a',
       unidade: SEED_UNIDADE,
     };
@@ -229,7 +226,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Minuscula',
       email: 'auth.test.semm@teste.com',
       celular: '11999990011',
-      cpf: '11999990011',
+      cpf_cnpj: '11999990011',
       senha: 'SENHA@123',
       unidade: SEED_UNIDADE,
     };
@@ -245,7 +242,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Maiuscula',
       email: 'auth.test.semm@teste.com',
       celular: '11999990012',
-      cpf: '11999990012',
+      cpf_cnpj: '11999990012',
       senha: 'senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -261,7 +258,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Numero',
       email: 'auth.test.semnumero@teste.com',
       celular: '11999990013',
-      cpf: '11999990013',
+      cpf_cnpj: '11999990013',
       senha: 'Senha@abc',
       unidade: SEED_UNIDADE,
     };
@@ -277,7 +274,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Sem Simbolo',
       email: 'auth.test.semsimbolo@teste.com',
       celular: '11999990014',
-      cpf: '11999990014',
+      cpf_cnpj: '11999990014',
       senha: 'Senha1234',
       unidade: SEED_UNIDADE,
     };
@@ -300,7 +297,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Auth Test User Celular Duplicado',
       email: 'auth.test.celular.duplicado@teste.com',
       celular: usuarioBase.celular,
-      cpf: '11999990022',
+      cpf_cnpj: '11999990022',
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -318,7 +315,7 @@ describe('AuthModule (e2e)', () => {
         nome: 'Auth Test User Sem Unidade',
         email: 'auth.test.sem.unidade@teste.com',
         celular: '11999990020',
-        cpf: '11999990020',
+        cpf_cnpj: '11999990020',
         senha: 'Senha@123',
       })
       .expect(400);
@@ -331,7 +328,7 @@ describe('AuthModule (e2e)', () => {
         nome: 'Auth Test User Unidade Inexistente',
         email: 'auth.test.unidade.inexistente@teste.com',
         celular: '11999990021',
-        cpf: '11999990021',
+        cpf_cnpj: '11999990021',
         senha: 'Senha@123',
         unidade: '9999',
       })
@@ -353,7 +350,7 @@ describe('AuthModule (e2e)', () => {
   it('POST /authenticate/sign-in deve retornar 200 e autenticar com CPF e senha válidos', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
-      .send({ usuario: usuarioBase.cpf, senha: usuarioBase.senha })
+      .send({ usuario: usuarioBase.cpf_cnpj, senha: usuarioBase.senha })
       .expect(200);
 
     expect(res.body.usuario.uuid).toBeDefined();
@@ -372,7 +369,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Morador Pendente Aprovacao',
       email: `auth.morador.pendente.${RUN_ID}@teste.com`,
       celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
-      cpf: `12${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `12${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -483,7 +480,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Ghost User',
       email: `auth.ghost.${RUN_ID}@teste.com`,
       celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
-      cpf: `13${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `13${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
@@ -514,7 +511,7 @@ describe('AuthModule (e2e)', () => {
       nome: 'Activated User',
       email: `auth.activated.${RUN_ID}@teste.com`,
       celular: `11${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
-      cpf: `14${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `14${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
       senha: 'Senha@123',
       unidade: SEED_UNIDADE,
     };
