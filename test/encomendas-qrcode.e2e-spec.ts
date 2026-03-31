@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Knex } from 'knex';
@@ -8,12 +9,16 @@ import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/encomendas';
-const AUTH_BASE = '/authenticate';
 
-const UUID_CONDOMINIO = '11111111-1111-4111-8111-111111111111';
-const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
-const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
-const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
+const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
+const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+
+let UUID_CONDOMINIO: string;
+let UUID_ADMIN: string;
+let UUID_PORTARIA: string;
+let UUID_MORADOR: string;
 
 let UUID_ENCOMENDA_MORADOR_ATIVA: string;
 let UUID_ENCOMENDA_MORADOR_RETIRADA: string;
@@ -32,6 +37,7 @@ describe('Encomendas QRCode (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
   let jwtService: JwtService;
+  let configService: ConfigService;
 
   let superToken: string;
   let adminToken: string;
@@ -62,21 +68,77 @@ describe('Encomendas QRCode (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
-    jwtService = new JwtService();
+    jwtService = app.get(JwtService);
+    configService = app.get(ConfigService);
 
-    const signIn = async (email: string, senha = 'Senha@123') => {
-      const res = await request(app.getHttpServer())
-        .post(`${AUTH_BASE}/sign-in`)
-        .send({ usuario: email, senha })
-        .expect(200);
+    const [superUsuario, adminUsuario, portariaUsuario, moradorUsuario] =
+      await Promise.all([
+        knex('usuarios')
+          .where({ email: SEEDED_SUPER_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+        knex('usuarios')
+          .where({ email: SEEDED_ADMIN_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+        knex('usuarios')
+          .where({ email: SEEDED_PORTARIA_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+        knex('usuarios')
+          .where({ email: SEEDED_MORADOR_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+      ]);
 
-      return res.body.access_token as string;
-    };
+    expect(superUsuario).toBeTruthy();
+    expect(adminUsuario).toBeTruthy();
+    expect(portariaUsuario).toBeTruthy();
+    expect(moradorUsuario).toBeTruthy();
 
-    superToken = await signIn('haroncorreia@hotmail.com');
-    adminToken = await signIn('admin@recantoverdeac.com.br');
-    portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador1@recantoverdeac.com.br');
+    UUID_CONDOMINIO = moradorUsuario.uuid_condominio as string;
+    UUID_ADMIN = adminUsuario.uuid as string;
+    UUID_PORTARIA = portariaUsuario.uuid as string;
+    UUID_MORADOR = moradorUsuario.uuid as string;
+
+    const buildToken = (
+      sub: string,
+      nome: string,
+      email: string,
+      perfil: 'super' | 'admin' | 'portaria' | 'morador',
+    ): string =>
+      jwtService.sign(
+        { sub, nome, email, perfil },
+        {
+          secret: configService.get<string>('JWT_SECRET'),
+          expiresIn: '15m',
+        },
+      );
+
+    superToken = buildToken(
+      superUsuario.uuid as string,
+      superUsuario.nome as string,
+      superUsuario.email as string,
+      'super',
+    );
+    adminToken = buildToken(
+      UUID_ADMIN,
+      adminUsuario.nome as string,
+      adminUsuario.email as string,
+      'admin',
+    );
+    portariaToken = buildToken(
+      UUID_PORTARIA,
+      portariaUsuario.nome as string,
+      portariaUsuario.email as string,
+      'portaria',
+    );
+    moradorToken = buildToken(
+      UUID_MORADOR,
+      moradorUsuario.nome as string,
+      moradorUsuario.email as string,
+      'morador',
+    );
 
     // Fixtures: seeds 05/06/07 no longer insert encomenda records
     const ativaResp = await auth(
@@ -96,6 +158,7 @@ describe('Encomendas QRCode (e2e)', () => {
         .post(BASE_URL)
         .send({
           uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
           palavra_chave: 'QRCodeRetirada',
           codigo_rastreamento: `QRRET-${Date.now()}`,
         }),
@@ -113,6 +176,7 @@ describe('Encomendas QRCode (e2e)', () => {
       request(app.getHttpServer())
         .post(BASE_URL)
         .send({
+          uuid_usuario: UUID_MORADOR,
           palavra_chave: 'QRCodeCancelada',
           codigo_rastreamento: `QRCAN-${Date.now()}`,
           recebido_por_uuid_usuario: UUID_PORTARIA,
@@ -351,7 +415,7 @@ describe('Encomendas QRCode (e2e)', () => {
       {
         tipo: 'retirada',
         uuid_encomenda: UUID_ENCOMENDA_ADMIN_CANCELADA,
-        uuid_usuario: UUID_ADMIN,
+        uuid_usuario: UUID_MORADOR,
         uuid_condominio: UUID_CONDOMINIO,
       },
       {

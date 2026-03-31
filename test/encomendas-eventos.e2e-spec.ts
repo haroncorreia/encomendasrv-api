@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Knex } from 'knex';
 import request from 'supertest';
@@ -9,11 +11,14 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/encomendas-eventos';
 const ENCOMENDAS_BASE = '/encomendas';
-const AUTH_BASE = '/authenticate';
+const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
+const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
 
-const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
-const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
-const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
+let UUID_ADMIN: string;
+let UUID_PORTARIA: string;
+let UUID_MORADOR: string;
 let UUID_ENCOMENDA_MORADOR: string;
 let UUID_SEED_EVENTO_MORADOR: string;
 let UUID_SEED_EVENTO_NAO_MORADOR: string;
@@ -21,6 +26,8 @@ let UUID_SEED_EVENTO_NAO_MORADOR: string;
 describe('EncomendasEventosModule (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
+  let jwtService: JwtService;
+  let configService: ConfigService;
   let superToken: string;
   let adminToken: string;
   let portariaToken: string;
@@ -42,26 +49,83 @@ describe('EncomendasEventosModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    jwtService = app.get(JwtService);
+    configService = app.get(ConfigService);
 
-    const signIn = async (email: string, senha = 'Senha@123') => {
-      const res = await request(app.getHttpServer())
-        .post(`${AUTH_BASE}/sign-in`)
-        .send({ usuario: email, senha })
-        .expect(200);
+    const [superUsuario, adminUsuario, portariaUsuario, moradorUsuario] =
+      await Promise.all([
+        knex('usuarios')
+          .where({ email: SEEDED_SUPER_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_ADMIN_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_PORTARIA_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_MORADOR_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+      ]);
 
-      return res.body.access_token as string;
-    };
+    expect(superUsuario).toBeTruthy();
+    expect(adminUsuario).toBeTruthy();
+    expect(portariaUsuario).toBeTruthy();
+    expect(moradorUsuario).toBeTruthy();
 
-    superToken = await signIn('haroncorreia@hotmail.com');
-    adminToken = await signIn('admin@recantoverdeac.com.br');
-    portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador1@recantoverdeac.com.br');
+    UUID_ADMIN = adminUsuario.uuid as string;
+    UUID_PORTARIA = portariaUsuario.uuid as string;
+    UUID_MORADOR = moradorUsuario.uuid as string;
+
+    const buildToken = (
+      sub: string,
+      nome: string,
+      email: string,
+      perfil: 'super' | 'admin' | 'portaria' | 'morador',
+    ): string =>
+      jwtService.sign(
+        { sub, nome, email, perfil },
+        {
+          secret: configService.get<string>('JWT_SECRET'),
+          expiresIn: '15m',
+        },
+      );
+
+    superToken = buildToken(
+      superUsuario.uuid as string,
+      superUsuario.nome as string,
+      superUsuario.email as string,
+      'super',
+    );
+    adminToken = buildToken(
+      UUID_ADMIN,
+      adminUsuario.nome as string,
+      adminUsuario.email as string,
+      'admin',
+    );
+    portariaToken = buildToken(
+      UUID_PORTARIA,
+      portariaUsuario.nome as string,
+      portariaUsuario.email as string,
+      'portaria',
+    );
+    moradorToken = buildToken(
+      UUID_MORADOR,
+      moradorUsuario.nome as string,
+      moradorUsuario.email as string,
+      'morador',
+    );
 
     // Fixtures: seeds 05/06/07 no longer insert encomenda/evento records
     const encResp = await auth(
       portariaToken,
       request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
         uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
         palavra_chave: 'FixtureEvento',
         codigo_rastreamento: 'EVTFIXT001',
       }),
@@ -392,6 +456,7 @@ describe('EncomendasEventosModule (e2e)', () => {
     const createdAdmin = await auth(
       adminToken,
       request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
+        uuid_usuario: UUID_MORADOR,
         palavra_chave: 'EVENTO_RECEBIDA',
         descricao: 'Criacao recebida',
         codigo_rastreamento: 'EVR123456',
