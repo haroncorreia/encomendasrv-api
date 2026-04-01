@@ -1,4 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -9,16 +11,27 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
 const SEED_UNIDADE = '0303';
+const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
+const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+const SEEDED_MORADOR_2_EMAIL = 'morador2@recantoverdeac.com.br';
 
 describe('UsuariosModule (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
+  let jwtService: JwtService;
+  let configService: ConfigService;
   let superToken: string;
   let adminToken: string;
   let portariaToken: string;
   let moradorToken: string;
   let portariaUuid: string;
   let moradorUuid: string;
+  let selfDeletePortariaToken: string;
+  let selfDeleteMoradorToken: string;
+  let selfDeletePortariaUuid: string;
+  let selfDeleteMoradorUuid: string;
   let usuarioCriadoUuid: string;
   let usuarioAdminCriadoUuid: string;
   let usuarioPortariaCriadoAdminUuid: string;
@@ -44,67 +57,121 @@ describe('UsuariosModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    jwtService = app.get(JwtService);
+    configService = app.get(ConfigService);
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Super User',
-        email: 'usuarios.super@teste.com',
-        celular: '11881111001',
-        cpf_cnpj: '11881111001',
-        senha: 'Senha@123',
-        perfil: 'super',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const [
+      superUsuario,
+      adminUsuario,
+      portariaUsuario,
+      moradorUsuario,
+      morador2Usuario,
+    ] = await Promise.all([
+      knex('usuarios')
+        .where({ email: SEEDED_SUPER_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email'),
+      knex('usuarios')
+        .where({ email: SEEDED_ADMIN_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email'),
+      knex('usuarios')
+        .where({ email: SEEDED_PORTARIA_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email'),
+      knex('usuarios')
+        .where({ email: SEEDED_MORADOR_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email'),
+      knex('usuarios')
+        .where({ email: SEEDED_MORADOR_2_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email'),
+    ]);
 
-    superToken = superRes.body.access_token as string;
+    expect(superUsuario).toBeTruthy();
+    expect(adminUsuario).toBeTruthy();
+    expect(portariaUsuario).toBeTruthy();
+    expect(moradorUsuario).toBeTruthy();
+    expect(morador2Usuario).toBeTruthy();
 
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Admin User',
-        email: 'usuarios.admin@teste.com',
-        celular: '11881111002',
-        cpf_cnpj: '11881111002',
-        senha: 'Senha@123',
-        perfil: 'admin',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const buildToken = (
+      sub: string,
+      nome: string,
+      email: string,
+      perfil: 'super' | 'admin' | 'portaria' | 'morador',
+    ): string =>
+      jwtService.sign(
+        { sub, nome, email, perfil },
+        {
+          secret: configService.get<string>('JWT_SECRET'),
+          expiresIn: '15m',
+        },
+      );
 
-    adminToken = adminRes.body.access_token as string;
+    superToken = buildToken(
+      superUsuario.uuid as string,
+      superUsuario.nome as string,
+      superUsuario.email as string,
+      'super',
+    );
+    adminToken = buildToken(
+      adminUsuario.uuid as string,
+      adminUsuario.nome as string,
+      adminUsuario.email as string,
+      'admin',
+    );
+    portariaToken = buildToken(
+      portariaUsuario.uuid as string,
+      portariaUsuario.nome as string,
+      portariaUsuario.email as string,
+      'portaria',
+    );
+    moradorToken = buildToken(
+      moradorUsuario.uuid as string,
+      moradorUsuario.nome as string,
+      moradorUsuario.email as string,
+      'morador',
+    );
 
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Portaria User',
-        email: 'usuarios.portaria@teste.com',
-        celular: '11881111023',
-        cpf_cnpj: '11881111023',
+    portariaUuid = portariaUsuario.uuid as string;
+    moradorUuid = moradorUsuario.uuid as string;
+
+    const selfDeletePortariaRes = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Portaria Self Delete',
+        email: 'usuarios.portaria.selfdelete@teste.com',
+        celular: '11881111911',
+        cpf_cnpj: '11881111911',
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+      }),
+    ).expect(201);
 
-    portariaToken = portariaRes.body.access_token as string;
-    portariaUuid = portariaRes.body.usuario.uuid as string;
+    selfDeletePortariaUuid = selfDeletePortariaRes.body.uuid as string;
+    selfDeletePortariaToken = buildToken(
+      selfDeletePortariaRes.body.uuid as string,
+      selfDeletePortariaRes.body.nome as string,
+      selfDeletePortariaRes.body.email as string,
+      'portaria',
+    );
 
-    const moradorRes = await request(app.getHttpServer())
+    const selfDeleteMoradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
-        nome: 'Morador User',
-        email: 'usuarios.morador@teste.com',
-        celular: '11881111003',
-        cpf_cnpj: '11881111003',
+        nome: 'Morador Self Delete',
+        email: 'usuarios.morador.selfdelete@teste.com',
+        celular: '11881111912',
+        cpf_cnpj: '11881111912',
         senha: 'Senha@123',
         unidade: SEED_UNIDADE,
       })
       .expect(201);
 
-    moradorToken = moradorRes.body.access_token as string;
-    moradorUuid = moradorRes.body.usuario.uuid as string;
+    selfDeleteMoradorUuid = selfDeleteMoradorRes.body.usuario.uuid as string;
+    selfDeleteMoradorToken = selfDeleteMoradorRes.body.access_token as string;
 
     const roleSuperTargetRes = await auth(
       superToken,
@@ -151,19 +218,7 @@ describe('UsuariosModule (e2e)', () => {
 
     rolePortariaTargetUuid = rolePortariaTargetRes.body.uuid as string;
 
-    const roleMoradorTargetRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Role Morador Target',
-        email: 'usuarios.role.morador.target@teste.com',
-        celular: '11881111904',
-        cpf_cnpj: '11881111904',
-        senha: 'Senha@123',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-
-    roleMoradorTargetUuid = roleMoradorTargetRes.body.usuario.uuid as string;
+    roleMoradorTargetUuid = morador2Usuario.uuid as string;
   });
 
   afterAll(async () => {
@@ -641,12 +696,12 @@ describe('UsuariosModule (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ usuario: 'usuarios.portaria@teste.com', senha: 'Senha@123' })
+      .send({ usuario: SEEDED_PORTARIA_EMAIL, senha: 'Senha@123' })
       .expect(401);
 
     await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-in`)
-      .send({ usuario: 'usuarios.portaria@teste.com', senha: 'SenhaNova@123' })
+      .send({ usuario: SEEDED_PORTARIA_EMAIL, senha: 'SenhaNova@123' })
       .expect(200);
   });
 
@@ -833,15 +888,19 @@ describe('UsuariosModule (e2e)', () => {
 
   it('DELETE /usuarios/:id deve permitir que portaria exclua apenas ele próprio', async () => {
     await auth(
-      portariaToken,
-      request(app.getHttpServer()).delete(`${BASE_URL}/${portariaUuid}`),
+      selfDeletePortariaToken,
+      request(app.getHttpServer()).delete(
+        `${BASE_URL}/${selfDeletePortariaUuid}`,
+      ),
     ).expect(204);
   });
 
   it('DELETE /usuarios/:id deve permitir que morador exclua apenas ele próprio', async () => {
     await auth(
-      moradorToken,
-      request(app.getHttpServer()).delete(`${BASE_URL}/${moradorUuid}`),
+      selfDeleteMoradorToken,
+      request(app.getHttpServer()).delete(
+        `${BASE_URL}/${selfDeleteMoradorUuid}`,
+      ),
     ).expect(204);
   });
 
@@ -908,7 +967,7 @@ describe('UsuariosModule (e2e)', () => {
     const auditoria = await knex('auditoria')
       .where({ method: 'DELETE' })
       .andWhere({ route: `${BASE_URL}/${hardDeleteTargetUuid}/hard` })
-      .andWhere({ user_mail: 'usuarios.super@teste.com' })
+      .andWhere({ user_mail: SEEDED_SUPER_EMAIL })
       .orderBy('created_at', 'desc')
       .first();
 

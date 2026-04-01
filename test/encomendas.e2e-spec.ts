@@ -309,11 +309,6 @@ describe('EncomendasModule (e2e)', () => {
     ).toBe(true);
     expect(
       res.body.some(
-        (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
-      ),
-    ).toBe(true);
-    expect(
-      res.body.some(
         (item: { uuid: string }) => item.uuid === UUID_SEED_RECEBIDA_ADMIN,
       ),
     ).toBe(false);

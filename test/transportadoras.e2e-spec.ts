@@ -48,6 +48,7 @@ describe('TransportadorasModule (e2e)', () => {
       .send({
         nome: 'Transportadora Super',
         email: 'transportadora.super@teste.com',
+        cpf_cnpj: '11111111111',
         celular: '11660000001',
         senha: 'Senha@123',
         perfil: 'super',
@@ -62,6 +63,7 @@ describe('TransportadorasModule (e2e)', () => {
       .send({
         nome: 'Transportadora Admin',
         email: 'transportadora.admin@teste.com',
+        cpf_cnpj: '22222222222',
         celular: '11660000002',
         senha: 'Senha@123',
         perfil: 'admin',
@@ -76,6 +78,7 @@ describe('TransportadorasModule (e2e)', () => {
       .send({
         nome: 'Transportadora Portaria',
         email: 'transportadora.portaria@teste.com',
+        cpf_cnpj: '33333333333',
         celular: '11660000003',
         senha: 'Senha@123',
         perfil: 'portaria',
@@ -90,6 +93,7 @@ describe('TransportadorasModule (e2e)', () => {
       .send({
         nome: 'Transportadora Morador',
         email: 'transportadora.morador@teste.com',
+        cpf_cnpj: '44444444444',
         celular: '11660000004',
         senha: 'Senha@123',
         unidade: '0303',

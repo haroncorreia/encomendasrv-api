@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Knex } from 'knex';
 import request from 'supertest';
@@ -10,11 +12,15 @@ import { NotificacoesService } from '../src/notificacoes/notificacoes.service';
 
 const BASE_URL = '/notificacoes';
 const ENCOMENDAS_BASE = '/encomendas';
-const AUTH_BASE = '/authenticate';
 
-const UUID_ADMIN = '22222222-2222-4222-8222-222222222222';
-const UUID_PORTARIA = '33333333-3333-4333-8333-333333333333';
-const UUID_MORADOR = '44444444-4444-4444-8444-444444444444';
+const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
+const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+
+let UUID_ADMIN: string;
+let UUID_PORTARIA: string;
+let UUID_MORADOR: string;
 let UUID_SUPER: string;
 let UUID_ENCOMENDA_MORADOR: string;
 let UUID_SEED_NOTIFICACAO_PORTARIA: string;
@@ -25,6 +31,8 @@ describe('NotificacoesModule (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
   let notificacoesService: NotificacoesService;
+  let jwtService: JwtService;
+  let configService: ConfigService;
   let superToken: string;
   let adminToken: string;
   let portariaToken: string;
@@ -47,26 +55,78 @@ describe('NotificacoesModule (e2e)', () => {
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
     notificacoesService = app.get<NotificacoesService>(NotificacoesService);
+    jwtService = app.get(JwtService);
+    configService = app.get(ConfigService);
 
-    const signIn = async (email: string, senha = 'Senha@123') => {
-      const res = await request(app.getHttpServer())
-        .post(`${AUTH_BASE}/sign-in`)
-        .send({ usuario: email, senha })
-        .expect(200);
+    const [superUser, adminUser, portariaUser, moradorUser] = await Promise.all(
+      [
+        knex('usuarios')
+          .where({ email: SEEDED_SUPER_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_ADMIN_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_PORTARIA_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+        knex('usuarios')
+          .where({ email: SEEDED_MORADOR_EMAIL })
+          .whereNull('deleted_at')
+          .first('uuid', 'nome', 'email', 'perfil'),
+      ],
+    );
 
-      return res.body.access_token as string;
-    };
+    expect(superUser).toBeTruthy();
+    expect(adminUser).toBeTruthy();
+    expect(portariaUser).toBeTruthy();
+    expect(moradorUser).toBeTruthy();
 
-    superToken = await signIn('haroncorreia@hotmail.com');
-    adminToken = await signIn('admin@recantoverdeac.com.br');
-    portariaToken = await signIn('portaria@recantoverdeac.com.br');
-    moradorToken = await signIn('morador1@recantoverdeac.com.br');
-
-    const superUser = await knex('usuarios')
-      .where({ email: 'haroncorreia@hotmail.com' })
-      .whereNull('deleted_at')
-      .first('uuid');
     UUID_SUPER = superUser.uuid as string;
+    UUID_ADMIN = adminUser.uuid as string;
+    UUID_PORTARIA = portariaUser.uuid as string;
+    UUID_MORADOR = moradorUser.uuid as string;
+
+    const buildToken = (
+      sub: string,
+      nome: string,
+      email: string,
+      perfil: 'super' | 'admin' | 'portaria' | 'morador',
+    ): string =>
+      jwtService.sign(
+        { sub, nome, email, perfil },
+        {
+          secret: configService.get<string>('JWT_SECRET'),
+          expiresIn: '15m',
+        },
+      );
+
+    superToken = buildToken(
+      UUID_SUPER,
+      superUser.nome as string,
+      superUser.email as string,
+      'super',
+    );
+    adminToken = buildToken(
+      UUID_ADMIN,
+      adminUser.nome as string,
+      adminUser.email as string,
+      'admin',
+    );
+    portariaToken = buildToken(
+      UUID_PORTARIA,
+      portariaUser.nome as string,
+      portariaUser.email as string,
+      'portaria',
+    );
+    moradorToken = buildToken(
+      UUID_MORADOR,
+      moradorUser.nome as string,
+      moradorUser.email as string,
+      'morador',
+    );
 
     // Fixtures: seeds 05/06/07 no longer insert encomenda/notificacao records
     const encResp = await auth(
@@ -702,7 +762,7 @@ describe('NotificacoesModule (e2e)', () => {
     ).expect(400);
   });
 
-  it('DELETE /notificacoes/:id deve permitir super e admin remover qualquer registro', async () => {
+  it('DELETE /notificacoes/:id deve restringir admin por vínculo e permitir super remover qualquer registro', async () => {
     const uuid = randomUUID();
     await knex('notificacoes').insert({
       uuid,
@@ -720,6 +780,11 @@ describe('NotificacoesModule (e2e)', () => {
     await auth(
       adminToken,
       request(app.getHttpServer()).delete(`${BASE_URL}/${uuid}`),
+    ).expect(403);
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).delete(`${BASE_URL}/${uuid}`),
     ).expect(204);
 
     const deleted = await knex('notificacoes')
@@ -727,7 +792,7 @@ describe('NotificacoesModule (e2e)', () => {
       .first('deleted_at', 'deleted_by');
 
     expect(deleted?.deleted_at).toBeTruthy();
-    expect(deleted?.deleted_by).toBe('admin@recantoverdeac.com.br');
+    expect(deleted?.deleted_by).toBe('haron@halgoritmo.com.br');
   });
 
   it('Rotas GET devem respeitar regra de visibilidade por perfil em registros vinculados ao uuid_usuario', async () => {

@@ -9,13 +9,8 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 const BASE_URL = '/unidades';
 const AUTH_BASE = '/authenticate';
 
-const UUID_SEED_UNIDADE_1 = '60000000-0000-4000-8000-000000000001';
-const UUID_SEED_UNIDADE_2 = '60000000-0000-4000-8000-000000000002';
-const UUID_SEED_UNIDADE_3 = '60000000-0000-4000-8000-000000000003';
-const UUID_SEED_UNIDADE_4 = '60000000-0000-4000-8000-000000000004';
 const SEED_UNIDADE_3 = '0303';
 const SEED_UNIDADE_4 = '0404';
-const UUID_SEED_MORADOR_1 = '44444444-4444-4444-8444-444444444444';
 const UUID_INVALID = '00000000-0000-0000-0000-000000000000';
 
 describe('UnidadesModule (e2e)', () => {
@@ -27,6 +22,11 @@ describe('UnidadesModule (e2e)', () => {
   let moradorToken: string;
   let moradorSemUnidadeToken: string;
   let softDeletedUuid: string;
+  let UUID_SEED_UNIDADE_1: string;
+  let UUID_SEED_UNIDADE_2: string;
+  let UUID_SEED_CONDOMINIO: string;
+  let UUID_MORADOR_UNIDADE: string;
+  let UUID_MORADOR_OUTRA_UNIDADE: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -50,6 +50,7 @@ describe('UnidadesModule (e2e)', () => {
       .send({
         nome: 'Unidades Super',
         email: 'unidades.super@teste.com',
+        cpf_cnpj: '55555555555',
         celular: '11630000001',
         senha: 'Senha@123',
         perfil: 'super',
@@ -63,6 +64,7 @@ describe('UnidadesModule (e2e)', () => {
       .send({
         nome: 'Unidades Admin',
         email: 'unidades.admin@teste.com',
+        cpf_cnpj: '66666666666',
         celular: '11630000002',
         senha: 'Senha@123',
         perfil: 'admin',
@@ -76,6 +78,7 @@ describe('UnidadesModule (e2e)', () => {
       .send({
         nome: 'Unidades Portaria',
         email: 'unidades.portaria@teste.com',
+        cpf_cnpj: '77777777777',
         celular: '11630000003',
         senha: 'Senha@123',
         perfil: 'portaria',
@@ -101,12 +104,51 @@ describe('UnidadesModule (e2e)', () => {
       .send({
         nome: 'Unidades Morador Outro',
         email: 'unidades.morador@teste.com',
+        cpf_cnpj: '88888888888',
         celular: '11630000004',
         senha: 'Senha@123',
         unidade: SEED_UNIDADE_4,
       })
       .expect(201);
     moradorSemUnidadeToken = moradorSemUnidadeRes.body.access_token as string;
+
+    const unidade3 = await knex('unidades')
+      .where({ unidade: SEED_UNIDADE_3 })
+      .whereNull('deleted_at')
+      .first('uuid', 'uuid_condominio');
+    if (!unidade3) {
+      throw new Error('Unidade seed 0303 nao encontrada para testes e2e');
+    }
+    UUID_SEED_UNIDADE_1 = unidade3.uuid as string;
+    UUID_SEED_CONDOMINIO = unidade3.uuid_condominio as string;
+
+    const unidade4 = await knex('unidades')
+      .where({ unidade: SEED_UNIDADE_4 })
+      .whereNull('deleted_at')
+      .first('uuid');
+    if (!unidade4) {
+      throw new Error('Unidade seed 0404 nao encontrada para testes e2e');
+    }
+    UUID_SEED_UNIDADE_2 = unidade4.uuid as string;
+
+    const moradorSeed = await knex('usuarios')
+      .where({ email: 'morador1@recantoverdeac.com.br' })
+      .first('uuid_unidade');
+    if (!moradorSeed?.uuid_unidade) {
+      throw new Error('Morador seed sem uuid_unidade para testes e2e');
+    }
+    UUID_MORADOR_UNIDADE = moradorSeed.uuid_unidade as string;
+
+    const moradorOutraUnidade = await knex('unidades')
+      .whereNull('deleted_at')
+      .whereNot({ uuid: UUID_MORADOR_UNIDADE })
+      .first('uuid');
+    if (!moradorOutraUnidade) {
+      throw new Error(
+        'Nao foi encontrada unidade alternativa para testes do morador',
+      );
+    }
+    UUID_MORADOR_OUTRA_UNIDADE = moradorOutraUnidade.uuid as string;
   });
 
   afterAll(async () => {
@@ -185,18 +227,14 @@ describe('UnidadesModule (e2e)', () => {
   describe('GET /unidades/filter', () => {
     it('deve retornar 200 filtrando por uuid_condominio para super', async () => {
       const res = await request(app.getHttpServer())
-        .get(
-          `${BASE_URL}/filter?uuid_condominio=11111111-1111-4111-8111-111111111111`,
-        )
+        .get(`${BASE_URL}/filter?uuid_condominio=${UUID_SEED_CONDOMINIO}`)
         .set('Authorization', `Bearer ${superToken}`)
         .expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.length).toBeGreaterThanOrEqual(1);
       (res.body as Array<{ uuid_condominio: string }>).forEach((item) => {
-        expect(item.uuid_condominio).toBe(
-          '11111111-1111-4111-8111-111111111111',
-        );
+        expect(item.uuid_condominio).toBe(UUID_SEED_CONDOMINIO);
       });
     });
 
@@ -274,16 +312,16 @@ describe('UnidadesModule (e2e)', () => {
 
     it('deve retornar 200 para morador acessando sua própria unidade', async () => {
       const res = await request(app.getHttpServer())
-        .get(`${BASE_URL}/${UUID_SEED_UNIDADE_1}`)
+        .get(`${BASE_URL}/${UUID_MORADOR_UNIDADE}`)
         .set('Authorization', `Bearer ${moradorToken}`)
         .expect(200);
 
-      expect(res.body.uuid).toBe(UUID_SEED_UNIDADE_1);
+      expect(res.body.uuid).toBe(UUID_MORADOR_UNIDADE);
     });
 
     it('deve retornar 403 para morador acessando unidade de outro', async () => {
       await request(app.getHttpServer())
-        .get(`${BASE_URL}/${UUID_SEED_UNIDADE_2}`)
+        .get(`${BASE_URL}/${UUID_MORADOR_OUTRA_UNIDADE}`)
         .set('Authorization', `Bearer ${moradorToken}`)
         .expect(403);
     });
@@ -471,7 +509,7 @@ describe('UnidadesModule (e2e)', () => {
       hardDeleteUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001';
       await knex('unidades').insert({
         uuid: hardDeleteUuid,
-        uuid_condominio: '11111111-1111-4111-8111-111111111111',
+        uuid_condominio: UUID_SEED_CONDOMINIO,
         unidade: '9999',
         quadra: 'Z9',
         lote: '99',
