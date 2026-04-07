@@ -12,7 +12,7 @@ export async function up(knex: Knex): Promise<void> {
       table
         .enum(COLUMN, [...VALUES])
         .notNullable()
-        .defaultTo('unidade')
+        .defaultTo('pessoal')
         .after('codigo_rastreamento');
     }
   });

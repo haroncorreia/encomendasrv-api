@@ -787,7 +787,7 @@ export class EncomendasService {
 
     const uuid = randomUUID();
     const restricaoRetirada =
-      dto.restricao_retirada ?? EncomendaRestricaoRetirada.UNIDADE;
+      dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL;
 
     await qb<Encomenda>(TABLE).insert({
       uuid,
@@ -912,7 +912,8 @@ export class EncomendasService {
           codigo_rastreamento: dto.codigo_rastreamento,
         }),
         ...(dto.restricao_retirada !== undefined && {
-          restricao_retirada: dto.restricao_retirada,
+          restricao_retirada:
+            dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL,
         }),
         ...(dto.entregador_externo_nome !== undefined && {
           entregador_externo_nome: dto.entregador_externo_nome,
