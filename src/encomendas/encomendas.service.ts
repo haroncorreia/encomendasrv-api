@@ -28,6 +28,7 @@ import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
+import { EncomendaRestricaoRetirada } from './enums/encomenda-restricao-retirada.enum';
 import { EncomendaStatus } from './enums/encomenda-status.enum';
 import { Encomenda } from './interfaces/encomenda.interface';
 
@@ -301,6 +302,29 @@ export class EncomendasService {
     }
   }
 
+  private async assertQrCodeAccess(
+    encomenda: Encomenda,
+    user: JwtPayload,
+  ): Promise<void> {
+    if (encomenda.restricao_retirada === EncomendaRestricaoRetirada.PESSOAL) {
+      if (encomenda.uuid_usuario !== user.sub) {
+        throw new ForbiddenException(
+          'Seu perfil não possui permissão para gerar o QRCode de retirada desta encomenda.',
+        );
+      }
+
+      return;
+    }
+
+    const usuario = await this.findUsuarioAtivo(user.sub);
+
+    if (usuario.uuid_unidade !== encomenda.uuid_unidade) {
+      throw new ForbiddenException(
+        'Seu perfil não possui permissão para gerar o QRCode de retirada desta encomenda.',
+      );
+    }
+  }
+
   private applyFilters(
     query: Knex.QueryBuilder<Encomenda, Encomenda[]>,
     filters: FilterEncomendasDto,
@@ -569,7 +593,7 @@ export class EncomendasService {
     user: JwtPayload,
   ): Promise<{ token: string }> {
     const encomenda = await this.findActiveByUuid(uuid);
-    this.assertReadAccess(encomenda, user);
+    await this.assertQrCodeAccess(encomenda, user);
 
     const payload: QrCodeEncomendaPayload = {
       tipo: 'retirada',
@@ -768,6 +792,8 @@ export class EncomendasService {
     }
 
     const uuid = randomUUID();
+    const restricaoRetirada =
+      dto.restricao_retirada ?? EncomendaRestricaoRetirada.UNIDADE;
 
     await qb<Encomenda>(TABLE).insert({
       uuid,
@@ -778,6 +804,7 @@ export class EncomendasService {
       palavra_chave: dto.palavra_chave ?? null,
       descricao: dto.descricao ?? null,
       codigo_rastreamento: dto.codigo_rastreamento ?? null,
+      restricao_retirada: restricaoRetirada,
       entregador_externo_nome: dto.entregador_externo_nome ?? null,
       entregador_externo_cpf: dto.entregador_externo_cpf ?? null,
       status,
@@ -889,6 +916,9 @@ export class EncomendasService {
         ...(dto.descricao !== undefined && { descricao: dto.descricao }),
         ...(dto.codigo_rastreamento !== undefined && {
           codigo_rastreamento: dto.codigo_rastreamento,
+        }),
+        ...(dto.restricao_retirada !== undefined && {
+          restricao_retirada: dto.restricao_retirada,
         }),
         ...(dto.entregador_externo_nome !== undefined && {
           entregador_externo_nome: dto.entregador_externo_nome,

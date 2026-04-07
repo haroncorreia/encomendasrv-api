@@ -1,10 +1,13 @@
 import {
+  IsEnum,
+  IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
   ValidateIf,
 } from 'class-validator';
+import { EncomendaRestricaoRetirada } from '../enums/encomenda-restricao-retirada.enum';
 
 export class UpdateEncomendaDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
@@ -27,6 +30,13 @@ export class UpdateEncomendaDto {
   @IsString()
   @MaxLength(100)
   codigo_rastreamento?: string | null;
+
+  @IsOptional()
+  @IsEnum(EncomendaRestricaoRetirada, {
+    message:
+      'O campo restricao_retirada deve ser um dos valores: pessoal ou unidade.',
+  })
+  restricao_retirada?: EncomendaRestricaoRetirada;
 
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()

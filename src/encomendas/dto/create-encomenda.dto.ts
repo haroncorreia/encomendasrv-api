@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsOptional,
   IsString,
+  IsEnum,
   Matches,
   IsUUID,
   MaxLength,
@@ -9,6 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ImagemMetadadosDto } from '../../imagens/dto/imagem-metadados.dto';
+import { EncomendaRestricaoRetirada } from '../enums/encomenda-restricao-retirada.enum';
 
 export class CreateEncomendaDto {
   @IsOptional()
@@ -37,6 +39,13 @@ export class CreateEncomendaDto {
   @IsString()
   @MaxLength(100)
   codigo_rastreamento?: string | null;
+
+  @IsOptional()
+  @IsEnum(EncomendaRestricaoRetirada, {
+    message:
+      'O campo restricao_retirada deve ser um dos valores: pessoal ou unidade.',
+  })
+  restricao_retirada?: EncomendaRestricaoRetirada;
 
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()

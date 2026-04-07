@@ -1,3 +1,4 @@
+import { EncomendaRestricaoRetirada } from '../enums/encomenda-restricao-retirada.enum';
 import { EncomendaStatus } from '../enums/encomenda-status.enum';
 
 export interface Encomenda {
@@ -9,6 +10,7 @@ export interface Encomenda {
   palavra_chave: string | null;
   descricao: string | null;
   codigo_rastreamento: string | null;
+  restricao_retirada: EncomendaRestricaoRetirada;
   entregador_externo_nome: string | null;
   entregador_externo_cpf: string | null;
   status: EncomendaStatus;
