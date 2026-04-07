@@ -692,12 +692,6 @@ export class EncomendasService {
     let uuidUnidadeEncomenda = actor.uuid_unidade;
 
     if (actor.perfil === Perfil.MORADOR) {
-      if (!dto.palavra_chave || dto.palavra_chave.trim().length === 0) {
-        throw new BadRequestException(
-          'O campo palavra_chave é obrigatório para criação de previsão de encomenda por morador.',
-        );
-      }
-
       if (dto.recebido_por_uuid_usuario || dto.entregue_por_uuid_usuario) {
         throw new BadRequestException(
           'Usuários com perfil morador não podem informar recebimento ou entrega na criação da encomenda.',
