@@ -35,6 +35,15 @@ interface QrPayload {
   exp: number;
 }
 
+interface QrLotePayload {
+  tipo: 'retirada_lote';
+  uuids_encomendas: string[];
+  uuid_usuario: string;
+  uuid_condominio: string;
+  iat: number;
+  exp: number;
+}
+
 describe('Encomendas QRCode (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
@@ -588,5 +597,60 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(registro.status).toBe('prevista');
     expect(registro.entregue_por_uuid_usuario).toBeNull();
     expect(registro.entregue_em).toBeNull();
+  });
+
+  it('POST /encomendas/ler-qrcode deve aceitar token de retirada em lote', async () => {
+    const created1 = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeLote1',
+          codigo_rastreamento: `QRL1-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
+    ).expect(201);
+
+    const created2 = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeLote2',
+          codigo_rastreamento: `QRL2-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
+    ).expect(201);
+
+    const batchTokenRes = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/gerar-qrcode-lotes`)
+        .send({
+          uuids_encomendas: [
+            created1.body.uuid as string,
+            created2.body.uuid as string,
+          ],
+        }),
+    ).expect(201);
+
+    const payload = jwtService.verify<QrLotePayload>(batchTokenRes.body.token, {
+      secret: qrSecret,
+    });
+
+    expect(payload.tipo).toBe('retirada_lote');
+    expect(payload.uuids_encomendas.length).toBe(2);
+
+    const leitura = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/ler-qrcode`)
+        .send({ token: batchTokenRes.body.token }),
+    ).expect(201);
+
+    expect(Array.isArray(leitura.body)).toBe(true);
+    expect(leitura.body).toHaveLength(2);
+    expect(leitura.body[0]).toHaveProperty('uuid');
+    expect(leitura.body[1]).toHaveProperty('uuid');
   });
 });

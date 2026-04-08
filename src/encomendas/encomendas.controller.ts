@@ -103,22 +103,26 @@ export class EncomendasController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const encomenda = await this.encomendasService.readQrCodeToken(
+      const resultado = await this.encomendasService.readQrCodeToken(
         dto,
         user,
         trx,
       );
 
+      const uuids = Array.isArray(resultado)
+        ? resultado.map((item) => item.uuid).join(', ')
+        : resultado.uuid;
+
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
           user_mail: user.email,
-          description: `Leitura de QRCode de encomenda realizada. (uuid: ${encomenda.uuid})`,
+          description: `Leitura de QRCode de encomenda realizada. (uuid: ${uuids})`,
         },
         trx,
       );
 
-      return encomenda;
+      return resultado;
     });
   }
 

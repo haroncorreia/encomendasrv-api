@@ -77,6 +77,8 @@ interface QrCodeEncomendaLotePayload {
   exp?: number;
 }
 
+type QrCodePayload = QrCodeEncomendaPayload | QrCodeEncomendaLotePayload;
+
 @Injectable()
 export class EncomendasService {
   constructor(
@@ -100,32 +102,59 @@ export class EncomendasService {
 
   private validateQrCodePayload(
     payload: unknown,
-  ): asserts payload is QrCodeEncomendaPayload {
+  ): asserts payload is QrCodePayload {
     if (!payload || typeof payload !== 'object') {
       throw new BadRequestException('Token QRCode possui payload inválido.');
     }
 
-    const data = payload as Partial<QrCodeEncomendaPayload>;
+    const data = payload as Partial<QrCodePayload>;
 
-    if (data.tipo !== 'retirada') {
+    if (data.tipo !== 'retirada' && data.tipo !== 'retirada_lote') {
       throw new BadRequestException('Token QRCode possui payload inválido.');
     }
 
+    if (data.tipo === 'retirada_lote') {
+      const uuids = (data as Partial<QrCodeEncomendaLotePayload>)
+        .uuids_encomendas;
+
+      if (
+        !uuids ||
+        !Array.isArray(uuids) ||
+        uuids.length === 0 ||
+        uuids.some((uuid) => !isUUID(uuid, '4'))
+      ) {
+        throw new BadRequestException('Token QRCode possui payload inválido.');
+      }
+
+      if (
+        !data.uuid_usuario ||
+        !isUUID(data.uuid_usuario, '4') ||
+        !data.uuid_condominio ||
+        !isUUID(data.uuid_condominio, '4')
+      ) {
+        throw new BadRequestException('Token QRCode possui payload inválido.');
+      }
+
+      return;
+    }
+
+    const singlePayload = data as Partial<QrCodeEncomendaPayload>;
+
     if (
-      !data.uuid_encomenda ||
-      !isUUID(data.uuid_encomenda, '4') ||
-      !data.uuid_usuario ||
-      !isUUID(data.uuid_usuario, '4') ||
-      !data.uuid_condominio ||
-      !isUUID(data.uuid_condominio, '4')
+      !singlePayload.uuid_encomenda ||
+      !isUUID(singlePayload.uuid_encomenda, '4') ||
+      !singlePayload.uuid_usuario ||
+      !isUUID(singlePayload.uuid_usuario, '4') ||
+      !singlePayload.uuid_condominio ||
+      !isUUID(singlePayload.uuid_condominio, '4')
     ) {
       throw new BadRequestException('Token QRCode possui payload inválido.');
     }
   }
 
-  private verifyQrCodeToken(token: string): QrCodeEncomendaPayload {
+  private verifyQrCodeToken(token: string): QrCodePayload {
     try {
-      const payload = this.jwtService.verify<QrCodeEncomendaPayload>(token, {
+      const payload = this.jwtService.verify<QrCodePayload>(token, {
         secret: this.getQrCodeSecret(),
       });
 
@@ -727,7 +756,7 @@ export class EncomendasService {
     dto: LerQrCodeEncomendaDto,
     _user: JwtPayload,
     trx?: Knex.Transaction,
-  ): Promise<EncomendaComRelacionamentos> {
+  ): Promise<EncomendaComRelacionamentos | EncomendaComRelacionamentos[]> {
     const qb = trx ?? this.knex;
     const payload = this.verifyQrCodeToken(dto.token);
 
@@ -740,6 +769,47 @@ export class EncomendasService {
       throw new BadRequestException(
         'Token QRCode referencia um condomínio inválido.',
       );
+    }
+
+    const usuario = await this.findUsuarioAtivo(payload.uuid_usuario, trx);
+
+    if (usuario.uuid_condominio !== payload.uuid_condominio) {
+      throw new BadRequestException(
+        'Token QRCode referencia um usuário inválido para o condomínio informado.',
+      );
+    }
+
+    if (payload.tipo === 'retirada_lote') {
+      const encomendas = await qb<Encomenda>(TABLE)
+        .whereIn('uuid', payload.uuids_encomendas)
+        .whereNull('deleted_at');
+
+      if (encomendas.length !== payload.uuids_encomendas.length) {
+        throw new BadRequestException(
+          'Token QRCode referencia uma encomenda inválida.',
+        );
+      }
+
+      for (const encomenda of encomendas) {
+        if (encomenda.uuid_condominio !== payload.uuid_condominio) {
+          throw new BadRequestException(
+            'Token QRCode não corresponde ao condomínio da encomenda.',
+          );
+        }
+
+        const usuarioRelacionado = encomenda.uuid_usuario === usuario.uuid;
+        const unidadeRelacionada =
+          encomenda.restricao_retirada === EncomendaRestricaoRetirada.UNIDADE &&
+          usuario.uuid_unidade === encomenda.uuid_unidade;
+
+        if (!usuarioRelacionado && !unidadeRelacionada) {
+          throw new BadRequestException(
+            'Token QRCode referencia um usuário não vinculado à encomenda.',
+          );
+        }
+      }
+
+      return this.enrichWithRelacionamentos(encomendas);
     }
 
     const encomenda = await qb<Encomenda>(TABLE)
@@ -759,15 +829,12 @@ export class EncomendasService {
       );
     }
 
-    const usuario = await this.findUsuarioAtivo(payload.uuid_usuario, trx);
+    const usuarioRelacionado = encomenda.uuid_usuario === usuario.uuid;
+    const unidadeRelacionada =
+      encomenda.restricao_retirada === EncomendaRestricaoRetirada.UNIDADE &&
+      usuario.uuid_unidade === encomenda.uuid_unidade;
 
-    if (usuario.uuid_condominio !== payload.uuid_condominio) {
-      throw new BadRequestException(
-        'Token QRCode referencia um usuário inválido para o condomínio informado.',
-      );
-    }
-
-    if (encomenda.uuid_usuario !== usuario.uuid) {
+    if (!usuarioRelacionado && !unidadeRelacionada) {
       throw new BadRequestException(
         'Token QRCode referencia um usuário não vinculado à encomenda.',
       );
