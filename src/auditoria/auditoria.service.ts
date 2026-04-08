@@ -154,13 +154,7 @@ export class AuditoriaService {
   private omitirSensiveis(
     obj: Record<string, unknown>,
   ): Record<string, unknown> {
-    const CAMPOS_SENSIVEIS = [
-      'senha',
-      'password',
-      'token',
-      'secret',
-      'imagem_base64',
-    ];
+    const CAMPOS_SENSIVEIS = ['senha', 'password', 'token', 'secret'];
     return Object.fromEntries(
       Object.entries(obj).map(([k, v]) =>
         CAMPOS_SENSIVEIS.includes(k.toLowerCase()) ? [k, '***'] : [k, v],
