@@ -656,6 +656,18 @@ export class EncomendasService {
     return this.enrichWithRelacionamentos(encomendas);
   }
 
+  async findAguardandoRetirada(
+    user: JwtPayload,
+  ): Promise<EncomendaComRelacionamentos[]> {
+    const { query } = await this.scopedListQuery(user);
+    const encomendas = await query
+      .andWhere('status', EncomendaStatus.AGUARDANDO_RETIRADA)
+      .select('*')
+      .orderBy('created_at', 'desc');
+
+    return this.enrichWithRelacionamentos(encomendas);
+  }
+
   async findOne(
     uuid: string,
     user: JwtPayload,

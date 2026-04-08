@@ -69,6 +69,12 @@ export class EncomendasController {
     return this.encomendasService.findPrevistas(user);
   }
 
+  @Get('aguardando-retirada')
+  @Roles(Perfil.MORADOR)
+  findAguardandoRetirada(@CurrentUser() user: JwtPayload) {
+    return this.encomendasService.findAguardandoRetirada(user);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPtPipe) id: string,
