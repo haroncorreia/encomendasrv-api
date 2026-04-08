@@ -212,6 +212,29 @@ export class EncomendasService {
     return qb;
   }
 
+  private async scopedListQuery(
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<{ query: Knex.QueryBuilder<Encomenda, Encomenda[]> }> {
+    const query = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
+
+    if (user.perfil !== Perfil.MORADOR) {
+      return { query };
+    }
+
+    const usuario = await this.findUsuarioAtivo(user.sub, trx);
+
+    query.andWhere((builder) => {
+      builder.where('uuid_usuario', user.sub).orWhere((subBuilder) => {
+        subBuilder
+          .where('uuid_unidade', usuario.uuid_unidade)
+          .andWhere('restricao_retirada', EncomendaRestricaoRetirada.UNIDADE);
+      });
+    });
+
+    return { query };
+  }
+
   private async findUsuarioAtivo(
     uuid: string,
     trx?: Knex.Transaction,
@@ -286,8 +309,27 @@ export class EncomendasService {
     return encomenda;
   }
 
-  private assertReadAccess(encomenda: Encomenda, user: JwtPayload): void {
-    if (user.perfil === Perfil.MORADOR && encomenda.uuid_usuario !== user.sub) {
+  private async assertReadAccess(
+    encomenda: Encomenda,
+    user: JwtPayload,
+  ): Promise<void> {
+    if (user.perfil !== Perfil.MORADOR) {
+      return;
+    }
+
+    if (encomenda.uuid_usuario === user.sub) {
+      return;
+    }
+
+    if (encomenda.restricao_retirada !== EncomendaRestricaoRetirada.UNIDADE) {
+      throw new ForbiddenException(
+        'Seu perfil não possui permissão para acessar esta encomenda.',
+      );
+    }
+
+    const usuario = await this.findUsuarioAtivo(user.sub);
+
+    if (usuario.uuid_unidade !== encomenda.uuid_unidade) {
       throw new ForbiddenException(
         'Seu perfil não possui permissão para acessar esta encomenda.',
       );
@@ -539,7 +581,8 @@ export class EncomendasService {
   ): Promise<EncomendaComRelacionamentos[]> {
     const { offset, limit } = this.resolvePagination(pagination);
 
-    const encomendas = await this.scopedQuery(user)
+    const { query } = await this.scopedListQuery(user);
+    const encomendas = await query
       .select('*')
       .orderBy('created_at', 'desc')
       .offset(offset)
@@ -554,7 +597,8 @@ export class EncomendasService {
   ): Promise<EncomendaComRelacionamentos[]> {
     const { offset, limit } = this.resolvePagination(filters);
 
-    const query = this.scopedQuery(user).select('*');
+    const { query } = await this.scopedListQuery(user);
+    query.select('*');
     this.applyFilters(query, filters);
 
     const encomendas = await query
@@ -581,7 +625,7 @@ export class EncomendasService {
     user: JwtPayload,
   ): Promise<EncomendaComRelacionamentos> {
     const encomenda = await this.findActiveByUuid(uuid);
-    this.assertReadAccess(encomenda, user);
+    await this.assertReadAccess(encomenda, user);
     const [encomendaComRelacionamentos] = await this.enrichWithRelacionamentos([
       encomenda,
     ]);
