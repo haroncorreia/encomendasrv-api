@@ -9,11 +9,13 @@ import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
+import { EncomendaRestricaoRetirada } from '../encomendas/enums/encomenda-restricao-retirada.enum';
 import { FilterEncomendasEventosDto } from './dto/filter-encomendas-eventos.dto';
 import { PaginationEncomendasEventosDto } from './dto/pagination-encomendas-eventos.dto';
 import { EncomendaEvento } from './interfaces/encomenda-evento.interface';
 
 const TABLE = 'encomendas_eventos';
+const ENCOMENDAS_TABLE = 'encomendas';
 const DEFAULT_LIMIT = 50;
 const DEFAULT_PAGE = 1;
 
@@ -42,6 +44,22 @@ export class EncomendasEventosService {
     const offset = (page - 1) * limit;
 
     return { offset, limit };
+  }
+
+  private async findUsuarioAtivo(
+    uuid: string,
+  ): Promise<{ uuid_unidade: string }> {
+    const usuario = await this.knex('usuarios')
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .select('uuid_unidade')
+      .first();
+
+    if (!usuario) {
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    return { uuid_unidade: usuario.uuid_unidade };
   }
 
   private assertReadAccess(evento: EncomendaEvento, user: JwtPayload): void {
@@ -144,7 +162,29 @@ export class EncomendasEventosService {
     user: JwtPayload,
   ): Promise<EncomendaEvento[]> {
     const { offset, limit } = this.resolvePagination(filters);
-    const query = this.scopedQuery(user).select('*');
+    const query = this.knex<EncomendaEvento>(TABLE)
+      .whereNull('deleted_at')
+      .select('*');
+
+    if (user.perfil === Perfil.MORADOR) {
+      const usuario = await this.findUsuarioAtivo(user.sub);
+
+      query.andWhere((builder) => {
+        builder
+          .where('uuid_usuario', user.sub)
+          .orWhereIn(
+            'uuid_encomenda',
+            this.knex(ENCOMENDAS_TABLE)
+              .whereNull('deleted_at')
+              .andWhere('uuid_unidade', usuario.uuid_unidade)
+              .andWhere(
+                'restricao_retirada',
+                EncomendaRestricaoRetirada.UNIDADE,
+              )
+              .select('uuid'),
+          );
+      });
+    }
 
     this.applyFilters(query, filters);
 
