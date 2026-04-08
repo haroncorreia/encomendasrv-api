@@ -14,11 +14,13 @@ const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
 const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
 const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
 const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+const SEEDED_MORADOR_2_EMAIL = 'morador2@recantoverdeac.com.br';
 
 let UUID_CONDOMINIO: string;
 let UUID_ADMIN: string;
 let UUID_PORTARIA: string;
 let UUID_MORADOR: string;
+let UUID_MORADOR_2: string;
 
 let UUID_ENCOMENDA_MORADOR_ATIVA: string;
 let UUID_ENCOMENDA_MORADOR_RETIRADA: string;
@@ -43,6 +45,7 @@ describe('Encomendas QRCode (e2e)', () => {
   let adminToken: string;
   let portariaToken: string;
   let moradorToken: string;
+  let morador2Token: string;
 
   const qrSecret =
     process.env.JWT_QRCODE_SECRET ??
@@ -71,35 +74,46 @@ describe('Encomendas QRCode (e2e)', () => {
     jwtService = app.get(JwtService);
     configService = app.get(ConfigService);
 
-    const [superUsuario, adminUsuario, portariaUsuario, moradorUsuario] =
-      await Promise.all([
-        knex('usuarios')
-          .where({ email: SEEDED_SUPER_EMAIL })
-          .whereNull('deleted_at')
-          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
-        knex('usuarios')
-          .where({ email: SEEDED_ADMIN_EMAIL })
-          .whereNull('deleted_at')
-          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
-        knex('usuarios')
-          .where({ email: SEEDED_PORTARIA_EMAIL })
-          .whereNull('deleted_at')
-          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
-        knex('usuarios')
-          .where({ email: SEEDED_MORADOR_EMAIL })
-          .whereNull('deleted_at')
-          .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
-      ]);
+    const [
+      superUsuario,
+      adminUsuario,
+      portariaUsuario,
+      moradorUsuario,
+      morador2Usuario,
+    ] = await Promise.all([
+      knex('usuarios')
+        .where({ email: SEEDED_SUPER_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+      knex('usuarios')
+        .where({ email: SEEDED_ADMIN_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+      knex('usuarios')
+        .where({ email: SEEDED_PORTARIA_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+      knex('usuarios')
+        .where({ email: SEEDED_MORADOR_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+      knex('usuarios')
+        .where({ email: SEEDED_MORADOR_2_EMAIL })
+        .whereNull('deleted_at')
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+    ]);
 
     expect(superUsuario).toBeTruthy();
     expect(adminUsuario).toBeTruthy();
     expect(portariaUsuario).toBeTruthy();
     expect(moradorUsuario).toBeTruthy();
+    expect(morador2Usuario).toBeTruthy();
 
     UUID_CONDOMINIO = moradorUsuario.uuid_condominio as string;
     UUID_ADMIN = adminUsuario.uuid as string;
     UUID_PORTARIA = portariaUsuario.uuid as string;
     UUID_MORADOR = moradorUsuario.uuid as string;
+    UUID_MORADOR_2 = morador2Usuario.uuid as string;
 
     const buildToken = (
       sub: string,
@@ -137,6 +151,12 @@ describe('Encomendas QRCode (e2e)', () => {
       UUID_MORADOR,
       moradorUsuario.nome as string,
       moradorUsuario.email as string,
+      'morador',
+    );
+    morador2Token = buildToken(
+      UUID_MORADOR_2,
+      morador2Usuario.nome as string,
+      morador2Usuario.email as string,
       'morador',
     );
 
@@ -202,32 +222,38 @@ describe('Encomendas QRCode (e2e)', () => {
       .expect(401);
   });
 
-  it('POST /encomendas/:id/gerar-qrcode deve permitir super, admin e morador; e negar portaria', async () => {
-    const [superRes, adminRes, moradorRes] = await Promise.all([
+  it('POST /encomendas/:id/gerar-qrcode deve permitir morador dono e negar portaria/super/admin', async () => {
+    const moradorRes = await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(
+        `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
+      ),
+    ).expect(201);
+
+    expect(typeof moradorRes.body.token).toBe('string');
+    expect(moradorRes.body.token.length).toBeGreaterThan(20);
+
+    const [superRes, adminRes] = await Promise.all([
       auth(
         superToken,
         request(app.getHttpServer()).post(
           `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
         ),
-      ).expect(201),
+      ).expect(400),
       auth(
         adminToken,
         request(app.getHttpServer()).post(
           `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
         ),
-      ).expect(201),
-      auth(
-        moradorToken,
-        request(app.getHttpServer()).post(
-          `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
-        ),
-      ).expect(201),
+      ).expect(400),
     ]);
 
-    for (const res of [superRes, adminRes, moradorRes]) {
-      expect(typeof res.body.token).toBe('string');
-      expect(res.body.token.length).toBeGreaterThan(20);
-    }
+    expect(superRes.body.message).toBe(
+      'Você não tem permissão para fazer a retirada da encomenda',
+    );
+    expect(adminRes.body.message).toBe(
+      'Você não tem permissão para fazer a retirada da encomenda',
+    );
 
     await auth(
       portariaToken,
@@ -235,6 +261,83 @@ describe('Encomendas QRCode (e2e)', () => {
         `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
       ),
     ).expect(403);
+  });
+
+  it('POST /encomendas/:id/gerar-qrcode deve negar morador de outra unidade', async () => {
+    const res = await auth(
+      morador2Token,
+      request(app.getHttpServer()).post(
+        `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
+      ),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'Você não tem permissão para fazer a retirada da encomenda',
+    );
+  });
+
+  it('POST /encomendas/:id/gerar-qrcode deve negar quando outro morador tentar retirar encomenda com restricao_retirada pessoal', async () => {
+    const created = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodePessoal',
+          codigo_rastreamento: `QRPES-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      morador2Token,
+      request(app.getHttpServer()).post(
+        `${BASE_URL}/${created.body.uuid as string}/gerar-qrcode`,
+      ),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'Você não tem permissão para fazer a retirada da encomenda',
+    );
+  });
+
+  it('POST /encomendas/gerar-qrcode-lotes deve negar quando uma encomenda nao eh permitida', async () => {
+    const createdMorador = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          palavra_chave: 'QRCodeLoteOk',
+          codigo_rastreamento: `QRL-${Date.now()}`,
+        }),
+    ).expect(201);
+
+    const createdOutro = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR_2,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'QRCodeLoteBloqueado',
+          codigo_rastreamento: `QRLX-${Date.now()}`,
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/gerar-qrcode-lotes`)
+        .send({
+          uuids_encomendas: [
+            createdMorador.body.uuid as string,
+            createdOutro.body.uuid as string,
+          ],
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'Você não tem permissão para realizar a retirada de uma das encomendas selecionadas',
+    );
   });
 
   it('POST /encomendas/:id/gerar-qrcode deve gerar JWT com payload esperado e expiração de 12h', async () => {

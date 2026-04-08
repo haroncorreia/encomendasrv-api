@@ -25,6 +25,7 @@ import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { GerarQrCodeLotesDto } from './dto/gerar-qrcode-lotes.dto';
 import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
@@ -83,6 +84,15 @@ export class EncomendasController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.encomendasService.generateQrCodeToken(id, user);
+  }
+
+  @Post('gerar-qrcode-lotes')
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.MORADOR)
+  gerarQrCodeLotes(
+    @Body() dto: GerarQrCodeLotesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.encomendasService.generateQrCodeBatchToken(dto, user);
   }
 
   @Post('ler-qrcode')

@@ -24,6 +24,7 @@ import { Usuario } from '../usuarios/interfaces/usuario.interface';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
+import { GerarQrCodeLotesDto } from './dto/gerar-qrcode-lotes.dto';
 import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
@@ -61,6 +62,15 @@ type EncomendaComRelacionamentos = Encomenda & {
 interface QrCodeEncomendaPayload {
   tipo: 'retirada';
   uuid_encomenda: string;
+  uuid_usuario: string;
+  uuid_condominio: string;
+  iat?: number;
+  exp?: number;
+}
+
+interface QrCodeEncomendaLotePayload {
+  tipo: 'retirada_lote';
+  uuids_encomendas: string[];
   uuid_usuario: string;
   uuid_condominio: string;
   iat?: number;
@@ -347,23 +357,20 @@ export class EncomendasService {
   private async assertQrCodeAccess(
     encomenda: Encomenda,
     user: JwtPayload,
+    errorMessage: string,
   ): Promise<void> {
-    if (encomenda.restricao_retirada === EncomendaRestricaoRetirada.PESSOAL) {
-      if (encomenda.uuid_usuario !== user.sub) {
-        throw new ForbiddenException(
-          'Seu perfil não possui permissão para gerar o QRCode de retirada desta encomenda.',
-        );
-      }
-
+    if (encomenda.uuid_usuario === user.sub) {
       return;
+    }
+
+    if (encomenda.restricao_retirada !== EncomendaRestricaoRetirada.UNIDADE) {
+      throw new BadRequestException(errorMessage);
     }
 
     const usuario = await this.findUsuarioAtivo(user.sub);
 
     if (usuario.uuid_unidade !== encomenda.uuid_unidade) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para gerar o QRCode de retirada desta encomenda.',
-      );
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -637,13 +644,75 @@ export class EncomendasService {
     user: JwtPayload,
   ): Promise<{ token: string }> {
     const encomenda = await this.findActiveByUuid(uuid);
-    await this.assertQrCodeAccess(encomenda, user);
+    await this.assertQrCodeAccess(
+      encomenda,
+      user,
+      'Você não tem permissão para fazer a retirada da encomenda',
+    );
 
     const payload: QrCodeEncomendaPayload = {
       tipo: 'retirada',
       uuid_encomenda: encomenda.uuid,
       uuid_usuario: encomenda.uuid_usuario,
       uuid_condominio: encomenda.uuid_condominio,
+    };
+
+    const token = this.jwtService.sign(payload, {
+      secret: this.getQrCodeSecret(),
+      expiresIn: '12h',
+    });
+
+    return { token };
+  }
+
+  async generateQrCodeBatchToken(
+    dto: GerarQrCodeLotesDto,
+    user: JwtPayload,
+  ): Promise<{ token: string }> {
+    const uuids = Array.from(new Set(dto.uuids_encomendas ?? []));
+
+    if (uuids.length === 0) {
+      throw new BadRequestException(
+        'O campo uuids_encomendas deve conter ao menos um UUID.',
+      );
+    }
+
+    const encomendas = await this.knex<Encomenda>(TABLE)
+      .whereIn('uuid', uuids)
+      .whereNull('deleted_at');
+
+    if (encomendas.length !== uuids.length) {
+      const encontrados = new Set(encomendas.map((item) => item.uuid));
+      const faltantes = uuids.filter((uuid) => !encontrados.has(uuid));
+      throw new BadRequestException(
+        `Encomendas inválidas para geração de QRCode: ${faltantes.join(', ')}`,
+      );
+    }
+
+    for (const encomenda of encomendas) {
+      await this.assertQrCodeAccess(
+        encomenda,
+        user,
+        'Você não tem permissão para realizar a retirada de uma das encomendas selecionadas',
+      );
+    }
+
+    const uuidCondominio = encomendas[0].uuid_condominio;
+    const condominioValido = encomendas.every(
+      (item) => item.uuid_condominio === uuidCondominio,
+    );
+
+    if (!condominioValido) {
+      throw new BadRequestException(
+        'Todas as encomendas devem pertencer ao mesmo condomínio para gerar QRCode em lote.',
+      );
+    }
+
+    const payload: QrCodeEncomendaLotePayload = {
+      tipo: 'retirada_lote',
+      uuids_encomendas: uuids,
+      uuid_usuario: user.sub,
+      uuid_condominio: uuidCondominio,
     };
 
     const token = this.jwtService.sign(payload, {
