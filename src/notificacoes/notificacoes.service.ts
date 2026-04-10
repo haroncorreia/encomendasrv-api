@@ -3,10 +3,13 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
+import twilio, { Twilio } from 'twilio';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendaStatus } from '../encomendas/enums/encomenda-status.enum';
@@ -32,7 +35,110 @@ interface NotificationInsertInput {
 
 @Injectable()
 export class NotificacoesService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  private readonly logger = new Logger(NotificacoesService.name);
+  private readonly twilioClient: Twilio | null;
+
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly configService: ConfigService,
+  ) {
+    const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
+    const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
+
+    this.twilioClient =
+      accountSid && authToken ? twilio(accountSid, authToken) : null;
+  }
+
+  private formatarCelularE164(celular: string): string | null {
+    const digits = celular.replace(/\D/g, '');
+
+    if (digits.length === 13 && digits.startsWith('55')) {
+      return `+${digits}`;
+    }
+
+    if (digits.length === 11) {
+      return `+55${digits}`;
+    }
+
+    return null;
+  }
+
+  private resolverDestinoWhatsApp(celular: string): string | null {
+    const env = this.configService.get<string>('APP_ENV', 'development');
+
+    if (env === 'development') {
+      return '+556892810889';
+    }
+
+    return this.formatarCelularE164(celular);
+  }
+
+  private async enviarWhatsAppAguardandoRetiradaEmTrx(
+    params: { uuid_usuario: string; uuid_encomenda: string },
+    trx: Knex.Transaction,
+  ): Promise<void> {
+    if (!this.twilioClient) {
+      return;
+    }
+
+    const usuario = await trx('usuarios')
+      .where({ uuid: params.uuid_usuario })
+      .whereNull('deleted_at')
+      .first('nome', 'celular');
+
+    if (!usuario?.celular) {
+      return;
+    }
+
+    const destino = this.resolverDestinoWhatsApp(usuario.celular as string);
+    if (!destino) {
+      this.logger.warn(
+        `Celular inválido para envio de WhatsApp (usuario: ${params.uuid_usuario}).`,
+      );
+      return;
+    }
+
+    const from = this.configService.get<string>(
+      'TWILIO_WHATSAPP_FROM',
+      'whatsapp:+14155238886',
+    );
+    const statusCallback = this.configService.get<string>(
+      'TWILIO_WHATSAPP_STATUS_CALLBACK_URL',
+    );
+
+    const payload: {
+      from: string;
+      to: string;
+      body: string;
+      statusCallback?: string;
+    } = {
+      from,
+      to: `whatsapp:${destino}`,
+      body: `
+      Encomendas RV
+      Olá ${usuario.nome}, 
+      Sua encomenda #${params.uuid_encomenda.slice(-5)} está aguardando retirada na portaria.
+      `,
+    };
+
+    // Ready for future webhook tracking of message lifecycle.
+    if (statusCallback) {
+      payload.statusCallback = statusCallback;
+    }
+
+    try {
+      const a = await this.twilioClient.messages.create(payload);
+      this.logger.debug(
+        `WhatsApp enviado para ${destino} (SID: ${a.sid}) sobre encomenda ${params.uuid_encomenda}.`,
+      );
+      console.log(a);
+    } catch (error) {
+      this.logger.error(
+        `Falha no envio de WhatsApp para encomenda ${params.uuid_encomenda}.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
 
   private scopedQuery(user: JwtPayload, trx?: Knex.Transaction) {
     const qb = (trx ?? this.knex)<Notificacao>(TABLE).whereNull('deleted_at');
@@ -270,6 +376,14 @@ export class NotificacoesService {
         params.actorEmail,
         trx,
         now,
+      );
+
+      await this.enviarWhatsAppAguardandoRetiradaEmTrx(
+        {
+          uuid_usuario: params.uuid_usuario,
+          uuid_encomenda: params.uuid_encomenda,
+        },
+        trx,
       );
 
       return;
