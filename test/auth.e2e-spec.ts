@@ -32,6 +32,16 @@ const usuarioBase = {
   unidade: SEED_UNIDADE,
 };
 
+const usuarioPortaria = {
+  nome: 'Auth Test Portaria',
+  email: `auth.test.portaria.${RUN_ID}@teste.com`,
+  celular: `19${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+  cpf_cnpj: `18${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+  senha: 'Senha@123',
+  perfil: 'portaria',
+  unidade: SEED_UNIDADE,
+};
+
 describe('AuthModule (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
@@ -355,6 +365,48 @@ describe('AuthModule (e2e)', () => {
 
     expect(res.body.usuario.uuid).toBeDefined();
     expect(res.body.usuario.email).toBe(usuarioBase.email);
+  });
+
+  it('POST /authenticate/sign-up deve retornar 201 para portaria sem refresh token', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioPortaria)
+      .expect(201);
+
+    expect(res.body.access_token).toBeDefined();
+    expect(res.body.refresh_token).toBeUndefined();
+    expect(res.body.usuario.perfil).toBe('portaria');
+  });
+
+  it('POST /authenticate/refresh-token deve retornar 401 para perfil portaria', async () => {
+    const usuario = await knex('usuarios')
+      .where({ email: usuarioPortaria.email })
+      .whereNull('deleted_at')
+      .first('uuid', 'nome', 'email', 'perfil');
+
+    expect(usuario).toBeTruthy();
+
+    const refreshPortaria = jwtService.sign(
+      {
+        sub: usuario.uuid as string,
+        nome: usuario.nome as string,
+        email: usuario.email as string,
+        perfil: usuario.perfil as string,
+      },
+      {
+        secret: configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: '1d',
+      },
+    );
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/refresh-token`)
+      .send({ refresh_token: refreshPortaria })
+      .expect(401);
+
+    expect(res.body.message).toBe(
+      'Perfil portaria não possui renovação de sessão.',
+    );
   });
 
   it('POST /authenticate/sign-in deve retornar 401 para senha inválida', async () => {

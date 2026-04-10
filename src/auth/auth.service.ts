@@ -27,7 +27,7 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 export interface AuthTokens {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
 }
 
 export interface AuthResponse extends AuthTokens {
@@ -63,10 +63,64 @@ export class AuthService {
     };
   }
 
+  private parseHorarioCorteParaSegundos(
+    horario: string,
+    fallback: string,
+  ): number {
+    const match = horario.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+    if (!match) {
+      this.logger.warn(
+        `Horario de corte invalido (${horario}). Usando fallback ${fallback}.`,
+      );
+      return this.parseHorarioCorteParaSegundos(fallback, fallback);
+    }
+
+    const horas = Number(match[1]);
+    const minutos = Number(match[2]);
+    return horas * 3600 + minutos * 60;
+  }
+
+  private getHorariosCortePortariaEmSegundos(): number[] {
+    const corte1 = this.configService.get<string>(
+      'JWT_PORTARIA_CUTOFF_1',
+      '06:00',
+    );
+    const corte2 = this.configService.get<string>(
+      'JWT_PORTARIA_CUTOFF_2',
+      '18:00',
+    );
+
+    return Array.from(
+      new Set([
+        this.parseHorarioCorteParaSegundos(corte1, '06:00'),
+        this.parseHorarioCorteParaSegundos(corte2, '18:00'),
+      ]),
+    ).sort((a, b) => a - b);
+  }
+
+  private segundosAteProximoCortePortaria(now = new Date()): number {
+    const horariosCorte = this.getHorariosCortePortariaEmSegundos();
+    const segundosAgora =
+      now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
+    for (const corte of horariosCorte) {
+      if (segundosAgora < corte) {
+        return Math.max(1, corte - segundosAgora);
+      }
+    }
+
+    return Math.max(1, 24 * 3600 - segundosAgora + horariosCorte[0]);
+  }
+
   private gerarAccessToken(payload: JwtPayload): string {
+    const expiresIn =
+      payload.perfil === Perfil.PORTARIA
+        ? this.segundosAteProximoCortePortaria()
+        : (this.configService.get<string>('JWT_EXPIRES_IN', '15m') as any);
+
     return this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '15m') as any,
+      expiresIn,
     });
   }
 
@@ -85,11 +139,16 @@ export class AuthService {
   ): AuthResponse {
     const payload = this.buildPayload(usuario);
     const { uuid, nome, email, perfil } = usuario;
-    return {
+    const response: AuthResponse = {
       access_token: this.gerarAccessToken(payload),
-      refresh_token: this.gerarRefreshToken(payload),
       usuario: { uuid, nome, email, perfil },
     };
+
+    if (perfil !== Perfil.PORTARIA) {
+      response.refresh_token = this.gerarRefreshToken(payload);
+    }
+
+    return response;
   }
 
   // ---------------------------------------------------------------------------
@@ -189,6 +248,12 @@ export class AuthService {
       });
 
       const usuario = await this.usuariosService.findOne(payload.sub);
+      if (usuario.perfil === Perfil.PORTARIA) {
+        throw new UnauthorizedException(
+          'Perfil portaria não possui renovação de sessão.',
+        );
+      }
+
       const newPayload = this.buildPayload({
         uuid: usuario.uuid,
         nome: usuario.nome,
@@ -200,7 +265,10 @@ export class AuthService {
         access_token: this.gerarAccessToken(newPayload),
         refresh_token: this.gerarRefreshToken(newPayload),
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Refresh token inválido ou expirado.');
     }
   }
