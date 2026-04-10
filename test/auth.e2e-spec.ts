@@ -409,6 +409,102 @@ describe('AuthModule (e2e)', () => {
     );
   });
 
+  it('deve invalidar o access token de portaria no processo de verificação após o horário de corte', async () => {
+    const usuarioPortariaTurno = {
+      nome: 'Auth Test Portaria Turno',
+      email: `auth.test.portaria.turno.${RUN_ID}@teste.com`,
+      celular: `17${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `16${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      perfil: 'portaria',
+      unidade: SEED_UNIDADE,
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioPortariaTurno)
+      .expect(201);
+
+    const RealDate = Date;
+    const [cutoffHour, cutoffMinute] = (
+      process.env.JWT_PORTARIA_CUTOFF_1 ?? '06:00'
+    )
+      .split(':')
+      .map((v) => Number(v));
+
+    const beforeHour = cutoffMinute === 0 ? (cutoffHour + 23) % 24 : cutoffHour;
+    const beforeMinute = cutoffMinute === 0 ? 59 : cutoffMinute - 1;
+    const afterHour = cutoffMinute === 59 ? (cutoffHour + 1) % 24 : cutoffHour;
+    const afterMinute = cutoffMinute === 59 ? 0 : cutoffMinute + 1;
+
+    const beforeCutoff = new RealDate(
+      2026,
+      3,
+      10,
+      beforeHour,
+      beforeMinute,
+      0,
+      0,
+    );
+    const afterCutoff = new RealDate(2026, 3, 10, afterHour, afterMinute, 0, 0);
+
+    let mockedNow = beforeCutoff.getTime();
+
+    class MockDate extends RealDate {
+      constructor(...args: ConstructorParameters<DateConstructor>) {
+        if (args.length === 0) {
+          super(mockedNow);
+          return;
+        }
+
+        super(...args);
+      }
+
+      static now(): number {
+        return mockedNow;
+      }
+    }
+
+    const originalDateNow = RealDate.now;
+
+    // Simula emissao antes do corte e validacao apos o corte no mesmo teste.
+    (global as any).Date = MockDate as DateConstructor;
+    (RealDate as any).now = () => mockedNow;
+
+    try {
+      const signInRes = await request(app.getHttpServer())
+        .post(`${BASE_URL}/sign-in`)
+        .send({
+          usuario: usuarioPortariaTurno.email,
+          senha: usuarioPortariaTurno.senha,
+        })
+        .expect(200);
+
+      const tokenPortaria = signInRes.body.access_token as string;
+      expect(tokenPortaria).toBeDefined();
+
+      mockedNow = afterCutoff.getTime();
+
+      const decoded = jwtService.decode(tokenPortaria) as {
+        exp?: number;
+        iat?: number;
+      };
+      expect(decoded.exp).toBeDefined();
+      expect(decoded.iat).toBeDefined();
+
+      const verifyAfterCutoff = () =>
+        jwtService.verify(tokenPortaria, {
+          secret: configService.get<string>('JWT_SECRET'),
+          clockTimestamp: Math.floor(mockedNow / 1000),
+        });
+
+      expect(verifyAfterCutoff).toThrow();
+    } finally {
+      (RealDate as any).now = originalDateNow;
+      (global as any).Date = RealDate;
+    }
+  });
+
   it('POST /authenticate/sign-in deve retornar 401 para senha inválida', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-in`)
