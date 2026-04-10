@@ -1016,6 +1016,20 @@ export class EncomendasService {
       );
     }
 
+    if (dto.imagem_dano_base64 && dto.imagem_dano) {
+      await this.imagensService.salvarDeBase64(
+        {
+          imagemBase64: dto.imagem_dano_base64,
+          metadados: dto.imagem_dano,
+          uuidReferencia: uuid,
+          tabelaReferencia: TABLE,
+          statusMomentoCaptura: EncomendaStatus.RECEBIDA,
+          actorEmail: user.email,
+        },
+        trx,
+      );
+    }
+
     await this.registerStatusEvent(
       {
         uuid_encomenda: uuid,

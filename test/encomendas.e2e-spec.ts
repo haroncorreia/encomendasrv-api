@@ -548,6 +548,143 @@ describe('EncomendasModule (e2e)', () => {
     encomendaPortariaUuid = res.body.uuid as string;
   });
 
+  it('POST /encomendas deve aceitar imagem principal e imagem de dano opcionais', async () => {
+    const base64Png1x1 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5J0yQAAAAASUVORK5CYII=';
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'ComImagemDano',
+          codigo_rastreamento: 'IMGDANO001',
+          imagem_base64: `data:image/png;base64,${base64Png1x1}`,
+          imagem: {
+            nome: 'foto-recebimento.png',
+            tipo: 'image/png',
+            tamanho: 68,
+            altura: 1,
+            largura: 1,
+          },
+          imagem_dano_base64: `data:image/png;base64,${base64Png1x1}`,
+          imagem_dano: {
+            nome: 'foto-dano.png',
+            tipo: 'image/png',
+            tamanho: 68,
+            altura: 1,
+            largura: 1,
+          },
+        }),
+    ).expect(201);
+
+    const imagens = await knex('imagens')
+      .where({
+        uuid_referencia: res.body.uuid,
+        tabela_referencia: 'encomendas',
+      })
+      .whereNull('deleted_at')
+      .select('nome_original');
+
+    expect(imagens).toHaveLength(2);
+    const nomes = imagens.map((imagem) => imagem.nome_original);
+    expect(nomes).toContain('foto-recebimento.png');
+    expect(nomes).toContain('foto-dano.png');
+  });
+
+  it('POST /encomendas deve ignorar imagem_dano quando o payload vier parcial', async () => {
+    const base64Png1x1 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5J0yQAAAAASUVORK5CYII=';
+
+    const [resSomenteBase64, resSomenteMetadados] = await Promise.all([
+      auth(
+        portariaToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            uuid_usuario: UUID_MORADOR,
+            recebido_por_uuid_usuario: UUID_PORTARIA,
+            palavra_chave: 'DanoParcialBase64',
+            codigo_rastreamento: 'IMGDANO002',
+            imagem_dano_base64: `data:image/png;base64,${base64Png1x1}`,
+          }),
+      ).expect(201),
+      auth(
+        portariaToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            uuid_usuario: UUID_MORADOR,
+            recebido_por_uuid_usuario: UUID_PORTARIA,
+            palavra_chave: 'DanoParcialMeta',
+            codigo_rastreamento: 'IMGDANO003',
+            imagem_dano: {
+              nome: 'foto-dano-sem-base64.png',
+              tipo: 'image/png',
+              tamanho: 68,
+              altura: 1,
+              largura: 1,
+            },
+          }),
+      ).expect(201),
+    ]);
+
+    const [imagensSomenteBase64, imagensSomenteMetadados] = await Promise.all([
+      knex('imagens')
+        .where({
+          uuid_referencia: resSomenteBase64.body.uuid,
+          tabela_referencia: 'encomendas',
+        })
+        .whereNull('deleted_at')
+        .select('uuid'),
+      knex('imagens')
+        .where({
+          uuid_referencia: resSomenteMetadados.body.uuid,
+          tabela_referencia: 'encomendas',
+        })
+        .whereNull('deleted_at')
+        .select('uuid'),
+    ]);
+
+    expect(imagensSomenteBase64).toHaveLength(0);
+    expect(imagensSomenteMetadados).toHaveLength(0);
+  });
+
+  it('POST /encomendas deve ignorar imagem principal quando vier somente metadados', async () => {
+    const sufixo = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-6);
+
+    const resSomenteMetadados = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'PrincipalParcialMeta',
+          codigo_rastreamento: `IMGPRM${sufixo}`,
+          imagem: {
+            nome: 'foto-principal-sem-base64.png',
+            tipo: 'image/png',
+            tamanho: 68,
+            altura: 1,
+            largura: 1,
+          },
+        }),
+    ).expect(201);
+
+    const imagensSomenteMetadados = await knex('imagens')
+      .where({
+        uuid_referencia: resSomenteMetadados.body.uuid,
+        tabela_referencia: 'encomendas',
+      })
+      .whereNull('deleted_at')
+      .select('uuid');
+
+    expect(imagensSomenteMetadados).toHaveLength(0);
+  });
+
   it('POST /encomendas deve exigir uuid_usuario de morador para criação por portaria', async () => {
     await auth(
       portariaToken,

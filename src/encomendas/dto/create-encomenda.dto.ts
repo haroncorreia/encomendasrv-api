@@ -79,4 +79,13 @@ export class CreateEncomendaDto {
   @ValidateNested()
   @Type(() => ImagemMetadadosDto)
   imagem?: ImagemMetadadosDto;
+
+  @IsOptional()
+  @IsString()
+  imagem_dano_base64?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ImagemMetadadosDto)
+  imagem_dano?: ImagemMetadadosDto;
 }
