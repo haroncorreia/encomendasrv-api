@@ -818,6 +818,21 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(400);
   });
 
+  it('PATCH /encomendas/:id/update-status deve aceitar recebido_por_uuid_usuario informado por portaria', async () => {
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${UUID_SEED_PREVISTA_MORADOR}/update-status`)
+        .send({
+          status: 'recebida',
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+        }),
+    ).expect(200);
+
+    expect(res.body.status).toBe('aguardando retirada');
+    expect(res.body.recebido_por_uuid_usuario).toBe(UUID_PORTARIA);
+  });
+
   it('PATCH /encomendas/:id/update-status deve atualizar para recebida apenas quando estiver prevista e em seguida para aguardando retirada', async () => {
     const res = await auth(
       portariaToken,

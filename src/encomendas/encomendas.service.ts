@@ -1159,13 +1159,20 @@ export class EncomendasService {
       }
 
       const now = new Date();
+      const recebidoPorUuidUsuario = dto.recebido_por_uuid_usuario
+        ? await this.validateUsuarioPortaria(
+            dto.recebido_por_uuid_usuario,
+            'recebido_por_uuid_usuario',
+            trx,
+          )
+        : user.sub;
 
       await qb<Encomenda>(TABLE)
         .where({ uuid })
         .update({
           status: EncomendaStatus.RECEBIDA,
           recebido_em: now,
-          recebido_por_uuid_usuario: user.sub,
+          recebido_por_uuid_usuario: recebidoPorUuidUsuario,
           ...(dto.entregador_externo_nome !== undefined && {
             entregador_externo_nome: dto.entregador_externo_nome,
           }),

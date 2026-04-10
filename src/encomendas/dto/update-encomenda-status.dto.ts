@@ -3,6 +3,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   ValidateNested,
@@ -32,6 +33,12 @@ export class UpdateEncomendaStatusDto {
   @IsOptional()
   @IsString()
   imagem_base64?: string;
+
+  @IsOptional()
+  @IsUUID('4', {
+    message: 'O campo recebido_por_uuid_usuario deve ser um UUID válido.',
+  })
+  recebido_por_uuid_usuario?: string;
 
   @IsOptional()
   @IsString()
