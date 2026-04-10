@@ -512,12 +512,12 @@ describe('EncomendasModule (e2e)', () => {
         .where({ uuid_encomenda: res.body.uuid })
         .where('evento', 'like', '%status recebida%')
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
       knex('encomendas_eventos')
         .where({ uuid_encomenda: res.body.uuid })
         .where('evento', 'like', '%status aguardando retirada%')
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
     ]);
 
     expect(eventoRecebida).toBeTruthy();
@@ -531,7 +531,7 @@ describe('EncomendasModule (e2e)', () => {
           tipo: 'ENCOMENDA_RECEBIDA',
         })
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
       knex('notificacoes')
         .where({
           uuid_encomenda: res.body.uuid,
@@ -539,11 +539,19 @@ describe('EncomendasModule (e2e)', () => {
           tipo: 'ENCOMENDA_LEMBRETE',
         })
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
     ]);
 
     expect(notifRecebida).toBeTruthy();
     expect(notifAguardando).toBeTruthy();
+    expect(
+      new Date(eventoAguardando.created_at).getTime() -
+        new Date(eventoRecebida.created_at).getTime(),
+    ).toBe(60_000);
+    expect(
+      new Date(notifAguardando.created_at).getTime() -
+        new Date(notifRecebida.created_at).getTime(),
+    ).toBe(60_000);
 
     encomendaPortariaUuid = res.body.uuid as string;
   });
@@ -827,16 +835,20 @@ describe('EncomendasModule (e2e)', () => {
         .where({ uuid_encomenda: encomendaMoradorUuid })
         .where('evento', 'like', '%status recebida%')
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
       knex('encomendas_eventos')
         .where({ uuid_encomenda: encomendaMoradorUuid })
         .where('evento', 'like', '%status aguardando retirada%')
         .whereNull('deleted_at')
-        .first('uuid'),
+        .first('uuid', 'created_at'),
     ]);
 
     expect(eventoRecebida).toBeTruthy();
     expect(eventoAguardando).toBeTruthy();
+    expect(
+      new Date(eventoAguardando.created_at).getTime() -
+        new Date(eventoRecebida.created_at).getTime(),
+    ).toBe(60_000);
   });
 
   it('PATCH /encomendas/:id/update-status deve rejeitar recebida quando status atual não for prevista', async () => {

@@ -191,6 +191,7 @@ export class EncomendasService {
       status: EncomendaStatus;
       acao: 'criada' | 'atualizada';
       actorEmail: string;
+      dataRegistro?: Date;
     },
     trx?: Knex.Transaction,
   ): Promise<void> {
@@ -204,6 +205,7 @@ export class EncomendasService {
         uuid_usuario: params.uuid_usuario,
         evento: `Encomenda ${params.acao} com status ${params.status}.`,
         actorEmail: params.actorEmail,
+        dataRegistro: params.dataRegistro,
       },
       trx,
     );
@@ -217,6 +219,7 @@ export class EncomendasService {
       acao: 'criada' | 'atualizada';
       actorEmail: string;
       actorPerfil: Perfil;
+      dataRegistro?: Date;
     },
     trx?: Knex.Transaction,
   ): Promise<void> {
@@ -232,6 +235,7 @@ export class EncomendasService {
         uuid_usuario: params.uuid_usuario,
         actorEmail: params.actorEmail,
         actorPerfil: params.actorPerfil,
+        dataRegistro: params.dataRegistro,
       },
       trx,
     );
@@ -1054,11 +1058,12 @@ export class EncomendasService {
     );
 
     if (status === EncomendaStatus.RECEBIDA) {
+      const dataRegistroAguardandoRetirada = new Date(now.getTime() + 60_000);
       status = EncomendaStatus.AGUARDANDO_RETIRADA;
 
       await qb<Encomenda>(TABLE).where({ uuid }).update({
         status,
-        updated_at: new Date(),
+        updated_at: dataRegistroAguardandoRetirada,
         updated_by: user.email,
       });
 
@@ -1069,6 +1074,7 @@ export class EncomendasService {
           status,
           acao: 'atualizada',
           actorEmail: user.email,
+          dataRegistro: dataRegistroAguardandoRetirada,
         },
         trx,
       );
@@ -1081,6 +1087,7 @@ export class EncomendasService {
           acao: 'atualizada',
           actorEmail: user.email,
           actorPerfil: actor.perfil,
+          dataRegistro: dataRegistroAguardandoRetirada,
         },
         trx,
       );
@@ -1206,9 +1213,11 @@ export class EncomendasService {
         trx,
       );
 
+      const dataRegistroAguardandoRetirada = new Date(now.getTime() + 60_000);
+
       await qb<Encomenda>(TABLE).where({ uuid }).update({
         status: EncomendaStatus.AGUARDANDO_RETIRADA,
-        updated_at: new Date(),
+        updated_at: dataRegistroAguardandoRetirada,
         updated_by: user.email,
       });
 
@@ -1219,6 +1228,7 @@ export class EncomendasService {
           status: EncomendaStatus.AGUARDANDO_RETIRADA,
           acao: 'atualizada',
           actorEmail: user.email,
+          dataRegistro: dataRegistroAguardandoRetirada,
         },
         trx,
       );
@@ -1231,6 +1241,7 @@ export class EncomendasService {
           acao: 'atualizada',
           actorEmail: user.email,
           actorPerfil: user.perfil,
+          dataRegistro: dataRegistroAguardandoRetirada,
         },
         trx,
       );

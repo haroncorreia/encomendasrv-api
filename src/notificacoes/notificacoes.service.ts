@@ -157,10 +157,13 @@ export class NotificacoesService {
     rows: NotificationInsertInput[],
     actorEmail: string,
     trx: Knex.Transaction,
+    dataRegistro?: Date,
   ): Promise<void> {
     if (rows.length === 0) {
       return;
     }
+
+    const timestamp = dataRegistro ?? new Date();
 
     await trx<Notificacao>(TABLE).insert(
       rows.map((row) => ({
@@ -172,7 +175,9 @@ export class NotificacoesService {
         mensagem: row.mensagem,
         canal: row.canal,
         enviado_em: row.enviado_em,
+        created_at: timestamp,
         created_by: actorEmail,
+        updated_at: timestamp,
         updated_by: actorEmail,
       })),
     );
@@ -186,10 +191,11 @@ export class NotificacoesService {
       uuid_usuario: string;
       actorEmail: string;
       actorPerfil: Perfil;
+      dataRegistro?: Date;
     },
     trx: Knex.Transaction,
   ): Promise<void> {
-    const now = new Date();
+    const now = params.dataRegistro ?? new Date();
 
     if (
       params.acao === 'criada' &&
@@ -213,6 +219,7 @@ export class NotificacoesService {
         })),
         params.actorEmail,
         trx,
+        now,
       );
 
       return;
@@ -237,6 +244,7 @@ export class NotificacoesService {
         ],
         params.actorEmail,
         trx,
+        now,
       );
 
       return;
@@ -261,6 +269,7 @@ export class NotificacoesService {
         ],
         params.actorEmail,
         trx,
+        now,
       );
 
       return;
@@ -285,6 +294,7 @@ export class NotificacoesService {
         ],
         params.actorEmail,
         trx,
+        now,
       );
 
       return;
@@ -308,6 +318,7 @@ export class NotificacoesService {
         ],
         params.actorEmail,
         trx,
+        now,
       );
     }
   }

@@ -116,17 +116,21 @@ export class EncomendasEventosService {
       uuid_usuario: string;
       evento: string;
       actorEmail: string;
+      dataRegistro?: Date;
     },
     trx: Knex.Transaction,
   ): Promise<EncomendaEvento> {
     const uuid = randomUUID();
+    const dataRegistro = params.dataRegistro ?? new Date();
 
     await trx<EncomendaEvento>(TABLE).insert({
       uuid,
       uuid_encomenda: params.uuid_encomenda,
       uuid_usuario: params.uuid_usuario,
       evento: params.evento,
+      created_at: dataRegistro,
       created_by: params.actorEmail,
+      updated_at: dataRegistro,
       updated_by: params.actorEmail,
     });
 
