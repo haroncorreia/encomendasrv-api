@@ -25,7 +25,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
-      nome: 'Carlos Souza',
+      nome: 'Usuário Admin 1',
       email: 'admin1@recantoverdeac.com.br',
       celular: '68995929998',
       cpf_cnpj: '00000000005',
@@ -38,7 +38,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
-      nome: 'Fernanda Lima de Souza',
+      nome: 'Usuário Admin 2',
       email: 'admin2@recantoverdeac.com.br',
       celular: '68999929998',
       cpf_cnpj: '00000000006',
@@ -51,7 +51,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
-      nome: 'João Silva da Costa',
+      nome: 'Usuário Portaria 1',
       email: 'portaria1@recantoverdeac.com.br',
       celular: '68999991998',
       cpf_cnpj: '00000000001',
@@ -64,7 +64,7 @@ export async function seed(knex: Knex): Promise<void> {
     {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
-      nome: 'Maria Oliveira',
+      nome: 'Usuário Portaria 2',
       email: 'portaria2@recantoverdeac.com.br',
       celular: '68999999998',
       cpf_cnpj: '00000000002',
@@ -78,7 +78,7 @@ export async function seed(knex: Knex): Promise<void> {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
       uuid_unidade: UUID_UNIDADE_1,
-      nome: 'José Santos',
+      nome: 'Usuário Morador 1',
       email: 'morador1@recantoverdeac.com.br',
       celular: '68888888888',
       cpf_cnpj: '00000000003',
@@ -92,7 +92,7 @@ export async function seed(knex: Knex): Promise<void> {
       uuid: uuidv4(),
       uuid_condominio: UUID_CONDOMINIO,
       uuid_unidade: UUID_UNIDADE_2,
-      nome: 'Ana Pereira da Silva Carvalho',
+      nome: 'Usuário Morador 2',
       email: 'morador2@recantoverdeac.com.br',
       celular: '68999999999',
       cpf_cnpj: '00000000004',
