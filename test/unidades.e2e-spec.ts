@@ -12,6 +12,7 @@ const AUTH_BASE = '/authenticate';
 const SEED_UNIDADE_3 = '0303';
 const SEED_UNIDADE_4 = '0404';
 const UUID_INVALID = '00000000-0000-0000-0000-000000000000';
+const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 
 describe('UnidadesModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -49,9 +50,9 @@ describe('UnidadesModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Unidades Super',
-        email: 'unidades.super@teste.com',
-        cpf_cnpj: '55555555555',
-        celular: '11630000001',
+        email: `unidades.super.${RUN_ID}@teste.com`,
+        cpf_cnpj: `55${RUN_ID}1`,
+        celular: `1163${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'super',
         unidade: SEED_UNIDADE_3,
@@ -63,9 +64,9 @@ describe('UnidadesModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Unidades Admin',
-        email: 'unidades.admin@teste.com',
-        cpf_cnpj: '66666666666',
-        celular: '11630000002',
+        email: `unidades.admin.${RUN_ID}@teste.com`,
+        cpf_cnpj: `66${RUN_ID}2`,
+        celular: `1173${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE_3,
@@ -77,9 +78,9 @@ describe('UnidadesModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Unidades Portaria',
-        email: 'unidades.portaria@teste.com',
-        cpf_cnpj: '77777777777',
-        celular: '11630000003',
+        email: `unidades.portaria.${RUN_ID}@teste.com`,
+        cpf_cnpj: `77${RUN_ID}3`,
+        celular: `1183${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE_3,
@@ -103,9 +104,9 @@ describe('UnidadesModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Unidades Morador Outro',
-        email: 'unidades.morador@teste.com',
-        cpf_cnpj: '88888888888',
-        celular: '11630000004',
+        email: `unidades.morador.${RUN_ID}@teste.com`,
+        cpf_cnpj: `88${RUN_ID}4`,
+        celular: `1193${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         unidade: SEED_UNIDADE_4,
       })

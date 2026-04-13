@@ -142,6 +142,15 @@ export class NotificacoesController {
     });
   }
 
+  @Patch(':id/read')
+  markAsReadLegacy(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.markAsRead(id, user, ctx);
+  }
+
   @Patch(':id/restore')
   @Roles(Perfil.SUPER, Perfil.ADMIN)
   updateRestore(

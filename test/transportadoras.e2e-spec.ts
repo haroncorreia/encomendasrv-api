@@ -8,12 +8,15 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/transportadoras';
 const AUTH_BASE = '/authenticate';
+const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 
 describe('TransportadorasModule (e2e)', () => {
   let app: INestApplication<App>;
   let knex: Knex;
   let superToken: string;
   let adminToken: string;
+  let superEmail: string;
+  let adminEmail: string;
   let portariaToken: string;
   let moradorToken: string;
   let seedTransportadoraUuid: string;
@@ -47,9 +50,9 @@ describe('TransportadorasModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Transportadora Super',
-        email: 'transportadora.super@teste.com',
-        cpf_cnpj: '11111111111',
-        celular: '11660000001',
+        email: `transportadora.super.${RUN_ID}@teste.com`,
+        cpf_cnpj: `11${RUN_ID}1`,
+        celular: `1166${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'super',
         unidade: '0303',
@@ -57,14 +60,15 @@ describe('TransportadorasModule (e2e)', () => {
       .expect(201);
 
     superToken = superRes.body.access_token as string;
+    superEmail = superRes.body.usuario.email as string;
 
     const adminRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Transportadora Admin',
-        email: 'transportadora.admin@teste.com',
-        cpf_cnpj: '22222222222',
-        celular: '11660000002',
+        email: `transportadora.admin.${RUN_ID}@teste.com`,
+        cpf_cnpj: `22${RUN_ID}2`,
+        celular: `1176${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: '0303',
@@ -72,14 +76,15 @@ describe('TransportadorasModule (e2e)', () => {
       .expect(201);
 
     adminToken = adminRes.body.access_token as string;
+    adminEmail = adminRes.body.usuario.email as string;
 
     const portariaRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Transportadora Portaria',
-        email: 'transportadora.portaria@teste.com',
-        cpf_cnpj: '33333333333',
-        celular: '11660000003',
+        email: `transportadora.portaria.${RUN_ID}@teste.com`,
+        cpf_cnpj: `33${RUN_ID}3`,
+        celular: `1186${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: '0303',
@@ -92,9 +97,9 @@ describe('TransportadorasModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Transportadora Morador',
-        email: 'transportadora.morador@teste.com',
-        cpf_cnpj: '44444444444',
-        celular: '11660000004',
+        email: `transportadora.morador.${RUN_ID}@teste.com`,
+        cpf_cnpj: `44${RUN_ID}4`,
+        celular: `1196${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         unidade: '0303',
       })
@@ -199,7 +204,7 @@ describe('TransportadorasModule (e2e)', () => {
 
     expect(res.body.uuid).toBeDefined();
     expect(res.body.nome).toBe('Transportadora Admin Criada');
-    expect(res.body.created_by).toBe('transportadora.admin@teste.com');
+    expect(res.body.created_by).toBe(adminEmail);
 
     criadaAdminUuid = res.body.uuid as string;
   });
@@ -214,7 +219,7 @@ describe('TransportadorasModule (e2e)', () => {
 
     expect(res.body.uuid).toBeDefined();
     expect(res.body.nome).toBe('Transportadora Super Criada');
-    expect(res.body.created_by).toBe('transportadora.super@teste.com');
+    expect(res.body.created_by).toBe(superEmail);
 
     criadaSuperUuid = res.body.uuid as string;
   });
@@ -254,7 +259,7 @@ describe('TransportadorasModule (e2e)', () => {
 
     expect(res.body.uuid).toBe(criadaAdminUuid);
     expect(res.body.nome).toBe('Transportadora Admin Atualizada');
-    expect(res.body.updated_by).toBe('transportadora.admin@teste.com');
+    expect(res.body.updated_by).toBe(adminEmail);
   });
 
   it('PATCH /transportadoras/:id deve retornar 200 para super', async () => {
@@ -267,7 +272,7 @@ describe('TransportadorasModule (e2e)', () => {
 
     expect(res.body.uuid).toBe(criadaSuperUuid);
     expect(res.body.nome).toBe('Transportadora Super Atualizada');
-    expect(res.body.updated_by).toBe('transportadora.super@teste.com');
+    expect(res.body.updated_by).toBe(superEmail);
   });
 
   it('PATCH /transportadoras/:id deve retornar 403 para portaria e morador', async () => {

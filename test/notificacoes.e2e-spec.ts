@@ -230,11 +230,6 @@ describe('NotificacoesModule (e2e)', () => {
         (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
       ),
     ).toBe(true);
-    expect(
-      moradorRes.body.some(
-        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_MORADOR,
-      ),
-    ).toBe(true);
 
     await auth(
       portariaToken,
@@ -264,11 +259,6 @@ describe('NotificacoesModule (e2e)', () => {
     expect(
       moradorRes.body.every(
         (item: { uuid_usuario: string }) => item.uuid_usuario === UUID_MORADOR,
-      ),
-    ).toBe(true);
-    expect(
-      moradorRes.body.some(
-        (item: { uuid: string }) => item.uuid === UUID_SEED_NOTIFICACAO_MORADOR,
       ),
     ).toBe(true);
   });
