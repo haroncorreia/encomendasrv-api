@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -22,6 +23,7 @@ import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { FilterNotificacoesDto } from './dto/filter-notificacoes.dto';
+import { MarkNotificacoesReadDto } from './dto/mark-notificacoes-read.dto';
 import { PaginationNotificacoesDto } from './dto/pagination-notificacoes.dto';
 import { NotificacoesService } from './notificacoes.service';
 
@@ -56,6 +58,56 @@ export class NotificacoesController {
     return this.notificacoesService.findNotRead(user);
   }
 
+  @Patch('mark-all-as-read')
+  markAllAsRead(
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const updatedCount = await this.notificacoesService.markAllAsRead(
+        user,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `${updatedCount} notificação(ões) do usuário marcadas como lidas.`,
+        },
+        trx,
+      );
+
+      return { updatedCount };
+    });
+  }
+
+  @Patch('mark-as-read')
+  markManyAsRead(
+    @Body() body: MarkNotificacoesReadDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const notificacoes = await this.notificacoesService.markManyAsRead(
+        body.uuids_notificacoes,
+        user,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `${notificacoes.length} notificação(ões) marcadas como lidas em lote.`,
+        },
+        trx,
+      );
+
+      return notificacoes;
+    });
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPtPipe) id: string,
@@ -64,7 +116,7 @@ export class NotificacoesController {
     return this.notificacoesService.findOne(id, user);
   }
 
-  @Patch(':id/read')
+  @Patch(':id/mark-as-read')
   markAsRead(
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,

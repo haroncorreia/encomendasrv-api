@@ -553,6 +553,65 @@ export class NotificacoesService {
     return this.findActiveByUuid(uuid, trx);
   }
 
+  async markManyAsRead(
+    uuids: string[],
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<Notificacao[]> {
+    const qb = trx ?? this.knex;
+
+    const notificacoes = await qb<Notificacao>(TABLE)
+      .whereIn('uuid', uuids)
+      .whereNull('deleted_at')
+      .select('*');
+
+    if (notificacoes.length !== uuids.length) {
+      const uuidsEncontrados = new Set(notificacoes.map((n) => n.uuid));
+      const uuidNaoEncontrado = uuids.find(
+        (uuid) => !uuidsEncontrados.has(uuid),
+      );
+
+      throw new NotFoundException(
+        `Notificação com uuid ${uuidNaoEncontrado} não encontrada.`,
+      );
+    }
+
+    notificacoes.forEach((notificacao) =>
+      this.assertWriteAccess(notificacao, user),
+    );
+
+    const agora = new Date();
+
+    await qb<Notificacao>(TABLE).whereIn('uuid', uuids).update({
+      lido_em: agora,
+      updated_at: agora,
+      updated_by: user.email,
+    });
+
+    return qb<Notificacao>(TABLE)
+      .whereIn('uuid', uuids)
+      .whereNull('deleted_at')
+      .select('*');
+  }
+
+  async markAllAsRead(
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<number> {
+    const qb = trx ?? this.knex;
+    const agora = new Date();
+
+    return qb<Notificacao>(TABLE)
+      .whereNull('deleted_at')
+      .andWhere('uuid_usuario', user.sub)
+      .whereNull('lido_em')
+      .update({
+        lido_em: agora,
+        updated_at: agora,
+        updated_by: user.email,
+      });
+  }
+
   async restore(
     uuid: string,
     actorEmail: string,
