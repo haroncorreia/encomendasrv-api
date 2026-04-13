@@ -452,7 +452,7 @@ describe('AuthModule (e2e)', () => {
 
     class MockDate extends RealDate {
       constructor(...args: ConstructorParameters<DateConstructor>) {
-        if (args.length === 0) {
+        if ((args as any[]).length === 0) {
           super(mockedNow);
           return;
         }
@@ -485,10 +485,7 @@ describe('AuthModule (e2e)', () => {
 
       mockedNow = afterCutoff.getTime();
 
-      const decoded = jwtService.decode(tokenPortaria) as {
-        exp?: number;
-        iat?: number;
-      };
+      const decoded = jwtService.decode(tokenPortaria);
       expect(decoded.exp).toBeDefined();
       expect(decoded.iat).toBeDefined();
 
