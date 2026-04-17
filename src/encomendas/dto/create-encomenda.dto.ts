@@ -72,6 +72,12 @@ export class CreateEncomendaDto {
   entregue_por_uuid_usuario?: string;
 
   @IsOptional()
+  @IsUUID('4', {
+    message: 'O campo entregue_para_uuid_usuario deve ser um UUID válido.',
+  })
+  entregue_para_uuid_usuario?: string;
+
+  @IsOptional()
   @IsString()
   imagem_base64?: string;
 

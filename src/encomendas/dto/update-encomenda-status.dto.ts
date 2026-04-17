@@ -41,6 +41,12 @@ export class UpdateEncomendaStatusDto {
   recebido_por_uuid_usuario?: string;
 
   @IsOptional()
+  @IsUUID('4', {
+    message: 'O campo entregue_para_uuid_usuario deve ser um UUID válido.',
+  })
+  entregue_para_uuid_usuario?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   entregador_externo_nome?: string;

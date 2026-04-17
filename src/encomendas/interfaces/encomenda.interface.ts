@@ -18,6 +18,7 @@ export interface Encomenda {
   recebido_por_uuid_usuario: string | null;
   entregue_em: Date | null;
   entregue_por_uuid_usuario: string | null;
+  entregue_para_uuid_usuario: string | null;
   created_at: Date;
   created_by: string;
   updated_at: Date;

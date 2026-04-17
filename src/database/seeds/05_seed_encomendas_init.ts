@@ -56,6 +56,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: null,
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'pessoal',
     },
     {
@@ -65,6 +66,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: null,
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'unidade',
     },
     {
@@ -74,6 +76,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[0],
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'pessoal',
     },
     {
@@ -83,6 +86,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[1],
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'unidade',
     },
     {
@@ -92,6 +96,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[0],
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'pessoal',
     },
     {
@@ -101,6 +106,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[1],
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'unidade',
     },
     {
@@ -110,6 +116,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[0],
       entregue_em: knex.fn.now(),
       entregue_por_uuid_usuario: usuarioUuids[0],
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'pessoal',
     },
     {
@@ -119,6 +126,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: usuarioUuids[1],
       entregue_em: knex.fn.now(),
       entregue_por_uuid_usuario: usuarioUuids[1],
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'unidade',
     },
     {
@@ -128,6 +136,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: null,
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'pessoal',
     },
     {
@@ -137,6 +146,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: null,
       entregue_em: null,
       entregue_por_uuid_usuario: null,
+      entregue_para_uuid_usuario: null,
       restricao_retirada: 'unidade',
     },
   ];
@@ -165,6 +175,7 @@ export async function seed(knex: Knex): Promise<void> {
       recebido_por_uuid_usuario: item.recebido_por_uuid_usuario,
       entregue_em: item.entregue_em,
       entregue_por_uuid_usuario: item.entregue_por_uuid_usuario,
+      entregue_para_uuid_usuario: item.entregue_para_uuid_usuario,
       created_by: 'seed-dev',
       updated_by: 'seed-dev',
       deleted_at: null,

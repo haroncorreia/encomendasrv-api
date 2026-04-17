@@ -596,6 +596,7 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(leitura.body.uuid).toBe(uuidEncomenda);
     expect(leitura.body.status).toBe('prevista');
     expect(leitura.body.entregue_por_uuid_usuario).toBeNull();
+    expect(leitura.body.entregue_para_uuid_usuario).toBeNull();
     expect(leitura.body.entregue_em).toBeNull();
 
     const registro = await knex('encomendas')
@@ -605,6 +606,7 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(registro).toBeDefined();
     expect(registro.status).toBe('prevista');
     expect(registro.entregue_por_uuid_usuario).toBeNull();
+    expect(registro.entregue_para_uuid_usuario).toBeNull();
     expect(registro.entregue_em).toBeNull();
   });
 

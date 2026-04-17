@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -20,6 +21,7 @@ let UUID_ADMIN: string;
 let UUID_PORTARIA: string;
 let UUID_MORADOR: string;
 let UUID_MORADOR_OUTRO: string;
+let UUID_MORADOR_MESMA_UNIDADE: string;
 let UUID_CONDOMINIO: string;
 
 let UUID_SEED_PREVISTA_MORADOR: string;
@@ -83,7 +85,7 @@ describe('EncomendasModule (e2e)', () => {
       knex('usuarios')
         .where({ email: SEEDED_MORADOR_EMAIL })
         .whereNull('deleted_at')
-        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio'),
+        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio', 'uuid_unidade'),
       knex('usuarios')
         .where({ email: SEEDED_MORADOR_2_EMAIL })
         .whereNull('deleted_at')
@@ -101,6 +103,42 @@ describe('EncomendasModule (e2e)', () => {
     UUID_MORADOR = moradorUsuario.uuid as string;
     UUID_MORADOR_OUTRO = moradorOutroUsuario.uuid as string;
     UUID_CONDOMINIO = moradorUsuario.uuid_condominio as string;
+
+    const moradorMesmaUnidade = await knex('usuarios')
+      .where({ perfil: 'morador', uuid_unidade: moradorUsuario.uuid_unidade })
+      .whereNot('uuid', UUID_MORADOR)
+      .whereNull('deleted_at')
+      .first('uuid');
+
+    if (moradorMesmaUnidade) {
+      UUID_MORADOR_MESMA_UNIDADE = moradorMesmaUnidade.uuid as string;
+    } else {
+      UUID_MORADOR_MESMA_UNIDADE = randomUUID();
+
+      await knex('usuarios').insert({
+        uuid: UUID_MORADOR_MESMA_UNIDADE,
+        uuid_condominio: UUID_CONDOMINIO,
+        uuid_unidade: moradorUsuario.uuid_unidade,
+        nome: 'Morador Mesma Unidade (Teste)',
+        cpf_cnpj: String(Date.now()).slice(-11),
+        rg: null,
+        email: `morador-unidade-${Date.now()}@teste.local`,
+        celular: null,
+        senha: 'hash_teste',
+        perfil: 'morador',
+        activation_code_hash: null,
+        activation_code_exp: null,
+        activated_at: null,
+        reset_password_token_hash: null,
+        reset_password_exp: null,
+        refresh_token_hash: null,
+        refresh_token_exp: null,
+        created_by: 'test',
+        updated_by: 'test',
+        deleted_at: null,
+        deleted_by: null,
+      });
+    }
 
     const buildToken = (
       sub: string,
@@ -886,6 +924,62 @@ describe('EncomendasModule (e2e)', () => {
     expect(res.body.status).toBe('retirada');
     expect(res.body.entregue_em).toBeTruthy();
     expect(res.body.entregue_por_uuid_usuario).toBe(UUID_PORTARIA);
+    expect(res.body.entregue_para_uuid_usuario).toBeNull();
+  });
+
+  it('PATCH /encomendas/:id/update-status deve registrar entregue_para_uuid_usuario quando retirada for por outro morador da mesma unidade', async () => {
+    const created = await auth(
+      adminToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
+        palavra_chave: 'RetiradaMesmaUnidade',
+        codigo_rastreamento: `RMU-${Date.now()}`,
+        restricao_retirada: 'unidade',
+      }),
+    ).expect(201);
+
+    const retirada = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${created.body.uuid as string}/update-status`)
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR_MESMA_UNIDADE,
+        }),
+    ).expect(200);
+
+    expect(retirada.body.status).toBe('retirada');
+    expect(retirada.body.entregue_para_uuid_usuario).toBe(
+      UUID_MORADOR_MESMA_UNIDADE,
+    );
+  });
+
+  it('PATCH /encomendas/:id/update-status deve rejeitar entregue_para_uuid_usuario de unidade diferente', async () => {
+    const created = await auth(
+      adminToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
+        palavra_chave: 'RetiradaUnidInv',
+        codigo_rastreamento: `RUI-${Date.now()}`,
+        restricao_retirada: 'unidade',
+      }),
+    ).expect(201);
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${created.body.uuid as string}/update-status`)
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR_OUTRO,
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo entregue_para_uuid_usuario deve referenciar um usuário da mesma unidade do titular da encomenda.',
+    );
   });
 
   it('PATCH /encomendas/:id/update-status deve permitir cancelamento para admin', async () => {

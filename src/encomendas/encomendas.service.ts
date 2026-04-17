@@ -55,6 +55,7 @@ type EncomendaComRelacionamentos = Encomenda & {
   usuario: UsuarioEncomendaInfo | null;
   recebido_por_usuario: UsuarioEncomendaInfo | null;
   entregue_por_usuario: UsuarioEncomendaInfo | null;
+  entregue_para_usuario: UsuarioEncomendaInfo | null;
   transportadora: Transportadora | null;
   imagens: Imagem[];
 };
@@ -312,6 +313,51 @@ export class EncomendasService {
     return usuario.uuid;
   }
 
+  private async validateEntregueParaUsuario(
+    uuidEntreguePara: string | undefined,
+    encomenda: Pick<
+      Encomenda,
+      'uuid_usuario' | 'uuid_unidade' | 'uuid_condominio' | 'restricao_retirada'
+    >,
+    trx?: Knex.Transaction,
+  ): Promise<string | null> {
+    if (!uuidEntreguePara) {
+      return null;
+    }
+
+    const usuarioEntreguePara = await this.findUsuarioAtivo(uuidEntreguePara, trx);
+
+    if (usuarioEntreguePara.perfil !== Perfil.MORADOR) {
+      throw new BadRequestException(
+        'O campo entregue_para_uuid_usuario deve referenciar um usuário com perfil morador.',
+      );
+    }
+
+    if (usuarioEntreguePara.uuid_condominio !== encomenda.uuid_condominio) {
+      throw new BadRequestException(
+        'O campo entregue_para_uuid_usuario deve referenciar um usuário do mesmo condomínio da encomenda.',
+      );
+    }
+
+    if (usuarioEntreguePara.uuid === encomenda.uuid_usuario) {
+      return usuarioEntreguePara.uuid;
+    }
+
+    if (encomenda.restricao_retirada !== EncomendaRestricaoRetirada.UNIDADE) {
+      throw new BadRequestException(
+        'O campo entregue_para_uuid_usuario só pode ser informado com usuário diferente do titular quando a restrição de retirada for unidade.',
+      );
+    }
+
+    if (usuarioEntreguePara.uuid_unidade !== encomenda.uuid_unidade) {
+      throw new BadRequestException(
+        'O campo entregue_para_uuid_usuario deve referenciar um usuário da mesma unidade do titular da encomenda.',
+      );
+    }
+
+    return usuarioEntreguePara.uuid;
+  }
+
   private async validateTransportadora(
     uuidTransportadora: string | null | undefined,
     trx?: Knex.Transaction,
@@ -465,6 +511,13 @@ export class EncomendasService {
       );
     }
 
+    if (filters.entregue_para_uuid_usuario) {
+      query.andWhere(
+        'entregue_para_uuid_usuario',
+        filters.entregue_para_uuid_usuario,
+      );
+    }
+
     if (filters.recebido_em_inicial) {
       query.andWhere(
         'recebido_em',
@@ -523,6 +576,7 @@ export class EncomendasService {
           .flatMap((item) => [
             item.recebido_por_uuid_usuario,
             item.entregue_por_uuid_usuario,
+            item.entregue_para_uuid_usuario,
           ])
           .filter((value): value is string => Boolean(value)),
       ),
@@ -607,6 +661,9 @@ export class EncomendasService {
         : null,
       entregue_por_usuario: item.entregue_por_uuid_usuario
         ? (usuariosByUuid.get(item.entregue_por_uuid_usuario) ?? null)
+        : null,
+      entregue_para_usuario: item.entregue_para_uuid_usuario
+        ? (usuariosByUuid.get(item.entregue_para_uuid_usuario) ?? null)
         : null,
       transportadora: item.uuid_transportadora
         ? (transportadorasByUuid.get(item.uuid_transportadora) ?? null)
@@ -884,8 +941,11 @@ export class EncomendasService {
     let recebidoPorUuidUsuario: string | null = null;
     let entregueEm: Date | null = null;
     let entreguePorUuidUsuario: string | null = null;
+    let entregueParaUuidUsuario: string | null = null;
     let uuidUsuarioEncomenda = actor.uuid;
     let uuidUnidadeEncomenda = actor.uuid_unidade;
+    const restricaoRetirada =
+      dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL;
 
     if (actor.perfil === Perfil.MORADOR) {
       if (!dto.palavra_chave || dto.palavra_chave.trim().length === 0) {
@@ -894,7 +954,11 @@ export class EncomendasService {
         );
       }
 
-      if (dto.recebido_por_uuid_usuario || dto.entregue_por_uuid_usuario) {
+      if (
+        dto.recebido_por_uuid_usuario ||
+        dto.entregue_por_uuid_usuario ||
+        dto.entregue_para_uuid_usuario
+      ) {
         throw new BadRequestException(
           'Usuários com perfil morador não podem informar recebimento ou entrega na criação da encomenda.',
         );
@@ -926,7 +990,7 @@ export class EncomendasService {
         );
       }
 
-      if (dto.entregue_por_uuid_usuario) {
+      if (dto.entregue_por_uuid_usuario || dto.entregue_para_uuid_usuario) {
         throw new BadRequestException(
           'Usuários com perfil portaria só podem criar encomendas com status recebida.',
         );
@@ -984,12 +1048,24 @@ export class EncomendasService {
         'entregue_por_uuid_usuario',
         trx,
       );
+      entregueParaUuidUsuario = await this.validateEntregueParaUsuario(
+        dto.entregue_para_uuid_usuario,
+        {
+          uuid_usuario: uuidUsuarioEncomenda,
+          uuid_unidade: uuidUnidadeEncomenda,
+          uuid_condominio: actor.uuid_condominio,
+          restricao_retirada: restricaoRetirada,
+        },
+        trx,
+      );
       status = EncomendaStatus.RETIRADA;
+    } else if (dto.entregue_para_uuid_usuario) {
+      throw new BadRequestException(
+        'Não é possível informar entregue_para_uuid_usuario sem informar entregue_por_uuid_usuario.',
+      );
     }
 
     const uuid = randomUUID();
-    const restricaoRetirada =
-      dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL;
 
     await qb<Encomenda>(TABLE).insert({
       uuid,
@@ -1008,6 +1084,7 @@ export class EncomendasService {
       recebido_por_uuid_usuario: recebidoPorUuidUsuario,
       entregue_em: entregueEm,
       entregue_por_uuid_usuario: entreguePorUuidUsuario,
+      entregue_para_uuid_usuario: entregueParaUuidUsuario,
       created_by: user.email,
       updated_by: user.email,
     });
@@ -1157,6 +1234,15 @@ export class EncomendasService {
     const encomenda = await this.findActiveByUuid(uuid, trx);
     const usuarioEncomenda = encomenda.uuid_usuario;
 
+    if (
+      dto.status !== EncomendaStatus.RETIRADA &&
+      dto.entregue_para_uuid_usuario !== undefined
+    ) {
+      throw new BadRequestException(
+        'O campo entregue_para_uuid_usuario só pode ser informado quando o status for retirada.',
+      );
+    }
+
     if (dto.status === EncomendaStatus.RECEBIDA) {
       if (encomenda.status !== EncomendaStatus.PREVISTA) {
         throw new BadRequestException(
@@ -1277,10 +1363,22 @@ export class EncomendasService {
     }
 
     if (dto.status === EncomendaStatus.RETIRADA) {
+      const entregueParaUuidUsuario = await this.validateEntregueParaUsuario(
+        dto.entregue_para_uuid_usuario,
+        {
+          uuid_usuario: encomenda.uuid_usuario,
+          uuid_unidade: encomenda.uuid_unidade,
+          uuid_condominio: encomenda.uuid_condominio,
+          restricao_retirada: encomenda.restricao_retirada,
+        },
+        trx,
+      );
+
       await qb<Encomenda>(TABLE).where({ uuid }).update({
         status: dto.status,
         entregue_em: new Date(),
         entregue_por_uuid_usuario: user.sub,
+        entregue_para_uuid_usuario: entregueParaUuidUsuario,
         updated_at: new Date(),
         updated_by: user.email,
       });

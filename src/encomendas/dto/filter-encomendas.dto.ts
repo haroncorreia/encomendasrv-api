@@ -58,6 +58,10 @@ export class FilterEncomendasDto extends PaginationEncomendasDto {
   entregue_por_uuid_usuario?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  entregue_para_uuid_usuario?: string;
+
+  @IsOptional()
   @IsDateString()
   recebido_em_inicial?: string;
 
