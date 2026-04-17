@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import {
   existsSync,
   mkdirSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
   createReadStream,
@@ -86,8 +87,36 @@ export class ImagensService {
     return `${randomUUID()}.${ext}`;
   }
 
-  private caminhoRelativo(nomeArquivo: string): string {
-    return join('uploads', 'imagens', nomeArquivo);
+  private obterPartesData(data: Date): {
+    ano: string;
+    mes: string;
+    dia: string;
+  } {
+    const ano = String(data.getFullYear());
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+
+    return { ano, mes, dia };
+  }
+
+  private resolverCaminhosArquivo(
+    nomeArquivo: string,
+    data: Date,
+  ): {
+    diretorioAbsoluto: string;
+    caminhoAbsoluto: string;
+    caminhoRel: string;
+  } {
+    const { ano, mes, dia } = this.obterPartesData(data);
+    const diretorioAbsoluto = join(this.uploadDir, ano, mes, dia);
+    const caminhoAbsoluto = join(diretorioAbsoluto, nomeArquivo);
+    const caminhoRel = join('uploads', 'imagens', ano, mes, dia, nomeArquivo);
+
+    return {
+      diretorioAbsoluto,
+      caminhoAbsoluto,
+      caminhoRel,
+    };
   }
 
   async salvarDeBase64(
@@ -123,8 +152,12 @@ export class ImagensService {
 
     const tipo = tipoNormalizado === 'jpg' ? 'jpeg' : tipoNormalizado;
     const nomeArquivo = this.gerarNomeArquivo(tipo);
-    const caminhoAbsoluto = join(this.uploadDir, nomeArquivo);
-    const caminhoRel = this.caminhoRelativo(nomeArquivo);
+    const { diretorioAbsoluto, caminhoAbsoluto, caminhoRel } =
+      this.resolverCaminhosArquivo(nomeArquivo, new Date());
+
+    if (!existsSync(diretorioAbsoluto)) {
+      mkdirSync(diretorioAbsoluto, { recursive: true });
+    }
 
     writeFileSync(caminhoAbsoluto, buffer);
 
@@ -165,25 +198,40 @@ export class ImagensService {
     const tipo = ext === 'jpg' ? 'jpeg' : ext;
     this.validarTipo(tipo);
 
-    const caminhoRel = this.caminhoRelativo(arquivo.filename);
+    const origemAbsoluta = join(this.uploadDir, arquivo.filename);
+    const { diretorioAbsoluto, caminhoAbsoluto, caminhoRel } =
+      this.resolverCaminhosArquivo(arquivo.filename, new Date());
 
-    return this.persistir(
-      {
-        nomeArquivo: arquivo.filename,
-        nomeOriginal: arquivo.originalname,
-        tipo,
-        tamanho: arquivo.size,
-        altura: null,
-        largura: null,
-        coordenadas: undefined,
-        caminho: caminhoRel,
-        uuidReferencia,
-        tabelaReferencia,
-        statusMomentoCaptura: null,
-        actorEmail,
-      },
-      trx,
-    );
+    if (!existsSync(diretorioAbsoluto)) {
+      mkdirSync(diretorioAbsoluto, { recursive: true });
+    }
+
+    renameSync(origemAbsoluta, caminhoAbsoluto);
+
+    try {
+      return await this.persistir(
+        {
+          nomeArquivo: arquivo.filename,
+          nomeOriginal: arquivo.originalname,
+          tipo,
+          tamanho: arquivo.size,
+          altura: null,
+          largura: null,
+          coordenadas: undefined,
+          caminho: caminhoRel,
+          uuidReferencia,
+          tabelaReferencia,
+          statusMomentoCaptura: null,
+          actorEmail,
+        },
+        trx,
+      );
+    } catch (error) {
+      if (existsSync(caminhoAbsoluto)) {
+        unlinkSync(caminhoAbsoluto);
+      }
+      throw error;
+    }
   }
 
   private async persistir(
