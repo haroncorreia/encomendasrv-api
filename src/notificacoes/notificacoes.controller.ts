@@ -37,7 +37,7 @@ export class NotificacoesController {
   ) {}
 
   @Get()
-  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.MORADOR)
+  @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR)
   findAll(
     @Query() pagination: PaginationNotificacoesDto,
     @CurrentUser() user: JwtPayload,
