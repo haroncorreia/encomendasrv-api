@@ -193,7 +193,7 @@ describe('NotificacoesModule (e2e)', () => {
     await request(app.getHttpServer()).get(BASE_URL).expect(401);
   });
 
-  it('GET /notificacoes deve permitir super, admin e morador com limite padrão de 50 e escopo por perfil', async () => {
+  it('GET /notificacoes deve permitir super, admin, portaria e morador com limite padrão de 50 e escopo por perfil', async () => {
     for (let i = 1; i <= 55; i++) {
       await knex('notificacoes').insert({
         uuid: randomUUID(),
@@ -209,9 +209,12 @@ describe('NotificacoesModule (e2e)', () => {
       });
     }
 
-    const [superRes, adminRes, moradorRes] = await Promise.all([
+    const [superRes, adminRes, portariaRes, moradorRes] = await Promise.all([
       auth(superToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
       auth(adminToken, request(app.getHttpServer()).get(BASE_URL)).expect(200),
+      auth(portariaToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+        200,
+      ),
       auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
         200,
       ),
@@ -234,7 +237,7 @@ describe('NotificacoesModule (e2e)', () => {
     await auth(
       portariaToken,
       request(app.getHttpServer()).get(BASE_URL),
-    ).expect(403);
+    ).expect(200);
   });
 
   it('GET /notificacoes/filter deve aplicar filtros e escopo por perfil', async () => {
