@@ -378,13 +378,13 @@ export class NotificacoesService {
         now,
       );
 
-      await this.enviarWhatsAppAguardandoRetiradaEmTrx(
-        {
-          uuid_usuario: params.uuid_usuario,
-          uuid_encomenda: params.uuid_encomenda,
-        },
-        trx,
-      );
+      // await this.enviarWhatsAppAguardandoRetiradaEmTrx(
+      //   {
+      //     uuid_usuario: params.uuid_usuario,
+      //     uuid_encomenda: params.uuid_encomenda,
+      //   },
+      //   trx,
+      // );
 
       return;
     }
