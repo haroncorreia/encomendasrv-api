@@ -85,7 +85,14 @@ describe('EncomendasModule (e2e)', () => {
       knex('usuarios')
         .where({ email: SEEDED_MORADOR_EMAIL })
         .whereNull('deleted_at')
-        .first('uuid', 'nome', 'email', 'perfil', 'uuid_condominio', 'uuid_unidade'),
+        .first(
+          'uuid',
+          'nome',
+          'email',
+          'perfil',
+          'uuid_condominio',
+          'uuid_unidade',
+        ),
       knex('usuarios')
         .where({ email: SEEDED_MORADOR_2_EMAIL })
         .whereNull('deleted_at')
@@ -278,6 +285,7 @@ describe('EncomendasModule (e2e)', () => {
       expect(itemRecebido.recebido_por_usuario.uuid).toBe(UUID_PORTARIA);
       expect(itemRetirado.entregue_por_usuario).toBeDefined();
       expect(itemRetirado.entregue_por_usuario.uuid).toBe(UUID_PORTARIA);
+      expect(itemRetirado).toHaveProperty('entregue_para_uuid_usuario');
       expect(
         res.body.some(
           (item: { uuid: string }) => item.uuid === UUID_SEED_PREVISTA_MORADOR,
@@ -483,6 +491,7 @@ describe('EncomendasModule (e2e)', () => {
     expect(ownRes.body.usuario.senha).toBeUndefined();
     expect(ownRes.body.recebido_por_usuario).toBeNull();
     expect(ownRes.body.entregue_por_usuario).toBeNull();
+    expect(ownRes.body).toHaveProperty('entregue_para_uuid_usuario');
     if (ownRes.body.uuid_transportadora) {
       expect(ownRes.body.transportadora).toBeDefined();
       expect(ownRes.body.transportadora.uuid).toBe(
@@ -930,13 +939,15 @@ describe('EncomendasModule (e2e)', () => {
   it('PATCH /encomendas/:id/update-status deve registrar entregue_para_uuid_usuario quando retirada for por outro morador da mesma unidade', async () => {
     const created = await auth(
       adminToken,
-      request(app.getHttpServer()).post(BASE_URL).send({
-        uuid_usuario: UUID_MORADOR,
-        recebido_por_uuid_usuario: UUID_PORTARIA,
-        palavra_chave: 'RetiradaMesmaUnidade',
-        codigo_rastreamento: `RMU-${Date.now()}`,
-        restricao_retirada: 'unidade',
-      }),
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'RetiradaMesmaUnidade',
+          codigo_rastreamento: `RMU-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
     ).expect(201);
 
     const retirada = await auth(
@@ -958,13 +969,15 @@ describe('EncomendasModule (e2e)', () => {
   it('PATCH /encomendas/:id/update-status deve rejeitar entregue_para_uuid_usuario de unidade diferente', async () => {
     const created = await auth(
       adminToken,
-      request(app.getHttpServer()).post(BASE_URL).send({
-        uuid_usuario: UUID_MORADOR,
-        recebido_por_uuid_usuario: UUID_PORTARIA,
-        palavra_chave: 'RetiradaUnidInv',
-        codigo_rastreamento: `RUI-${Date.now()}`,
-        restricao_retirada: 'unidade',
-      }),
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'RetiradaUnidInv',
+          codigo_rastreamento: `RUI-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
     ).expect(201);
 
     const res = await auth(

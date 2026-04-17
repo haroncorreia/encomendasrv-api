@@ -325,7 +325,10 @@ export class EncomendasService {
       return null;
     }
 
-    const usuarioEntreguePara = await this.findUsuarioAtivo(uuidEntreguePara, trx);
+    const usuarioEntreguePara = await this.findUsuarioAtivo(
+      uuidEntreguePara,
+      trx,
+    );
 
     if (usuarioEntreguePara.perfil !== Perfil.MORADOR) {
       throw new BadRequestException(
@@ -651,6 +654,7 @@ export class EncomendasService {
 
     return encomendas.map((item) => ({
       ...item,
+      entregue_para_uuid_usuario: item.entregue_para_uuid_usuario ?? null,
       entregador_externo_nome: item.entregador_externo_nome ?? null,
       entregador_externo_cpf: item.entregador_externo_cpf ?? null,
       condominio: condominiosByUuid.get(item.uuid_condominio) ?? null,
