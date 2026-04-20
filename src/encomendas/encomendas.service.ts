@@ -759,7 +759,7 @@ export class EncomendasService {
     const payload: QrCodeEncomendaPayload = {
       tipo: 'retirada',
       uuid_encomenda: encomenda.uuid,
-      uuid_usuario: encomenda.uuid_usuario,
+      uuid_usuario: user.sub,
       uuid_condominio: encomenda.uuid_condominio,
     };
 
@@ -849,6 +849,17 @@ export class EncomendasService {
     }
 
     const usuario = await this.findUsuarioAtivo(payload.uuid_usuario, trx);
+    const usuarioEntreguePara = await qb<Usuario>('usuarios')
+      .where({ uuid: payload.uuid_usuario })
+      .whereNull('deleted_at')
+      .select('uuid', 'uuid_condominio', 'nome', 'email', 'celular', 'perfil')
+      .first();
+
+    if (!usuarioEntreguePara) {
+      throw new BadRequestException(
+        'Token QRCode referencia um usuário inválido para o condomínio informado.',
+      );
+    }
 
     if (usuario.uuid_condominio !== payload.uuid_condominio) {
       throw new BadRequestException(
@@ -886,7 +897,16 @@ export class EncomendasService {
         }
       }
 
-      return this.enrichWithRelacionamentos(encomendas);
+      const encomendasComRelacionamentos = await this.enrichWithRelacionamentos(
+        encomendas,
+        trx,
+      );
+
+      return encomendasComRelacionamentos.map((item) => ({
+        ...item,
+        entregue_para_uuid_usuario: payload.uuid_usuario,
+        entregue_para_usuario: usuarioEntreguePara,
+      }));
     }
 
     const encomenda = await qb<Encomenda>(TABLE)
@@ -921,7 +941,11 @@ export class EncomendasService {
       encomenda,
     ]);
 
-    return encomendaComRelacionamentos;
+    return {
+      ...encomendaComRelacionamentos,
+      entregue_para_uuid_usuario: payload.uuid_usuario,
+      entregue_para_usuario: usuarioEntreguePara,
+    };
   }
 
   async create(
@@ -1367,6 +1391,18 @@ export class EncomendasService {
     }
 
     if (dto.status === EncomendaStatus.RETIRADA) {
+      if (encomenda.status !== EncomendaStatus.AGUARDANDO_RETIRADA) {
+        throw new BadRequestException(
+          'A encomenda só pode ser marcada como retirada quando estiver com status aguardando retirada.',
+        );
+      }
+
+      if (!dto.entregue_para_uuid_usuario) {
+        throw new BadRequestException(
+          'O campo entregue_para_uuid_usuario é obrigatório para retirada da encomenda.',
+        );
+      }
+
       const entregueParaUuidUsuario = await this.validateEntregueParaUsuario(
         dto.entregue_para_uuid_usuario,
         {

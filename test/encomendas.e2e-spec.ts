@@ -221,7 +221,10 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${retResp.body.uuid as string}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
+        }),
     ).expect(200);
     UUID_SEED_RETIRADA_MORADOR = retResp.body.uuid as string;
 
@@ -854,7 +857,10 @@ describe('EncomendasModule (e2e)', () => {
       moradorToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
+        }),
     ).expect(403);
 
     await auth(
@@ -927,13 +933,42 @@ describe('EncomendasModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
+        }),
     ).expect(200);
 
     expect(res.body.status).toBe('retirada');
     expect(res.body.entregue_em).toBeTruthy();
     expect(res.body.entregue_por_uuid_usuario).toBe(UUID_PORTARIA);
-    expect(res.body.entregue_para_uuid_usuario).toBeNull();
+    expect(res.body.entregue_para_uuid_usuario).toBe(UUID_MORADOR);
+  });
+
+  it('PATCH /encomendas/:id/update-status deve exigir entregue_para_uuid_usuario para retirada', async () => {
+    const created = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'RetiradaSemRetirante',
+          codigo_rastreamento: `RSR-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${created.body.uuid as string}/update-status`)
+        .send({ status: 'retirada' }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo entregue_para_uuid_usuario é obrigatório para retirada da encomenda.',
+    );
   });
 
   it('PATCH /encomendas/:id/update-status deve registrar entregue_para_uuid_usuario quando retirada for por outro morador da mesma unidade', async () => {

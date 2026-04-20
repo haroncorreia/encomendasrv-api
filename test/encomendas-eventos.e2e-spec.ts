@@ -491,7 +491,10 @@ describe('EncomendasEventosModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${ENCOMENDAS_BASE}/${createdAdmin.body.uuid}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
+        }),
     ).expect(200);
 
     const eventoRetirada = await knex('encomendas_eventos')

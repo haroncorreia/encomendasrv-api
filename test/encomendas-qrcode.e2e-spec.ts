@@ -196,7 +196,10 @@ describe('Encomendas QRCode (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${retResp.body.uuid as string}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
+        }),
     ).expect(200);
     UUID_ENCOMENDA_MORADOR_RETIRADA = retResp.body.uuid as string;
 
@@ -596,7 +599,9 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(leitura.body.uuid).toBe(uuidEncomenda);
     expect(leitura.body.status).toBe('prevista');
     expect(leitura.body.entregue_por_uuid_usuario).toBeNull();
-    expect(leitura.body.entregue_para_uuid_usuario).toBeNull();
+    expect(leitura.body.entregue_para_uuid_usuario).toBe(UUID_MORADOR);
+    expect(leitura.body.entregue_para_usuario).toBeDefined();
+    expect(leitura.body.entregue_para_usuario.uuid).toBe(UUID_MORADOR);
     expect(leitura.body.entregue_em).toBeNull();
 
     const registro = await knex('encomendas')
@@ -663,5 +668,7 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(leitura.body).toHaveLength(2);
     expect(leitura.body[0]).toHaveProperty('uuid');
     expect(leitura.body[1]).toHaveProperty('uuid');
+    expect(leitura.body[0].entregue_para_usuario).toBeDefined();
+    expect(leitura.body[0].entregue_para_usuario.uuid).toBe(UUID_MORADOR);
   });
 });
