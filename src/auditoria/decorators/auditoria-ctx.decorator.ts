@@ -1,5 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
+import { getClientIp } from '../../common/http/request-ip.util';
 import { AuditoriaContext } from '../interfaces/auditoria-context.interface';
 
 /**
@@ -12,7 +13,7 @@ export const AuditoriaCtx = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuditoriaContext => {
     const req = ctx.switchToHttp().getRequest<Request>();
     return {
-      user_ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+      user_ip: getClientIp(req),
       method: req.method,
       route: req.path,
       params: req.params as Record<string, unknown>,

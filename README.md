@@ -31,6 +31,12 @@
 $ npm install
 ```
 
+## Reverse proxy
+
+Para registrar o IP correto do cliente na auditoria quando a API estiver atrás de um proxy reverso, configure `TRUST_PROXY=1` no ambiente da aplicação. Esse valor é o cenário esperado para um único salto com Caddy na frente da API.
+
+O Caddy já encaminha os headers de proxy normalmente. Com `TRUST_PROXY=1`, o backend passa a usar o IP original informado em `X-Forwarded-For` em vez do endereço local do proxy.
+
 ## Compile and run the project
 
 ```bash
