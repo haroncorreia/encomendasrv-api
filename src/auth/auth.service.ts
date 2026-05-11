@@ -361,10 +361,18 @@ export class AuthService {
     ctx: AuditoriaContext,
   ): Promise<{ message: string }> {
     const GENERIC_MESSAGE =
-      'Se o e-mail estiver cadastrado, as instruções de redefinição serão enviadas em breve.';
+      'Se o e-mail estiver cadastrado, instruções de redefinição serão enviadas em breve.';
 
-    const usuario = await this.usuariosService.findByEmailComSenha(email);
-    if (!usuario) return { message: GENERIC_MESSAGE };
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const usuario =
+      await this.usuariosService.findByEmailComSenha(normalizedEmail);
+    if (!usuario) {
+      this.logger.warn(
+        `[RESET_SENHA] E-mail não enviado: usuário não encontrado para ${normalizedEmail}.`,
+      );
+      return { message: GENERIC_MESSAGE };
+    }
 
     const token = randomBytes(32).toString('hex');
     const exp = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
@@ -377,13 +385,22 @@ export class AuthService {
         usuario.nome,
         token,
       );
+      this.logger.log(
+        `[RESET_SENHA] E-mail de redefinição enviado para ${usuario.email}.`,
+      );
       await this.auditoriaService.registrar({
         ctx,
         user_mail: usuario.email,
         description:
           'E-mail com instruções de redefinição de senha enviado com sucesso.',
       });
-    } catch {
+    } catch (err) {
+      const stackOrMessage =
+        err instanceof Error ? err.stack : JSON.stringify(err);
+      this.logger.error(
+        `[RESET_SENHA] Falha ao enviar e-mail de redefinição para ${usuario.email}.`,
+        stackOrMessage,
+      );
       await this.auditoriaService.registrar({
         ctx,
         user_mail: usuario.email,
