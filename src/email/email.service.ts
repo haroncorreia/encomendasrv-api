@@ -141,6 +141,7 @@ export class EmailService {
     );
 
     try {
+      const url = `https://www.cfrecantoverde.com.br/redefinir-senha.html?token=${token}`;
       const info = await this.transporter.sendMail({
         from: `"Condomínio Recanto Verde" <${this.fromAddress}>`,
         to,
@@ -149,7 +150,7 @@ export class EmailService {
         html: `
           <p>Olá, <strong>${nome}</strong>!</p>
           <p>Você solicitou um link para redefinição de sua senha.</p>
-          <p><a href="https://www.cfrecantoverde.com.br/redefinir-senha.html?token=${token}">Redefinir senha</a></p>
+          <p><a href="${url}">Redefinir senha</a></p>
           <p>Este link é válido por <strong>10 minutos</strong>.</p>
           <p><small>Caso não tenha solicitado, ignore este e-mail.</small></p>
         `,
