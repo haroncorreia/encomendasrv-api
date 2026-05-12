@@ -1,4 +1,9 @@
-v1.0.0 beta release 2 - (Patch)
+v1.0.0-rc.3 - 12/05/2026
+
+- Corrigindo URL do processo de redefinição de senha.
+- Implementando log para envio de e-mails no processo de redefinição de senha.
+
+v1.0.0-rc.2
 
 - Opção para marcar todas as notificações como lidas.
 - Envio de notificações via WhatsApp no recebimento da encomenda.
@@ -10,7 +15,7 @@ v1.0.0 beta release 2 - (Patch)
 - Histórico de movimentações da encomenda.
 - E outras correções de bugs e inconsistências em dados.
 
-v1.0.0 beta release 1 - Primeira versão (Major)
+v1.0.0-rc.1
 
 - Implementado módulo de autenticação.
 - Implementado módulo de usuários.
