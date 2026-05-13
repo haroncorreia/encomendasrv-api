@@ -13,6 +13,7 @@ import twilio, { Twilio } from 'twilio';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendaStatus } from '../encomendas/enums/encomenda-status.enum';
+import { PushService } from '../push/push.service';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { FilterNotificacoesDto } from './dto/filter-notificacoes.dto';
 import { PaginationNotificacoesDto } from './dto/pagination-notificacoes.dto';
@@ -41,12 +42,42 @@ export class NotificacoesService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
+    private readonly pushService: PushService,
   ) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
 
     this.twilioClient =
       accountSid && authToken ? twilio(accountSid, authToken) : null;
+  }
+
+  private schedulePushAfterCommit(
+    trx: Knex.Transaction,
+    factory: () => Promise<void>,
+  ): void {
+    const promise = (trx as { executionPromise?: Promise<unknown> })
+      .executionPromise;
+
+    if (promise) {
+      promise.then(() => factory()).catch((error) => {
+        this.logger.warn(
+          `Push pós-commit ignorado por falha na transação: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+      return;
+    }
+
+    setImmediate(() => {
+      factory().catch((error) => {
+        this.logger.warn(
+          `Push pós-commit (setImmediate) falhou: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    });
   }
 
   private formatarCelularE164(celular: string): string | null {
@@ -353,6 +384,18 @@ export class NotificacoesService {
         now,
       );
 
+      this.schedulePushAfterCommit(trx, () =>
+        this.pushService.sendToUser(params.uuid_usuario, {
+          title: 'Encomenda recebida',
+          body: `Sua encomenda #${params.uuid_encomenda.slice(-5)} foi recebida pela portaria.`,
+          data: {
+            tipo: TipoNotificacao.ENCOMENDA_RECEBIDA,
+            uuid_encomenda: params.uuid_encomenda,
+            deep_link: '/app/encomendas/minhas',
+          },
+        }),
+      );
+
       return;
     }
 
@@ -376,6 +419,18 @@ export class NotificacoesService {
         params.actorEmail,
         trx,
         now,
+      );
+
+      this.schedulePushAfterCommit(trx, () =>
+        this.pushService.sendToUser(params.uuid_usuario, {
+          title: 'Encomenda aguardando retirada',
+          body: `Sua encomenda #${params.uuid_encomenda.slice(-5)} está aguardando retirada na portaria.`,
+          data: {
+            tipo: TipoNotificacao.ENCOMENDA_LEMBRETE,
+            uuid_encomenda: params.uuid_encomenda,
+            deep_link: '/app/encomendas/minhas',
+          },
+        }),
       );
 
       // await this.enviarWhatsAppAguardandoRetiradaEmTrx(
@@ -467,27 +522,47 @@ export class NotificacoesService {
 
   @Cron('0 0 * * *')
   async criarLembretesDiariosPendenciasRetirada(): Promise<void> {
-    await this.knex.transaction(async (trx) => {
-      const encomendasPendentes = await trx('encomendas')
+    const encomendasPendentes = await this.knex.transaction(async (trx) => {
+      const pendentes = await trx('encomendas')
         .where({ status: EncomendaStatus.AGUARDANDO_RETIRADA })
         .whereNull('deleted_at')
-        .select('uuid', 'uuid_usuario');
+        .select<{ uuid: string; uuid_usuario: string }[]>(
+          'uuid',
+          'uuid_usuario',
+        );
 
       await this.insertManyInTrx(
-        encomendasPendentes.map(
-          (encomenda: { uuid: string; uuid_usuario: string }) => ({
-            uuid_usuario: encomenda.uuid_usuario,
-            uuid_encomenda: encomenda.uuid,
-            tipo: TipoNotificacao.ENCOMENDA_LEMBRETE,
-            titulo: 'Lembrete diário de retirada',
-            mensagem: `Sua encomenda #${encomenda.uuid.slice(-5)} está aguardando retirada. Compareça à portaria para recebimento.`,
-            canal: 'app',
-            enviado_em: new Date(),
-          }),
-        ),
+        pendentes.map((encomenda) => ({
+          uuid_usuario: encomenda.uuid_usuario,
+          uuid_encomenda: encomenda.uuid,
+          tipo: TipoNotificacao.ENCOMENDA_LEMBRETE,
+          titulo: 'Lembrete diário de retirada',
+          mensagem: `Sua encomenda #${encomenda.uuid.slice(-5)} está aguardando retirada. Compareça à portaria para recebimento.`,
+          canal: 'app',
+          enviado_em: new Date(),
+        })),
         'system@cron',
         trx,
       );
+
+      return pendentes;
+    });
+
+    if (encomendasPendentes.length === 0) {
+      return;
+    }
+
+    const uuidsUsuarios = Array.from(
+      new Set(encomendasPendentes.map((e) => e.uuid_usuario)),
+    );
+
+    await this.pushService.sendToUsers(uuidsUsuarios, {
+      title: 'Lembrete: encomenda aguardando retirada',
+      body: 'Você possui encomenda(s) aguardando retirada na portaria. Compareça para recebimento.',
+      data: {
+        tipo: TipoNotificacao.ENCOMENDA_LEMBRETE,
+        deep_link: '/app/encomendas/minhas',
+      },
     });
   }
 
