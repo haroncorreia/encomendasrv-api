@@ -1,8 +1,9 @@
 {
-  "name": "encomendas-rv-api",
+  "name": "encomendasrv-api",
   "version": "1.0.0",
-  "description": "Encomendas RV API",
-  "author": "Haron Correia <haron@halgoritmo.com.br>",
+  "description": "API de suporte ao aplicativo de gestão de encomendas do condomínio Recanto Verde.",
+  "productName": "Encomendas RV API",
+  "author": "Halgoritmo <contato@halgoritmo.com.br>",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
