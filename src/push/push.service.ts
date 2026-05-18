@@ -64,31 +64,29 @@ export class PushService {
     const tokenStrings = tokens.map((t) => t.token);
 
     try {
-      const response = await this.firebaseApp
-        .messaging()
-        .sendEachForMulticast({
-          tokens: tokenStrings,
+      const response = await this.firebaseApp.messaging().sendEachForMulticast({
+        tokens: tokenStrings,
+        notification: {
+          title: payload.title,
+          body: payload.body,
+        },
+        data: payload.data ?? {},
+        android: {
+          priority: 'high',
           notification: {
-            title: payload.title,
-            body: payload.body,
+            channelId: 'encomendas',
+            sound: 'default',
           },
-          data: payload.data ?? {},
-          android: {
-            priority: 'high',
-            notification: {
-              channelId: 'encomendas',
+        },
+        apns: {
+          payload: {
+            aps: {
               sound: 'default',
+              badge: 1,
             },
           },
-          apns: {
-            payload: {
-              aps: {
-                sound: 'default',
-                badge: 1,
-              },
-            },
-          },
-        });
+        },
+      });
 
       this.logger.debug(
         `Push enviado: success=${response.successCount} failure=${response.failureCount} (usuarios=${uniqueUuids.length})`,
@@ -121,13 +119,11 @@ export class PushService {
 
   private async markTokensInvalid(tokens: string[]): Promise<void> {
     try {
-      await this.knex(TABLE_DEVICE_TOKENS)
-        .whereIn('token', tokens)
-        .update({
-          invalido_em: new Date(),
-          updated_at: new Date(),
-          updated_by: 'system@push',
-        });
+      await this.knex(TABLE_DEVICE_TOKENS).whereIn('token', tokens).update({
+        invalido_em: new Date(),
+        updated_at: new Date(),
+        updated_by: 'system@push',
+      });
       this.logger.debug(`${tokens.length} token(s) marcados como inválidos.`);
     } catch (error) {
       this.logger.error(

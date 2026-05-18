@@ -25,6 +25,7 @@ import { Perfil } from '../usuarios/enums/perfil.enum';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
 import { GerarQrCodeLotesDto } from './dto/gerar-qrcode-lotes.dto';
+import { BaixaAdministrativaEncomendaDto } from './dto/baixa-administrativa-encomenda.dto';
 import { LerQrCodeEncomendaDto } from './dto/ler-qrcode-encomenda.dto';
 import { PaginationEncomendasDto } from './dto/pagination-encomendas.dto';
 import { UpdateEncomendaStatusDto } from './dto/update-encomenda-status.dto';
@@ -1264,14 +1265,6 @@ export class EncomendasService {
     const encomenda = await this.findActiveByUuid(uuid, trx);
     const usuarioEncomenda = encomenda.uuid_usuario;
     const justificativa = dto.justificativa?.trim();
-    const requerJustificativaAdmin =
-      user.perfil === Perfil.ADMIN || user.perfil === Perfil.SUPER;
-
-    if (requerJustificativaAdmin && !justificativa) {
-      throw new BadRequestException(
-        'O campo justificativa é obrigatório para alteração de status por usuário administrativo.',
-      );
-    }
 
     if (
       dto.status !== EncomendaStatus.RETIRADA &&
@@ -1487,6 +1480,76 @@ export class EncomendasService {
       {
         uuid_encomenda: uuid,
         uuid_usuario: usuarioEncomenda,
+        status: dto.status,
+        acao: 'atualizada',
+        actorEmail: user.email,
+        actorPerfil: user.perfil,
+      },
+      trx,
+    );
+
+    return this.findActiveByUuid(uuid, trx);
+  }
+
+  async baixaAdministrativa(
+    uuid: string,
+    dto: BaixaAdministrativaEncomendaDto,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<Encomenda> {
+    const qb = trx ?? this.knex;
+    const encomenda = await this.findActiveByUuid(uuid, trx);
+    const justificativa = dto.justificativa.trim();
+    const statusOrigemPermitidos = [
+      EncomendaStatus.PREVISTA,
+      EncomendaStatus.RECEBIDA,
+      EncomendaStatus.AGUARDANDO_RETIRADA,
+    ];
+
+    if (!justificativa) {
+      throw new BadRequestException(
+        'O campo justificativa é obrigatório para baixa administrativa de encomenda.',
+      );
+    }
+
+    if (!statusOrigemPermitidos.includes(encomenda.status)) {
+      throw new BadRequestException(
+        'A baixa administrativa só pode ser aplicada para encomendas com status prevista, recebida ou aguardando retirada.',
+      );
+    }
+
+    const now = new Date();
+    const payloadAtualizacao: Partial<Encomenda> = {
+      status: dto.status,
+      justificativa_baixa_administrativa: justificativa,
+      updated_at: now,
+      updated_by: user.email,
+    };
+
+    if (dto.status === EncomendaStatus.RETIRADA) {
+      payloadAtualizacao.entregue_em = now;
+      payloadAtualizacao.entregue_por_uuid_usuario = user.sub;
+      payloadAtualizacao.entregue_para_uuid_usuario = encomenda.uuid_usuario;
+    }
+
+    await qb<Encomenda>(TABLE).where({ uuid }).update(payloadAtualizacao);
+
+    await this.registerStatusEvent(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: encomenda.uuid_usuario,
+        status: dto.status,
+        acao: 'atualizada',
+        actorEmail: user.email,
+        justificativa,
+      },
+      trx,
+    );
+
+    await this.registerStatusNotification(
+      {
+        uuid_encomenda: uuid,
+        uuid_usuario: encomenda.uuid_usuario,
         status: dto.status,
         acao: 'atualizada',
         actorEmail: user.email,

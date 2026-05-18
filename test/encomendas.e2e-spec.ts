@@ -874,16 +874,31 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(400);
   });
 
-  it('PATCH /encomendas/:id/update-status deve exigir justificativa para usuário administrativo', async () => {
+  it('PATCH /encomendas/:id/baixa-administrativa deve permitir apenas admin', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${encomendaPortariaUuid}/baixa-administrativa`)
+        .send({
+          status: 'cancelada',
+          justificativa: 'Tentativa sem permissão.',
+        }),
+    ).expect(403);
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve exigir justificativa obrigatória', async () => {
     const res = await auth(
       adminToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${encomendaPortariaUuid}/update-status`)
-        .send({ status: 'cancelada' }),
+        .patch(`${BASE_URL}/${encomendaPortariaUuid}/baixa-administrativa`)
+        .send({
+          status: 'cancelada',
+          justificativa: '   ',
+        }),
     ).expect(400);
 
     expect(res.body.message).toBe(
-      'O campo justificativa é obrigatório para alteração de status por usuário administrativo.',
+      'O campo justificativa é obrigatório para baixa administrativa de encomenda.',
     );
   });
 
@@ -1049,16 +1064,68 @@ describe('EncomendasModule (e2e)', () => {
     );
   });
 
-  it('PATCH /encomendas/:id/update-status deve permitir cancelamento para admin', async () => {
+  it('PATCH /encomendas/:id/baixa-administrativa deve rejeitar baixa quando origem não for prevista, recebida ou aguardando retirada', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${UUID_SEED_RETIRADA_MORADOR}/baixa-administrativa`)
+        .send({
+          status: 'cancelada',
+          justificativa: 'Tentativa de baixa fora do fluxo permitido.',
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'A baixa administrativa só pode ser aplicada para encomendas com status prevista, recebida ou aguardando retirada.',
+    );
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve marcar retirada automaticamente para o titular da encomenda', async () => {
+    const created = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'BaixaAutoTitular',
+          codigo_rastreamento: `BAT-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const retirada = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(
+          `${BASE_URL}/${created.body.uuid as string}/baixa-administrativa`,
+        )
+        .send({
+          status: 'retirada',
+          justificativa: 'Entrega confirmada pela administração.',
+        }),
+    ).expect(200);
+
+    expect(retirada.body.status).toBe('retirada');
+    expect(retirada.body.entregue_por_uuid_usuario).toBe(UUID_ADMIN);
+    expect(retirada.body.entregue_para_uuid_usuario).toBe(UUID_MORADOR);
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve permitir cancelamento para admin e persistir justificativa na encomenda e no evento', async () => {
     const justificativa = 'Destinatário solicitou cancelamento da encomenda.';
     const res = await auth(
       adminToken,
       request(app.getHttpServer())
-        .patch(`${BASE_URL}/${encomendaPortariaUuid}/update-status`)
+        .patch(`${BASE_URL}/${encomendaPortariaUuid}/baixa-administrativa`)
         .send({ status: 'cancelada', justificativa }),
     ).expect(200);
 
     expect(res.body.status).toBe('cancelada');
+
+    const encomenda = await knex('encomendas')
+      .where({ uuid: encomendaPortariaUuid })
+      .whereNull('deleted_at')
+      .first('uuid', 'justificativa_baixa_administrativa');
 
     const evento = await knex('encomendas_eventos')
       .where({ uuid_encomenda: encomendaPortariaUuid })
@@ -1066,6 +1133,8 @@ describe('EncomendasModule (e2e)', () => {
       .whereNull('deleted_at')
       .first('uuid', 'justificativa');
 
+    expect(encomenda).toBeTruthy();
+    expect(encomenda.justificativa_baixa_administrativa).toBe(justificativa);
     expect(evento).toBeTruthy();
     expect(evento.justificativa).toBe(justificativa);
   });

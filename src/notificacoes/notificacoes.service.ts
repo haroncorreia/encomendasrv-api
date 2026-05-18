@@ -59,13 +59,15 @@ export class NotificacoesService {
       .executionPromise;
 
     if (promise) {
-      promise.then(() => factory()).catch((error) => {
-        this.logger.warn(
-          `Push pós-commit ignorado por falha na transação: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      });
+      promise
+        .then(() => factory())
+        .catch((error) => {
+          this.logger.warn(
+            `Push pós-commit ignorado por falha na transação: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        });
       return;
     }
 
@@ -526,10 +528,9 @@ export class NotificacoesService {
       const pendentes = await trx('encomendas')
         .where({ status: EncomendaStatus.AGUARDANDO_RETIRADA })
         .whereNull('deleted_at')
-        .select<{ uuid: string; uuid_usuario: string }[]>(
-          'uuid',
-          'uuid_usuario',
-        );
+        .select<
+          { uuid: string; uuid_usuario: string }[]
+        >('uuid', 'uuid_usuario');
 
       await this.insertManyInTrx(
         pendentes.map((encomenda) => ({

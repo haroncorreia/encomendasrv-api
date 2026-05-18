@@ -23,6 +23,7 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
+import { BaixaAdministrativaEncomendaDto } from './dto/baixa-administrativa-encomenda.dto';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
 import { GerarQrCodeLotesDto } from './dto/gerar-qrcode-lotes.dto';
@@ -203,6 +204,35 @@ export class EncomendasController {
               ? ` Motivo: ${dto.justificativa.trim()}`
               : ''
           }`,
+        },
+        trx,
+      );
+
+      return encomenda;
+    });
+  }
+
+  @Patch(':id/baixa-administrativa')
+  @Roles(Perfil.ADMIN)
+  baixaAdministrativa(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @Body() dto: BaixaAdministrativaEncomendaDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const encomenda = await this.encomendasService.baixaAdministrativa(
+        id,
+        dto,
+        user,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Baixa administrativa da encomenda para status ${encomenda.status}. (uuid: ${id}) Justificativa: ${dto.justificativa.trim()}`,
         },
         trx,
       );

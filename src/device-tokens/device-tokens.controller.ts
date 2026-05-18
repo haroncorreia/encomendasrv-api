@@ -23,20 +23,14 @@ export class DeviceTokensController {
 
   @Post()
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR)
-  upsert(
-    @Body() body: UpsertDeviceTokenDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  upsert(@Body() body: UpsertDeviceTokenDto, @CurrentUser() user: JwtPayload) {
     return this.deviceTokensService.upsert(body, user);
   }
 
   @Delete(':token')
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR)
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @Param('token') token: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  remove(@Param('token') token: string, @CurrentUser() user: JwtPayload) {
     return this.deviceTokensService.removeByToken(token, user);
   }
 }

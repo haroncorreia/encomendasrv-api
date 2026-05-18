@@ -9,5 +9,7 @@ export function normalizeIp(value?: string | null): string | null {
 }
 
 export function getClientIp(req: Request): string {
-  return normalizeIp(req.ip) ?? normalizeIp(req.socket?.remoteAddress) ?? 'unknown';
+  return (
+    normalizeIp(req.ip) ?? normalizeIp(req.socket?.remoteAddress) ?? 'unknown'
+  );
 }
