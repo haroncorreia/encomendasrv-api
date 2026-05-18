@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -71,4 +72,14 @@ export class UpdateEncomendaStatusDto {
   @ValidateNested()
   @Type(() => ImagemMetadadosDto)
   imagem_dano?: ImagemMetadadosDto;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({
+    message: 'O campo justificativa não pode estar vazio quando informado.',
+  })
+  @MaxLength(180, {
+    message: 'O campo justificativa deve ter no máximo 180 caracteres.',
+  })
+  justificativa?: string;
 }

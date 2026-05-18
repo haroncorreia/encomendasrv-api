@@ -241,7 +241,10 @@ describe('EncomendasModule (e2e)', () => {
       adminToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${shpResp.body.uuid as string}/update-status`)
-        .send({ status: 'cancelada' }),
+        .send({
+          status: 'cancelada',
+          justificativa: 'Pacote avariado na triagem inicial.',
+        }),
     ).expect(200);
     UUID_SEED_CANCELADA_SHP321 = shpResp.body.uuid as string;
   });
@@ -871,6 +874,19 @@ describe('EncomendasModule (e2e)', () => {
     ).expect(400);
   });
 
+  it('PATCH /encomendas/:id/update-status deve exigir justificativa para usuário administrativo', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${encomendaPortariaUuid}/update-status`)
+        .send({ status: 'cancelada' }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo justificativa é obrigatório para alteração de status por usuário administrativo.',
+    );
+  });
+
   it('PATCH /encomendas/:id/update-status deve aceitar recebido_por_uuid_usuario informado por portaria', async () => {
     const res = await auth(
       portariaToken,
@@ -924,7 +940,10 @@ describe('EncomendasModule (e2e)', () => {
       adminToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaAdminUuid}/update-status`)
-        .send({ status: 'recebida' }),
+        .send({
+          status: 'recebida',
+          justificativa: 'Correção operacional após conferência.',
+        }),
     ).expect(400);
   });
 
@@ -1031,14 +1050,24 @@ describe('EncomendasModule (e2e)', () => {
   });
 
   it('PATCH /encomendas/:id/update-status deve permitir cancelamento para admin', async () => {
+    const justificativa = 'Destinatário solicitou cancelamento da encomenda.';
     const res = await auth(
       adminToken,
       request(app.getHttpServer())
         .patch(`${BASE_URL}/${encomendaPortariaUuid}/update-status`)
-        .send({ status: 'cancelada' }),
+        .send({ status: 'cancelada', justificativa }),
     ).expect(200);
 
     expect(res.body.status).toBe('cancelada');
+
+    const evento = await knex('encomendas_eventos')
+      .where({ uuid_encomenda: encomendaPortariaUuid })
+      .where('evento', 'like', '%status cancelada%')
+      .whereNull('deleted_at')
+      .first('uuid', 'justificativa');
+
+    expect(evento).toBeTruthy();
+    expect(evento.justificativa).toBe(justificativa);
   });
 
   it('DELETE /encomendas/:id deve validar UUID do parâmetro', async () => {

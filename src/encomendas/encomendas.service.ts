@@ -193,6 +193,7 @@ export class EncomendasService {
       acao: 'criada' | 'atualizada';
       actorEmail: string;
       dataRegistro?: Date;
+      justificativa?: string;
     },
     trx?: Knex.Transaction,
   ): Promise<void> {
@@ -207,6 +208,7 @@ export class EncomendasService {
         evento: `Encomenda ${params.acao} com status ${params.status}.`,
         actorEmail: params.actorEmail,
         dataRegistro: params.dataRegistro,
+        justificativa: params.justificativa,
       },
       trx,
     );
@@ -1261,6 +1263,15 @@ export class EncomendasService {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
     const usuarioEncomenda = encomenda.uuid_usuario;
+    const justificativa = dto.justificativa?.trim();
+    const requerJustificativaAdmin =
+      user.perfil === Perfil.ADMIN || user.perfil === Perfil.SUPER;
+
+    if (requerJustificativaAdmin && !justificativa) {
+      throw new BadRequestException(
+        'O campo justificativa é obrigatório para alteração de status por usuário administrativo.',
+      );
+    }
 
     if (
       dto.status !== EncomendaStatus.RETIRADA &&
@@ -1338,6 +1349,7 @@ export class EncomendasService {
           status: EncomendaStatus.RECEBIDA,
           acao: 'atualizada',
           actorEmail: user.email,
+          justificativa,
         },
         trx,
       );
@@ -1370,6 +1382,7 @@ export class EncomendasService {
           acao: 'atualizada',
           actorEmail: user.email,
           dataRegistro: dataRegistroAguardandoRetirada,
+          justificativa,
         },
         trx,
       );
@@ -1465,6 +1478,7 @@ export class EncomendasService {
         status: dto.status,
         acao: 'atualizada',
         actorEmail: user.email,
+        justificativa,
       },
       trx,
     );

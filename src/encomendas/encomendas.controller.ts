@@ -198,7 +198,11 @@ export class EncomendasController {
         {
           ctx,
           user_mail: user.email,
-          description: `Status da encomenda atualizado para ${encomenda.status}. (uuid: ${id})`,
+          description: `Status da encomenda atualizado para ${encomenda.status}. (uuid: ${id})${
+            dto.justificativa?.trim()
+              ? ` Motivo: ${dto.justificativa.trim()}`
+              : ''
+          }`,
         },
         trx,
       );

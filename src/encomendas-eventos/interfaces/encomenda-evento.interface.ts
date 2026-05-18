@@ -3,6 +3,7 @@ export interface EncomendaEvento {
   uuid_encomenda: string;
   uuid_usuario: string;
   evento: string;
+  justificativa: string | null;
   created_at: Date;
   created_by: string;
   updated_at: Date;

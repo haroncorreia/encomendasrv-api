@@ -117,6 +117,7 @@ export class EncomendasEventosService {
       evento: string;
       actorEmail: string;
       dataRegistro?: Date;
+      justificativa?: string;
     },
     trx: Knex.Transaction,
   ): Promise<EncomendaEvento> {
@@ -128,6 +129,7 @@ export class EncomendasEventosService {
       uuid_encomenda: params.uuid_encomenda,
       uuid_usuario: params.uuid_usuario,
       evento: params.evento,
+      justificativa: params.justificativa?.trim() || null,
       created_at: dataRegistro,
       created_by: params.actorEmail,
       updated_at: dataRegistro,

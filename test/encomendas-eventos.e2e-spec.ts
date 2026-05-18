@@ -476,7 +476,10 @@ describe('EncomendasEventosModule (e2e)', () => {
       adminToken,
       request(app.getHttpServer())
         .patch(`${ENCOMENDAS_BASE}/${createdAdmin.body.uuid}/update-status`)
-        .send({ status: 'aguardando retirada' }),
+        .send({
+          status: 'aguardando retirada',
+          justificativa: 'Ajuste administrativo de conferência.',
+        }),
     ).expect(200);
 
     const eventoAguardando = await knex('encomendas_eventos')
@@ -509,15 +512,21 @@ describe('EncomendasEventosModule (e2e)', () => {
       adminToken,
       request(app.getHttpServer())
         .patch(`${ENCOMENDAS_BASE}/${createdAdmin.body.uuid}/update-status`)
-        .send({ status: 'cancelada' }),
+        .send({
+          status: 'cancelada',
+          justificativa: 'Cancelamento solicitado pelo destinatário.',
+        }),
     ).expect(200);
 
     const eventoCancelada = await knex('encomendas_eventos')
       .where({ uuid_encomenda: createdAdmin.body.uuid })
       .where('evento', 'like', '%status cancelada%')
       .whereNull('deleted_at')
-      .first('uuid');
+      .first('uuid', 'justificativa');
 
     expect(eventoCancelada).toBeTruthy();
+    expect(eventoCancelada.justificativa).toBe(
+      'Cancelamento solicitado pelo destinatário.',
+    );
   });
 });
