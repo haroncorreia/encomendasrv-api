@@ -116,8 +116,7 @@ export class EncomendasService {
     }
 
     if (data.tipo === 'retirada_lote') {
-      const uuids = (data as Partial<QrCodeEncomendaLotePayload>)
-        .uuids_encomendas;
+      const uuids = data.uuids_encomendas;
 
       if (
         !uuids ||

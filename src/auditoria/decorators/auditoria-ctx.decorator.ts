@@ -16,9 +16,9 @@ export const AuditoriaCtx = createParamDecorator(
       user_ip: getClientIp(req),
       method: req.method,
       route: req.path,
-      params: req.params as Record<string, unknown>,
+      params: req.params,
       body: req.body as Record<string, unknown>,
-      query: req.query as Record<string, unknown>,
+      query: req.query,
     };
   },
 );

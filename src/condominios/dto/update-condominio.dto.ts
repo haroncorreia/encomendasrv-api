@@ -71,7 +71,7 @@ export class UpdateCondominioDto {
   @Matches(/^[A-Za-z]{2}$/, {
     message: 'A UF deve conter exatamente 2 letras.',
   })
-  @IsIn(UFS_BRASIL as unknown as string[], {
+  @IsIn(UFS_BRASIL, {
     message: 'A UF deve ser uma unidade federativa válida do Brasil.',
   })
   uf?: string;
