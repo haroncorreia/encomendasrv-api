@@ -11,10 +11,10 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/encomendas-eventos';
 const ENCOMENDAS_BASE = '/encomendas';
-const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
-const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
-const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
-const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@cfrecantoverde.com.br';
+const SEEDED_MORADOR_EMAIL = 'pedro@cfrecantoverde.com.br';
 
 let UUID_ADMIN: string;
 let UUID_PORTARIA: string;

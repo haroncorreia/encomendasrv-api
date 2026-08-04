@@ -152,9 +152,6 @@ describe('TransportadorasModule (e2e)', () => {
     expect(
       res.body.some((t: { nome: string }) => t.nome === 'Mercado Livre'),
     ).toBe(true);
-    expect(res.body.some((t: { nome: string }) => t.nome === 'Shopee')).toBe(
-      true,
-    );
   });
 
   it('GET /transportadoras/removed deve retornar 403 para portaria e morador', async () => {

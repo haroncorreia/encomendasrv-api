@@ -13,10 +13,10 @@ import { NotificacoesService } from '../src/notificacoes/notificacoes.service';
 const BASE_URL = '/notificacoes';
 const ENCOMENDAS_BASE = '/encomendas';
 
-const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
-const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
-const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
-const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@cfrecantoverde.com.br';
+const SEEDED_MORADOR_EMAIL = 'pedro@cfrecantoverde.com.br';
 
 let UUID_ADMIN: string;
 let UUID_PORTARIA: string;
@@ -594,7 +594,7 @@ describe('NotificacoesModule (e2e)', () => {
       .first('deleted_at', 'deleted_by');
 
     expect(deleted?.deleted_at).toBeTruthy();
-    expect(deleted?.deleted_by).toBe('morador1@recantoverdeac.com.br');
+    expect(deleted?.deleted_by).toBe('pedro@cfrecantoverde.com.br');
   });
 
   it('DELETE /notificacoes/:id/hard deve validar UUID e permitir apenas super', async () => {
@@ -674,7 +674,7 @@ describe('NotificacoesModule (e2e)', () => {
       portariaToken,
       request(app.getHttpServer())
         .patch(`${ENCOMENDAS_BASE}/${UUID_ENCOMENDA_MORADOR}/update-status`)
-        .send({ status: 'retirada' }),
+        .send({ status: 'retirada', entregue_para_uuid_usuario: UUID_MORADOR }),
     ).expect(200);
 
     const notifRetirada = await knex('notificacoes')
@@ -785,7 +785,7 @@ describe('NotificacoesModule (e2e)', () => {
       .first('deleted_at', 'deleted_by');
 
     expect(deleted?.deleted_at).toBeTruthy();
-    expect(deleted?.deleted_by).toBe('haron@halgoritmo.com.br');
+    expect(deleted?.deleted_by).toBe('admin@cfrecantoverde.com.br');
   });
 
   it('Rotas GET devem respeitar regra de visibilidade por perfil em registros vinculados ao uuid_usuario', async () => {

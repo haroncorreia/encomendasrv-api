@@ -93,7 +93,7 @@ describe('UnidadesModule (e2e)', () => {
       await request(app.getHttpServer())
         .post(`${AUTH_BASE}/sign-in`)
         .send({
-          usuario: 'morador1@recantoverdeac.com.br',
+          usuario: 'pedro@cfrecantoverde.com.br',
           senha: 'Senha@123',
         })
         .expect(200)
@@ -133,7 +133,7 @@ describe('UnidadesModule (e2e)', () => {
     UUID_SEED_UNIDADE_2 = unidade4.uuid as string;
 
     const moradorSeed = await knex('usuarios')
-      .where({ email: 'morador1@recantoverdeac.com.br' })
+      .where({ email: 'pedro@cfrecantoverde.com.br' })
       .first('uuid_unidade');
     if (!moradorSeed?.uuid_unidade) {
       throw new Error('Morador seed sem uuid_unidade para testes e2e');

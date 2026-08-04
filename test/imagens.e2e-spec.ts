@@ -12,10 +12,10 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 
 const BASE_URL = '/imagens';
 const ENCOMENDAS_URL = '/encomendas';
-const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
-const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
-const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
-const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
+const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@cfrecantoverde.com.br';
+const SEEDED_MORADOR_EMAIL = 'pedro@cfrecantoverde.com.br';
 
 let UUID_PORTARIA: string;
 let UUID_MORADOR: string;
@@ -698,6 +698,7 @@ describe('ImagensModule (e2e)', () => {
         .patch(`${ENCOMENDAS_URL}/${encomendaComImagemUuid}/update-status`)
         .send({
           status: 'retirada',
+          entregue_para_uuid_usuario: UUID_MORADOR,
           ...buildImagemPayload(),
         }),
     ).expect(200);

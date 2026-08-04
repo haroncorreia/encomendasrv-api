@@ -10,6 +10,7 @@ const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
 
 const SEED_UNIDADE = '0303';
+const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 
 describe('UsuariosRevogarModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -194,9 +195,9 @@ describe('UsuariosRevogarModule (e2e)', () => {
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Revoke Admin Alvo',
-        email: 'revoke.admin.alvo@teste.com',
-        celular: '11730000011',
-        cpf_cnpj: '11730000011',
+        email: `revoke.admin.alvo.${RUN_ID}@teste.com`,
+        celular: `99${RUN_ID}1`,
+        cpf_cnpj: `99${RUN_ID}1`,
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE,

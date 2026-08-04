@@ -11,11 +11,11 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
 const SEED_UNIDADE = '0303';
-const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
-const SEEDED_ADMIN_EMAIL = 'admin@recantoverdeac.com.br';
-const SEEDED_PORTARIA_EMAIL = 'portaria@recantoverdeac.com.br';
-const SEEDED_MORADOR_EMAIL = 'morador1@recantoverdeac.com.br';
-const SEEDED_MORADOR_2_EMAIL = 'morador2@recantoverdeac.com.br';
+const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_ADMIN_EMAIL = 'admin@cfrecantoverde.com.br';
+const SEEDED_PORTARIA_EMAIL = 'portaria@cfrecantoverde.com.br';
+const SEEDED_MORADOR_EMAIL = 'pedro@cfrecantoverde.com.br';
+const SEEDED_MORADOR_2_EMAIL = 'maria@cfrecantoverde.com.br';
 
 describe('UsuariosModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -800,6 +800,10 @@ describe('UsuariosModule (e2e)', () => {
 
     expect(res.body.uuid).toBe(roleMoradorTargetUuid);
     expect(res.body.perfil).toBe('portaria');
+
+    await knex('usuarios')
+      .where({ uuid: roleMoradorTargetUuid })
+      .update({ perfil: 'morador' });
   });
 
   it('PATCH /usuarios/:id/update-role deve retornar 403 para portaria', async () => {

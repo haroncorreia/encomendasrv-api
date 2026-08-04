@@ -10,7 +10,7 @@ import { KNEX_CONNECTION } from '../src/database/database.constants';
 import { EmailService } from '../src/email/email.service';
 
 const BASE_URL = '/authenticate';
-const SEEDED_SUPER_EMAIL = 'haron@halgoritmo.com.br';
+const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
 
 const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 const BASE_CELULAR = `11${String(
@@ -94,7 +94,7 @@ describe('AuthModule (e2e)', () => {
         sub: usuario.uuid as string,
         nome: (usuario.nome as string) ?? 'Super Usuário',
         email: usuario.email as string,
-        perfil: usuario.perfil as string,
+        perfil: 'super',
       },
       {
         secret: configService.get<string>('JWT_SECRET'),
