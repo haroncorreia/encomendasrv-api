@@ -1596,6 +1596,35 @@ export class EncomendasService {
     const encomenda = await this.findActiveByUuid(uuid, trx);
     this.assertWriteAccess(encomenda, user);
 
+    if (user.perfil === Perfil.PORTARIA) {
+      if (
+        encomenda.recebido_por_uuid_usuario !== user.sub &&
+        encomenda.created_by !== user.email
+      ) {
+        throw new ForbiddenException(
+          'Você só pode excluir encomendas que foram registradas por você.',
+        );
+      }
+
+      if (
+        encomenda.status === EncomendaStatus.RETIRADA ||
+        encomenda.entregue_em
+      ) {
+        throw new BadRequestException(
+          'Esta encomenda já foi retirada por um morador e não pode ser excluída.',
+        );
+      }
+
+      if (
+        encomenda.justificativa_baixa_administrativa &&
+        encomenda.justificativa_baixa_administrativa.trim().length > 0
+      ) {
+        throw new BadRequestException(
+          'Esta encomenda sofreu baixa administrativa e não pode ser excluída.',
+        );
+      }
+    }
+
     await qb<Encomenda>(TABLE).where({ uuid }).update({
       deleted_at: new Date(),
       deleted_by: user.email,
