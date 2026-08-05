@@ -975,7 +975,7 @@ export class EncomendasService {
     let uuidUsuarioEncomenda = actor.uuid;
     let uuidUnidadeEncomenda = actor.uuid_unidade;
     const restricaoRetirada =
-      dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL;
+      dto.restricao_retirada ?? EncomendaRestricaoRetirada.UNIDADE;
 
     if (actor.perfil === Perfil.MORADOR) {
       if (!dto.palavra_chave || dto.palavra_chave.trim().length === 0) {
@@ -1239,7 +1239,7 @@ export class EncomendasService {
         }),
         ...(dto.restricao_retirada !== undefined && {
           restricao_retirada:
-            dto.restricao_retirada ?? EncomendaRestricaoRetirada.PESSOAL,
+            dto.restricao_retirada ?? EncomendaRestricaoRetirada.UNIDADE,
         }),
         ...(dto.entregador_externo_nome !== undefined && {
           entregador_externo_nome: dto.entregador_externo_nome,
