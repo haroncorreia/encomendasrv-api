@@ -171,7 +171,13 @@ describe('UsuariosModule (e2e)', () => {
       .expect(201);
 
     selfDeleteMoradorUuid = selfDeleteMoradorRes.body.usuario.uuid as string;
-    selfDeleteMoradorToken = selfDeleteMoradorRes.body.access_token as string;
+    // O sign-up não emite mais token; forja-se o token do morador criado.
+    selfDeleteMoradorToken = buildToken(
+      selfDeleteMoradorUuid,
+      selfDeleteMoradorRes.body.usuario.nome as string,
+      selfDeleteMoradorRes.body.usuario.email as string,
+      'morador',
+    );
 
     const roleSuperTargetRes = await auth(
       superToken,

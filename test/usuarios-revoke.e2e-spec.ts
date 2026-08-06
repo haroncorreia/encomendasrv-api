@@ -1,10 +1,18 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiado,
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
@@ -39,10 +47,22 @@ describe('UsuariosRevogarModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    // Usuários privilegiados criados pelo caminho administrativo (auto-aprovados).
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Revoke Super',
         email: 'revoke.super@teste.com',
         celular: '11730000001',
@@ -50,13 +70,16 @@ describe('UsuariosRevogarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    superToken = superRes.body.access_token as string;
+      },
+    );
+    superToken = superFix.token;
 
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Revoke Admin',
         email: 'revoke.admin@teste.com',
         celular: '11730000002',
@@ -64,14 +87,17 @@ describe('UsuariosRevogarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    adminToken = adminRes.body.access_token as string;
-    adminUuid = adminRes.body.usuario.uuid as string;
+      },
+    );
+    adminToken = adminFix.token;
+    adminUuid = adminFix.usuario.uuid;
 
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Revoke Portaria',
         email: 'revoke.portaria@teste.com',
         celular: '11730000003',
@@ -79,9 +105,9 @@ describe('UsuariosRevogarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    portariaToken = portariaRes.body.access_token as string;
+      },
+    );
+    portariaToken = portariaFix.token;
 
     const moradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
@@ -94,23 +120,25 @@ describe('UsuariosRevogarModule (e2e)', () => {
         unidade: SEED_UNIDADE,
       })
       .expect(201);
-    moradorToken = moradorRes.body.access_token as string;
     moradorUuid = moradorRes.body.usuario.uuid as string;
+    moradorToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorUuid,
+      nome: 'Revoke Morador',
+      email: 'revoke.morador@teste.com',
+      perfil: 'morador',
+    });
 
     // Outro super para testar que super não pode revogar super
-    const superAlvoRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Revoke Super Alvo',
-        email: 'revoke.super.alvo@teste.com',
-        celular: '11730000005',
-        cpf_cnpj: '11730000005',
-        senha: 'Senha@123',
-        perfil: 'super',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    superAlvoUuid = superAlvoRes.body.usuario.uuid as string;
+    const superAlvo = await criarUsuarioPrivilegiado(app, bootstrapSuperToken, {
+      nome: 'Revoke Super Alvo',
+      email: 'revoke.super.alvo@teste.com',
+      celular: '11730000005',
+      cpf_cnpj: '11730000005',
+      senha: 'Senha@123',
+      perfil: 'super',
+      unidade: SEED_UNIDADE,
+    });
+    superAlvoUuid = superAlvo.uuid;
 
     // Pré-aprovar o morador para testes de revogação
     await request(app.getHttpServer())
@@ -191,20 +219,17 @@ describe('UsuariosRevogarModule (e2e)', () => {
   });
 
   it('PATCH /usuarios/:id/revoke-user deve retornar 403 para admin ao tentar revogar outro admin', async () => {
-    const outroAdminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Revoke Admin Alvo',
-        email: `revoke.admin.alvo.${RUN_ID}@teste.com`,
-        celular: `99${RUN_ID}1`,
-        cpf_cnpj: `99${RUN_ID}1`,
-        senha: 'Senha@123',
-        perfil: 'admin',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const outroAdmin = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Revoke Admin Alvo',
+      email: `revoke.admin.alvo.${RUN_ID}@teste.com`,
+      celular: `99${RUN_ID}1`,
+      cpf_cnpj: `99${RUN_ID}1`,
+      senha: 'Senha@123',
+      perfil: 'admin',
+      unidade: SEED_UNIDADE,
+    });
 
-    const outroAdminUuid = outroAdminRes.body.usuario.uuid as string;
+    const outroAdminUuid = outroAdmin.uuid;
 
     await auth(
       adminToken,
@@ -291,20 +316,17 @@ describe('UsuariosRevogarModule (e2e)', () => {
   });
 
   it('PATCH /usuarios/:id/revoke-user deve retornar 200 e super pode revogar admin', async () => {
-    const novoAdminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Admin Para Revogar',
-        email: 'revoke.admin.para.revogar@teste.com',
-        celular: '11730000007',
-        cpf_cnpj: '11730000007',
-        senha: 'Senha@123',
-        perfil: 'admin',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const novoAdmin = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Admin Para Revogar',
+      email: 'revoke.admin.para.revogar@teste.com',
+      celular: '11730000007',
+      cpf_cnpj: '11730000007',
+      senha: 'Senha@123',
+      perfil: 'admin',
+      unidade: SEED_UNIDADE,
+    });
 
-    const alvoUuid = novoAdminRes.body.usuario.uuid as string;
+    const alvoUuid = novoAdmin.uuid;
 
     const res = await auth(
       superToken,

@@ -1,10 +1,18 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiado,
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
@@ -36,10 +44,23 @@ describe('UsuariosAprovarModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    // Usuários privilegiados são criados pelo caminho administrativo real
+    // (auto-aprovados), pois o auto-cadastro não define mais perfil.
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Aprove Super',
         email: 'aprove.super@teste.com',
         celular: '11720000001',
@@ -47,13 +68,16 @@ describe('UsuariosAprovarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    superToken = superRes.body.access_token as string;
+      },
+    );
+    superToken = superFix.token;
 
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Aprove Admin',
         email: 'aprove.admin@teste.com',
         celular: '11720000002',
@@ -61,13 +85,16 @@ describe('UsuariosAprovarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    adminToken = adminRes.body.access_token as string;
+      },
+    );
+    adminToken = adminFix.token;
 
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Aprove Portaria',
         email: 'aprove.portaria@teste.com',
         celular: '11720000003',
@@ -75,10 +102,12 @@ describe('UsuariosAprovarModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    portariaToken = portariaRes.body.access_token as string;
+      },
+    );
+    portariaToken = portariaFix.token;
 
+    // O morador permanece pendente de aprovação (é o alvo dos testes); o
+    // sign-up não emite token, então ele é forjado.
     const moradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
@@ -90,8 +119,13 @@ describe('UsuariosAprovarModule (e2e)', () => {
         unidade: SEED_UNIDADE,
       })
       .expect(201);
-    moradorToken = moradorRes.body.access_token as string;
     moradorUuid = moradorRes.body.usuario.uuid as string;
+    moradorToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorUuid,
+      nome: 'Aprove Morador',
+      email: 'aprove.morador@teste.com',
+      perfil: 'morador',
+    });
   });
 
   afterAll(async () => {
@@ -157,20 +191,17 @@ describe('UsuariosAprovarModule (e2e)', () => {
   // ---------------------------------------------------------------------------
 
   it('PATCH /usuarios/:id/aprove-user deve retornar 403 ao tentar aprovar usuário super', async () => {
-    const superAlvoRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Aprove Super Alvo',
-        email: 'aprove.super.alvo@teste.com',
-        celular: '11720000011',
-        cpf_cnpj: '11720000011',
-        senha: 'Senha@123',
-        perfil: 'super',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const superAlvo = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Aprove Super Alvo',
+      email: 'aprove.super.alvo@teste.com',
+      celular: '11720000011',
+      cpf_cnpj: '11720000011',
+      senha: 'Senha@123',
+      perfil: 'super',
+      unidade: SEED_UNIDADE,
+    });
 
-    const superAlvoUuid = superAlvoRes.body.usuario.uuid as string;
+    const superAlvoUuid = superAlvo.uuid;
 
     await auth(
       superToken,
@@ -181,20 +212,17 @@ describe('UsuariosAprovarModule (e2e)', () => {
   });
 
   it('PATCH /usuarios/:id/aprove-user deve retornar 403 para admin ao tentar aprovar outro admin', async () => {
-    const adminAlvoRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Aprove Admin Alvo',
-        email: 'aprove.admin.alvo@teste.com',
-        celular: '11720000012',
-        cpf_cnpj: '11720000012',
-        senha: 'Senha@123',
-        perfil: 'admin',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const adminAlvo = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Aprove Admin Alvo',
+      email: 'aprove.admin.alvo@teste.com',
+      celular: '11720000012',
+      cpf_cnpj: '11720000012',
+      senha: 'Senha@123',
+      perfil: 'admin',
+      unidade: SEED_UNIDADE,
+    });
 
-    const adminAlvoUuid = adminAlvoRes.body.usuario.uuid as string;
+    const adminAlvoUuid = adminAlvo.uuid;
 
     await auth(
       adminToken,
@@ -271,20 +299,17 @@ describe('UsuariosAprovarModule (e2e)', () => {
   });
 
   it('PATCH /usuarios/:id/aprove-user deve retornar 200 e super pode aprovar portaria', async () => {
-    const portariaAlvoRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
-        nome: 'Portaria Para Aprovar',
-        email: 'aprove.portaria.para.aprovar@teste.com',
-        celular: '11720000013',
-        cpf_cnpj: '11720000013',
-        senha: 'Senha@123',
-        perfil: 'portaria',
-        unidade: SEED_UNIDADE,
-      })
-      .expect(201);
+    const portariaAlvo = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Portaria Para Aprovar',
+      email: 'aprove.portaria.para.aprovar@teste.com',
+      celular: '11720000013',
+      cpf_cnpj: '11720000013',
+      senha: 'Senha@123',
+      perfil: 'portaria',
+      unidade: SEED_UNIDADE,
+    });
 
-    const alvoUuid = portariaAlvoRes.body.usuario.uuid as string;
+    const alvoUuid = portariaAlvo.uuid;
 
     const res = await auth(
       superToken,

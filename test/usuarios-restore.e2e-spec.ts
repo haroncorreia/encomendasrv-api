@@ -1,10 +1,16 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/usuarios';
 const AUTH_BASE = '/authenticate';
@@ -61,10 +67,22 @@ describe('UsuariosRestoreModule (e2e)', () => {
 
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    // Usuários privilegiados criados pelo caminho administrativo (auto-aprovados).
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Restore Super',
         email: uniqueEmail('super'),
         celular: nextCelular(),
@@ -72,13 +90,16 @@ describe('UsuariosRestoreModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    superToken = superRes.body.access_token as string;
+      },
+    );
+    superToken = superFix.token;
 
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Restore Admin',
         email: uniqueEmail('admin'),
         celular: nextCelular(),
@@ -86,13 +107,16 @@ describe('UsuariosRestoreModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    adminToken = adminRes.body.access_token as string;
+      },
+    );
+    adminToken = adminFix.token;
 
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Restore Portaria',
         email: uniqueEmail('portaria'),
         celular: nextCelular(),
@@ -100,9 +124,9 @@ describe('UsuariosRestoreModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE,
-      })
-      .expect(201);
-    portariaToken = portariaRes.body.access_token as string;
+      },
+    );
+    portariaToken = portariaFix.token;
 
     const moradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)

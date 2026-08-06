@@ -213,7 +213,10 @@ export class UsuariosService {
   }
 
   async create(
-    dto: Omit<CreateUsuarioDto, 'unidade'> & { unidade?: string },
+    dto: Omit<CreateUsuarioDto, 'unidade'> & {
+      unidade?: string;
+      perfil?: Perfil;
+    },
     criadoPor?: string,
     trx?: Knex.Transaction,
     aprovadoPorUuid?: string,
@@ -271,7 +274,11 @@ export class UsuariosService {
       uuid_unidade = unidadeRow.uuid;
     }
 
-    const perfil = dto.perfil ?? 'morador';
+    // Auto-cadastro público (origem 'SignUp') nunca pode definir o próprio
+    // perfil: é sempre 'morador'. Somente o caminho administrativo pode
+    // informar perfil elevado (via CreateFuncionarioDto).
+    const isSignUp = criadoPor === 'SignUp';
+    const perfil = isSignUp ? Perfil.MORADOR : (dto.perfil ?? Perfil.MORADOR);
     const isAutoAprovado = perfil !== Perfil.MORADOR;
 
     const uuid = randomUUID();

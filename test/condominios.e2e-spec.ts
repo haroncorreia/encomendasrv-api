@@ -1,10 +1,17 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/condominios';
 const AUTH_BASE = '/authenticate';
@@ -44,9 +51,20 @@ describe('CondominiosModule (e2e)', () => {
 
     condominioSeedUuid = condominioSeed.uuid as string;
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Condominio Super',
         email: `condominio.super.${RUN_ID}@teste.com`,
         celular: `1177${RUN_ID.slice(0, 7)}`,
@@ -54,15 +72,17 @@ describe('CondominiosModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    superToken = superFix.token;
+    superEmail = superFix.usuario.email;
 
-    superToken = superRes.body.access_token as string;
-    superEmail = superRes.body.usuario.email as string;
-
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Condominio Admin',
         email: `condominio.admin.${RUN_ID}@teste.com`,
         celular: `1178${RUN_ID.slice(0, 7)}`,
@@ -70,15 +90,17 @@ describe('CondominiosModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    adminToken = adminFix.token;
+    adminEmail = adminFix.usuario.email;
 
-    adminToken = adminRes.body.access_token as string;
-    adminEmail = adminRes.body.usuario.email as string;
-
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Condominio Portaria',
         email: `condominio.portaria.${RUN_ID}@teste.com`,
         celular: `1179${RUN_ID.slice(0, 7)}`,
@@ -86,16 +108,16 @@ describe('CondominiosModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    portariaToken = portariaFix.token;
 
-    portariaToken = portariaRes.body.access_token as string;
-
+    const moradorEmail = `condominio.morador.${RUN_ID}@teste.com`;
     const moradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Condominio Morador',
-        email: `condominio.morador.${RUN_ID}@teste.com`,
+        email: moradorEmail,
         celular: `1166${RUN_ID.slice(0, 7)}`,
         cpf_cnpj: `2266${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
@@ -103,7 +125,12 @@ describe('CondominiosModule (e2e)', () => {
       })
       .expect(201);
 
-    moradorToken = moradorRes.body.access_token as string;
+    moradorToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorRes.body.usuario.uuid as string,
+      nome: 'Condominio Morador',
+      email: moradorEmail,
+      perfil: 'morador',
+    });
   });
 
   afterAll(async () => {

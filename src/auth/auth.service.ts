@@ -34,6 +34,16 @@ export interface AuthResponse extends AuthTokens {
   usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>;
 }
 
+/**
+ * Resposta do auto-cadastro público. Não contém tokens de sessão: a conta
+ * criada é sempre um `morador` não aprovado e só obtém acesso após aprovação
+ * administrativa seguida de `signIn`.
+ */
+export interface SignUpResponse {
+  usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>;
+  message: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -158,7 +168,7 @@ export class AuthService {
   async signUp(
     dto: CreateUsuarioDto,
     ctx: AuditoriaContext,
-  ): Promise<AuthResponse> {
+  ): Promise<SignUpResponse> {
     return this.knex.transaction(async (trx) => {
       const usuario = await this.usuariosService.create(dto, 'SignUp', trx);
 
@@ -182,7 +192,14 @@ export class AuthService {
         trx,
       );
 
-      return this.buildAuthResponse(usuario);
+      // O auto-cadastro não emite tokens de sessão: a conta nasce como
+      // `morador` não aprovado e só obtém acesso após aprovação + signIn.
+      const { uuid, nome, email, perfil } = usuario;
+      return {
+        usuario: { uuid, nome, email, perfil },
+        message:
+          'Cadastro realizado com sucesso. Aguarde a aprovação do seu acesso.',
+      };
     });
   }
 

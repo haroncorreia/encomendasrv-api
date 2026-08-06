@@ -1,10 +1,17 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/transportadoras';
 const AUTH_BASE = '/authenticate';
@@ -46,9 +53,20 @@ describe('TransportadorasModule (e2e)', () => {
 
     seedTransportadoraUuid = seed.uuid as string;
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Transportadora Super',
         email: `transportadora.super.${RUN_ID}@teste.com`,
         cpf_cnpj: `11${RUN_ID}1`,
@@ -56,15 +74,17 @@ describe('TransportadorasModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    superToken = superFix.token;
+    superEmail = superFix.usuario.email;
 
-    superToken = superRes.body.access_token as string;
-    superEmail = superRes.body.usuario.email as string;
-
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Transportadora Admin',
         email: `transportadora.admin.${RUN_ID}@teste.com`,
         cpf_cnpj: `22${RUN_ID}2`,
@@ -72,15 +92,17 @@ describe('TransportadorasModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    adminToken = adminFix.token;
+    adminEmail = adminFix.usuario.email;
 
-    adminToken = adminRes.body.access_token as string;
-    adminEmail = adminRes.body.usuario.email as string;
-
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Transportadora Portaria',
         email: `transportadora.portaria.${RUN_ID}@teste.com`,
         cpf_cnpj: `33${RUN_ID}3`,
@@ -88,16 +110,16 @@ describe('TransportadorasModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: '0303',
-      })
-      .expect(201);
+      },
+    );
+    portariaToken = portariaFix.token;
 
-    portariaToken = portariaRes.body.access_token as string;
-
+    const moradorEmail = `transportadora.morador.${RUN_ID}@teste.com`;
     const moradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Transportadora Morador',
-        email: `transportadora.morador.${RUN_ID}@teste.com`,
+        email: moradorEmail,
         cpf_cnpj: `44${RUN_ID}4`,
         celular: `1196${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
@@ -105,7 +127,12 @@ describe('TransportadorasModule (e2e)', () => {
       })
       .expect(201);
 
-    moradorToken = moradorRes.body.access_token as string;
+    moradorToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorRes.body.usuario.uuid as string,
+      nome: 'Transportadora Morador',
+      email: moradorEmail,
+      perfil: 'morador',
+    });
   });
 
   afterAll(async () => {

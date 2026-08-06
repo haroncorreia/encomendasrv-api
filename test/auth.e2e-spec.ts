@@ -8,6 +8,11 @@ import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
 import { EmailService } from '../src/email/email.service';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiado,
+  type UsuarioPrivilegiadoPayload,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/authenticate';
 const SEEDED_SUPER_EMAIL = 'admin@cfrecantoverde.com.br';
@@ -22,7 +27,7 @@ const MORADOR_CELULAR = `${BASE_CELULAR.slice(0, 10)}${
 
 const SEED_UNIDADE = '0303';
 
-const usuarioBase = {
+const usuarioBase: UsuarioPrivilegiadoPayload = {
   nome: 'Auth Test User',
   email: `auth.test.${RUN_ID}@teste.com`,
   celular: BASE_CELULAR,
@@ -32,7 +37,7 @@ const usuarioBase = {
   unidade: SEED_UNIDADE,
 };
 
-const usuarioPortaria = {
+const usuarioPortaria: UsuarioPrivilegiadoPayload = {
   nome: 'Auth Test Portaria',
   email: `auth.test.portaria.${RUN_ID}@teste.com`,
   celular: `19${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
@@ -103,29 +108,74 @@ describe('AuthModule (e2e)', () => {
     );
   };
 
+  // Cria os usuários privilegiados (admin e portaria) pelo caminho
+  // administrativo real, já que o auto-cadastro não define mais perfil.
+  beforeAll(async () => {
+    const superToken = await getSeededSuperToken();
+    await criarUsuarioPrivilegiado(app, superToken, usuarioBase);
+    await criarUsuarioPrivilegiado(app, superToken, usuarioPortaria);
+  });
+
   afterAll(async () => {
     await app.close();
     await knex.destroy();
   });
 
-  it('POST /authenticate/sign-up deve retornar 201 e registrar usuário e retornar tokens', async () => {
+  it('POST /authenticate/sign-up deve retornar 201 sem tokens e criar um morador pendente de aprovação', async () => {
+    const novoMorador = {
+      nome: 'Auth Test P1 Sem Token',
+      email: `auth.test.p1.${RUN_ID}@teste.com`,
+      celular: `21${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `22${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      unidade: SEED_UNIDADE,
+    };
+
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
-      .send(usuarioBase)
+      .send(novoMorador)
       .expect(201);
 
-    expect(res.body).toHaveProperty('access_token');
-    expect(res.body).toHaveProperty('refresh_token');
-    expect(res.body).toHaveProperty('usuario');
+    // P1: o sign-up não emite tokens de sessão.
+    expect(res.body.access_token).toBeUndefined();
+    expect(res.body.refresh_token).toBeUndefined();
+    expect(res.body.message).toContain('aprovação');
     expect(res.body.usuario).toMatchObject({
-      nome: usuarioBase.nome,
-      email: usuarioBase.email,
+      nome: novoMorador.nome,
+      email: novoMorador.email,
+      perfil: 'morador',
     });
     expect(res.body.usuario.uuid).toBeDefined();
     expect(res.body.usuario.senha).toBeUndefined();
 
-    accessToken = res.body.access_token as string;
-    refreshToken = res.body.refresh_token as string;
+    // P0/aprovação: morador auto-cadastrado nasce não aprovado.
+    const row = await knex('usuarios')
+      .where({ email: novoMorador.email })
+      .first();
+    expect(row.perfil).toBe('morador');
+    expect(row.aproved_at).toBeFalsy();
+  });
+
+  it('POST /authenticate/sign-up deve retornar 400 ao tentar definir perfil elevado (escalada)', async () => {
+    const tentativaEscalada = {
+      nome: 'Auth Test Escalada',
+      email: `auth.test.escalada.${RUN_ID}@teste.com`,
+      celular: `23${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `24${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      unidade: SEED_UNIDADE,
+      perfil: 'super',
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(tentativaEscalada)
+      .expect(400);
+
+    const row = await knex('usuarios')
+      .where({ email: tentativaEscalada.email })
+      .first();
+    expect(row).toBeUndefined();
   });
 
   it('POST /authenticate/sign-up deve retornar 201 e criar um registro de usuário com o perfil morador', async () => {
@@ -298,7 +348,14 @@ describe('AuthModule (e2e)', () => {
   it('POST /authenticate/sign-up deve retornar 409 para e-mail duplicado', async () => {
     await request(app.getHttpServer())
       .post(`${BASE_URL}/sign-up`)
-      .send(usuarioBase)
+      .send({
+        nome: 'Auth Test Email Duplicado',
+        email: usuarioBase.email,
+        celular: '11999990023',
+        cpf_cnpj: '11999990023',
+        senha: 'Senha@123',
+        unidade: SEED_UNIDADE,
+      })
       .expect(409);
   });
 
@@ -367,11 +424,11 @@ describe('AuthModule (e2e)', () => {
     expect(res.body.usuario.email).toBe(usuarioBase.email);
   });
 
-  it('POST /authenticate/sign-up deve retornar 201 para portaria sem refresh token', async () => {
+  it('POST /authenticate/sign-in de portaria retorna access token sem refresh token', async () => {
     const res = await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-up`)
-      .send(usuarioPortaria)
-      .expect(201);
+      .post(`${BASE_URL}/sign-in`)
+      .send({ usuario: usuarioPortaria.email, senha: usuarioPortaria.senha })
+      .expect(200);
 
     expect(res.body.access_token).toBeDefined();
     expect(res.body.refresh_token).toBeUndefined();
@@ -410,7 +467,7 @@ describe('AuthModule (e2e)', () => {
   });
 
   it('deve invalidar o access token de portaria no processo de verificação após o horário de corte', async () => {
-    const usuarioPortariaTurno = {
+    const usuarioPortariaTurno: UsuarioPrivilegiadoPayload = {
       nome: 'Auth Test Portaria Turno',
       email: `auth.test.portaria.turno.${RUN_ID}@teste.com`,
       celular: `17${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
@@ -420,10 +477,8 @@ describe('AuthModule (e2e)', () => {
       unidade: SEED_UNIDADE,
     };
 
-    await request(app.getHttpServer())
-      .post(`${BASE_URL}/sign-up`)
-      .send(usuarioPortariaTurno)
-      .expect(201);
+    const superToken = await getSeededSuperToken();
+    await criarUsuarioPrivilegiado(app, superToken, usuarioPortariaTurno);
 
     const RealDate = Date;
     const [cutoffHour, cutoffMinute] = (
@@ -635,8 +690,13 @@ describe('AuthModule (e2e)', () => {
       .send(ghostUser)
       .expect(201);
 
-    const ghostAccessToken = signUpRes.body.access_token as string;
     const ghostUuid = signUpRes.body.usuario.uuid as string;
+    const ghostAccessToken = assinarAccessToken(jwtService, configService, {
+      sub: ghostUuid,
+      nome: signUpRes.body.usuario.nome as string,
+      email: signUpRes.body.usuario.email as string,
+      perfil: 'morador',
+    });
 
     await knex('usuarios').where({ uuid: ghostUuid }).delete();
 
@@ -666,8 +726,13 @@ describe('AuthModule (e2e)', () => {
       .send(activatedUser)
       .expect(201);
 
-    const activatedAccessToken = signUpRes.body.access_token as string;
     const activatedUuid = signUpRes.body.usuario.uuid as string;
+    const activatedAccessToken = assinarAccessToken(jwtService, configService, {
+      sub: activatedUuid,
+      nome: signUpRes.body.usuario.nome as string,
+      email: signUpRes.body.usuario.email as string,
+      perfil: 'morador',
+    });
 
     await knex('usuarios').where({ uuid: activatedUuid }).update({
       activated_at: new Date(),

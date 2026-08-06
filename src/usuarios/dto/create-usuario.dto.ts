@@ -1,13 +1,11 @@
 import {
   IsEmail,
-  IsIn,
   IsNotEmpty,
   MaxLength,
   IsOptional,
   IsString,
   Matches,
 } from 'class-validator';
-import { Perfil } from '../enums/perfil.enum';
 
 export class CreateUsuarioDto {
   @IsNotEmpty({ message: 'O nome é obrigatório.' })
@@ -48,10 +46,4 @@ export class CreateUsuarioDto {
   @IsNotEmpty({ message: 'A unidade é obrigatória.' })
   @IsString({ message: 'A unidade deve ser válida.' })
   unidade: string;
-
-  @IsOptional()
-  @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR], {
-    message: 'O perfil deve ser super, admin, portaria ou morador.',
-  })
-  perfil?: Perfil;
 }

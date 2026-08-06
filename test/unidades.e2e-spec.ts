@@ -1,10 +1,17 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Knex } from 'knex';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  assinarAccessToken,
+  criarUsuarioPrivilegiadoComToken,
+  obterTokenSuperSemente,
+} from './utils/e2e-usuarios';
 
 const BASE_URL = '/unidades';
 const AUTH_BASE = '/authenticate';
@@ -46,9 +53,20 @@ describe('UnidadesModule (e2e)', () => {
     await app.init();
     knex = app.get<Knex>(KNEX_CONNECTION);
 
-    const superRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const jwtService = app.get(JwtService);
+    const configService = app.get(ConfigService);
+    const bootstrapSuperToken = await obterTokenSuperSemente(
+      knex,
+      jwtService,
+      configService,
+    );
+
+    const superFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Unidades Super',
         email: `unidades.super.${RUN_ID}@teste.com`,
         cpf_cnpj: `55${RUN_ID}1`,
@@ -56,13 +74,16 @@ describe('UnidadesModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'super',
         unidade: SEED_UNIDADE_3,
-      })
-      .expect(201);
-    superToken = superRes.body.access_token as string;
+      },
+    );
+    superToken = superFix.token;
 
-    const adminRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const adminFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Unidades Admin',
         email: `unidades.admin.${RUN_ID}@teste.com`,
         cpf_cnpj: `66${RUN_ID}2`,
@@ -70,13 +91,16 @@ describe('UnidadesModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'admin',
         unidade: SEED_UNIDADE_3,
-      })
-      .expect(201);
-    adminToken = adminRes.body.access_token as string;
+      },
+    );
+    adminToken = adminFix.token;
 
-    const portariaRes = await request(app.getHttpServer())
-      .post(`${AUTH_BASE}/sign-up`)
-      .send({
+    const portariaFix = await criarUsuarioPrivilegiadoComToken(
+      app,
+      bootstrapSuperToken,
+      jwtService,
+      configService,
+      {
         nome: 'Unidades Portaria',
         email: `unidades.portaria.${RUN_ID}@teste.com`,
         cpf_cnpj: `77${RUN_ID}3`,
@@ -84,9 +108,9 @@ describe('UnidadesModule (e2e)', () => {
         senha: 'Senha@123',
         perfil: 'portaria',
         unidade: SEED_UNIDADE_3,
-      })
-      .expect(201);
-    portariaToken = portariaRes.body.access_token as string;
+      },
+    );
+    portariaToken = portariaFix.token;
 
     // Morador com unidade 1 (seed morador)
     moradorToken = (
@@ -100,18 +124,24 @@ describe('UnidadesModule (e2e)', () => {
     ).body.access_token as string;
 
     // Morador com unidade diferente (unidade 4) criado via sign-up
+    const moradorOutroEmail = `unidades.morador.${RUN_ID}@teste.com`;
     const moradorSemUnidadeRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
         nome: 'Unidades Morador Outro',
-        email: `unidades.morador.${RUN_ID}@teste.com`,
+        email: moradorOutroEmail,
         cpf_cnpj: `88${RUN_ID}4`,
         celular: `1193${RUN_ID.slice(0, 7)}`,
         senha: 'Senha@123',
         unidade: SEED_UNIDADE_4,
       })
       .expect(201);
-    moradorSemUnidadeToken = moradorSemUnidadeRes.body.access_token as string;
+    moradorSemUnidadeToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorSemUnidadeRes.body.usuario.uuid as string,
+      nome: 'Unidades Morador Outro',
+      email: moradorOutroEmail,
+      perfil: 'morador',
+    });
 
     const unidade3 = await knex('unidades')
       .where({ unidade: SEED_UNIDADE_3 })
