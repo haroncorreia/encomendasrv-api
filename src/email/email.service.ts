@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { Transporter } from 'nodemailer';
+import { escaparHtml } from '../common/html/escapar-html.util';
 
 @Injectable()
 export class EmailService {
@@ -114,9 +115,9 @@ export class EmailService {
         subject,
         text: `Olá, ${nome}!\n\nSeu código de ativação é: ${codigo}\n\nEste código é válido por 15 minutos.\n\nCaso não tenha solicitado, ignore este e-mail.`,
         html: `
-          <p>Olá, <strong>${nome}</strong>!</p>
+          <p>Olá, <strong>${escaparHtml(nome)}</strong>!</p>
           <p>Seu código de ativação é:</p>
-          <h2 style="letter-spacing: 8px;">${codigo}</h2>
+          <h2 style="letter-spacing: 8px;">${escaparHtml(codigo)}</h2>
           <p>Este código é válido por <strong>15 minutos</strong>.</p>
           <p><small>Caso não tenha solicitado, ignore este e-mail.</small></p>
         `,
@@ -148,9 +149,9 @@ export class EmailService {
         subject,
         text: `Olá, ${nome}!\n\nVocê solicitou a redefinição de sua senha.\n\nSeu token de redefinição é: ${token}\n\nEste token é válido por 10 minutos.\n\nCaso não tenha solicitado, ignore este e-mail.`,
         html: `
-          <p>Olá, <strong>${nome}</strong>!</p>
+          <p>Olá, <strong>${escaparHtml(nome)}</strong>!</p>
           <p>Você solicitou um link para redefinição de sua senha.</p>
-          <p><a href="${url}">Redefinir senha</a></p>
+          <p><a href="${escaparHtml(url)}">Redefinir senha</a></p>
           <p>Este link é válido por <strong>10 minutos</strong>.</p>
           <p><small>Caso não tenha solicitado, ignore este e-mail.</small></p>
         `,
