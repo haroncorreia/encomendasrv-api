@@ -243,6 +243,27 @@ describe('CondominiosModule (e2e)', () => {
     expect(res.body.updated_by).toBe(superEmail);
   });
 
+  it('PATCH /condominios/:id deve retornar 400 se o endereço exceder 255 caracteres', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
+        .send({ endereco: 'A'.repeat(256) }),
+    ).expect(400);
+  });
+
+  it('PATCH /condominios/:id deve retornar 200 com endereço válido (<= 255)', async () => {
+    const endereco = 'Rua das Palmeiras, 123 - Recanto Verde';
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${condominioSeedUuid}`)
+        .send({ endereco }),
+    ).expect(200);
+
+    expect(res.body.endereco).toBe(endereco);
+  });
+
   it('PATCH /condominios/:id deve retornar 400 para cep inválido', async () => {
     await auth(
       superToken,

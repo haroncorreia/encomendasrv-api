@@ -52,6 +52,9 @@ export class UpdateCondominioDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(255, {
+    message: 'O endereço deve conter no máximo 255 caracteres.',
+  })
   endereco?: string;
 
   @IsOptional()

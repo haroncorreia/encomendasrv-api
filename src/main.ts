@@ -1,7 +1,9 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { json, urlencoded } from 'express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { helmetOptions } from './common/http/security-headers';
 import { applyTrustProxy } from './common/http/trust-proxy.util';
 
 async function bootstrap() {
@@ -9,6 +11,8 @@ async function bootstrap() {
   applyTrustProxy(app);
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
+  // Cabeçalhos de segurança HTTP (config em common/http/security-headers).
+  app.use(helmet(helmetOptions));
   app.enableCors();
   app.useGlobalPipes(
     new ValidationPipe({
