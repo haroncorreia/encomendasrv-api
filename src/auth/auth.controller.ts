@@ -9,8 +9,15 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuditoriaCtx } from '../auditoria/decorators/auditoria-ctx.decorator';
 import type { AuditoriaContext } from '../auditoria/interfaces/auditoria-context.interface';
+import {
+  THROTTLE_CONFIRM_RESET,
+  THROTTLE_REQUEST_RESET,
+  THROTTLE_SIGN_IN,
+  THROTTLE_SIGN_UP,
+} from '../common/throttler/throttler.config';
 import { CreateUsuarioDto } from '../usuarios/dto/create-usuario.dto';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -34,6 +41,9 @@ export class AuthController {
    * POST /auth/signup
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ email: true })
+  @Throttle(THROTTLE_SIGN_UP)
   @Post('sign-up')
   @HttpCode(HttpStatus.CREATED)
   signUp(@Body() dto: CreateUsuarioDto, @AuditoriaCtx() ctx: AuditoriaContext) {
@@ -45,6 +55,9 @@ export class AuthController {
    * POST /auth/sign-in
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ email: true })
+  @Throttle(THROTTLE_SIGN_IN)
   @Post('sign-in')
   @HttpCode(HttpStatus.OK)
   signIn(@Body() dto: SignInDto, @AuditoriaCtx() ctx: AuditoriaContext) {
@@ -125,6 +138,8 @@ export class AuthController {
    * POST /auth/request-reset-password
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle(THROTTLE_REQUEST_RESET)
   @Post('request-reset-password')
   @HttpCode(HttpStatus.OK)
   requestResetPassword(
@@ -139,6 +154,9 @@ export class AuthController {
    * POST /auth/confirm-reset-password
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ email: true })
+  @Throttle(THROTTLE_CONFIRM_RESET)
   @Post('confirm-reset-password')
   @HttpCode(HttpStatus.OK)
   confirmResetPassword(@Body() dto: ConfirmResetPasswordDto) {

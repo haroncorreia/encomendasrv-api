@@ -37,6 +37,17 @@ Para registrar o IP correto do cliente na auditoria quando a API estiver atrás 
 
 O Caddy já encaminha os headers de proxy normalmente. Com `TRUST_PROXY=1`, o backend passa a usar o IP original informado em `X-Forwarded-For` em vez do endereço local do proxy.
 
+## Rate limit da autenticação
+
+As rotas públicas de autenticação são protegidas por rate limit (`@nestjs/throttler`), escopado ao `AuthController`:
+
+- `request-reset-password`: limite composto **por e-mail** e **por IP** (contém bombardeio da caixa da vítima e abuso do SMTP).
+- `sign-in`, `sign-up`, `confirm-reset-password`: limite **por IP**.
+
+**Pré-requisito:** `TRUST_PROXY=1` — o limite por IP usa o IP real do cliente; sem isso, todos os clientes atrás do proxy compartilham o mesmo balde.
+
+Os limites são ajustáveis por env (ver `.env.example`): `THROTTLE_RESET_EMAIL_LIMIT`, `THROTTLE_RESET_EMAIL_TTL_MIN`, `THROTTLE_RESET_IP_LIMIT`, `THROTTLE_SIGNIN_LIMIT`. O throttler é desligado sob `NODE_ENV=test` (a suíte e2e o exercita de forma isolada). Em caso de escala horizontal, será necessário um storage compartilhado (ex.: Redis), pois o storage padrão é em memória por instância.
+
 ## Compile and run the project
 
 ```bash
