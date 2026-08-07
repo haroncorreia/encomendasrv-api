@@ -261,6 +261,23 @@ describe('UsuariosModule (e2e)', () => {
     usuarioCriadoUuid = res.body.uuid as string;
   });
 
+  it('POST /usuarios deve retornar 400 se o nome exceder 120 caracteres', async () => {
+    await auth(
+      superToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          nome: `${'A'.repeat(120)} Sobrenome`,
+          email: 'usuarios.nome.longo@teste.com',
+          celular: '11990000099',
+          cpf_cnpj: '11990000099',
+          senha: 'Senha@123',
+          perfil: 'admin',
+          unidade: SEED_UNIDADE,
+        }),
+    ).expect(400);
+  });
+
   it('POST /usuarios deve retornar 201 e criar usuário admin, com token super', async () => {
     const res = await auth(
       superToken,
@@ -687,6 +704,57 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.reset_password_exp).toBeUndefined();
     expect(res.body.refresh_token_hash).toBeUndefined();
     expect(res.body.refresh_token_exp).toBeUndefined();
+  });
+
+  const signInUsuarioCriado = async (): Promise<string> => {
+    const res = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-in`)
+      .send({ usuario: 'usuarios.super.criado@teste.com', senha: 'Senha@123' })
+      .expect(200);
+    return res.body.access_token as string;
+  };
+
+  it('PATCH /usuarios/:id deve retornar 400 se o nome for vazio', async () => {
+    const proprioToken = await signInUsuarioCriado();
+    await auth(
+      proprioToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
+        .send({ nome: '   ' }),
+    ).expect(400);
+  });
+
+  it('PATCH /usuarios/:id deve retornar 400 se o nome tiver uma única palavra', async () => {
+    const proprioToken = await signInUsuarioCriado();
+    await auth(
+      proprioToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
+        .send({ nome: 'Madonna' }),
+    ).expect(400);
+  });
+
+  it('PATCH /usuarios/:id deve retornar 400 se o nome exceder 120 caracteres', async () => {
+    const proprioToken = await signInUsuarioCriado();
+    const nomeLongo = `${'A'.repeat(120)} Sobrenome`;
+    await auth(
+      proprioToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
+        .send({ nome: nomeLongo }),
+    ).expect(400);
+  });
+
+  it('PATCH /usuarios/:id deve retornar 200 com nome válido (nome e sobrenome, <= 120)', async () => {
+    const proprioToken = await signInUsuarioCriado();
+    const res = await auth(
+      proprioToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${usuarioCriadoUuid}`)
+        .send({ nome: 'Nome Sobrenome' }),
+    ).expect(200);
+
+    expect(res.body.nome).toBe('Nome Sobrenome');
   });
 
   it('POST /usuarios/update-password deve atualizar a senha do usuário autenticado', async () => {

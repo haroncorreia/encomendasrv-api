@@ -8,7 +8,11 @@ import {
 
 export class UpdateUsuarioDto {
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'O nome deve ser válido.' })
+  @Matches(/^\S+(\s+\S+)+$/, {
+    message: 'Informe o nome e o sobrenome.',
+  })
+  @MaxLength(120, { message: 'O nome deve conter no máximo 120 caracteres.' })
   nome?: string;
 
   @IsOptional()

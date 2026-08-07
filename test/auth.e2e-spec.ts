@@ -221,6 +221,22 @@ describe('AuthModule (e2e)', () => {
       .expect(400);
   });
 
+  it('POST /authenticate/sign-up deve retornar 400 se o nome exceder 120 caracteres', async () => {
+    const usuarioNomeLongo = {
+      nome: `${'A'.repeat(120)} Sobrenome`,
+      email: `auth.test.nome.longo.${RUN_ID}@teste.com`,
+      celular: `25${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `26${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      unidade: SEED_UNIDADE,
+    };
+
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(usuarioNomeLongo)
+      .expect(400);
+  });
+
   it('POST /authenticate/sign-up deve retornar 400 se não informar o e-mail', async () => {
     const usuarioSemEmail = {
       nome: 'Auth Test User Sem Email',
