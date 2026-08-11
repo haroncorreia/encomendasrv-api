@@ -8,6 +8,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import { EncomendaRestricaoRetirada } from '../src/encomendas/enums/encomenda-restricao-retirada.enum';
 
 const BASE_URL = '/encomendas-eventos';
 const ENCOMENDAS_BASE = '/encomendas';
@@ -132,6 +133,25 @@ describe('EncomendasEventosModule (e2e)', () => {
     ).expect(201);
     UUID_ENCOMENDA_MORADOR = encResp.body.uuid as string;
 
+    // Encomenda separada, com restricao_retirada 'pessoal', para o evento do
+    // admin: findByFilters amplia o escopo do morador para eventos de
+    // encomendas 'unidade' da própria unidade (ver
+    // EncomendasEventosService.findByFilters), então usar a mesma
+    // UUID_ENCOMENDA_MORADOR (default 'unidade') tornaria o evento do admin
+    // legitimamente visível ao morador — o que não é o que este fixture quer
+    // testar (isolamento por uuid_usuario, não por unidade).
+    const encNaoMoradorResp = await auth(
+      portariaToken,
+      request(app.getHttpServer()).post(ENCOMENDAS_BASE).send({
+        uuid_usuario: UUID_MORADOR,
+        recebido_por_uuid_usuario: UUID_PORTARIA,
+        palavra_chave: 'FixtureEvtAdmin',
+        codigo_rastreamento: 'EVTFIXT002',
+        restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
+      }),
+    ).expect(201);
+    const uuidEncomendaNaoMorador = encNaoMoradorResp.body.uuid as string;
+
     UUID_SEED_EVENTO_MORADOR = randomUUID();
     UUID_SEED_EVENTO_NAO_MORADOR = randomUUID();
     await knex('encomendas_eventos').insert([
@@ -145,7 +165,7 @@ describe('EncomendasEventosModule (e2e)', () => {
       },
       {
         uuid: UUID_SEED_EVENTO_NAO_MORADOR,
-        uuid_encomenda: UUID_ENCOMENDA_MORADOR,
+        uuid_encomenda: uuidEncomendaNaoMorador,
         uuid_usuario: UUID_ADMIN,
         evento: 'Evento fixture admin',
         created_by: 'test',
