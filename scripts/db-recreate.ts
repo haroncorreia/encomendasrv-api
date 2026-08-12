@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import * as mysql from 'mysql2/promise';
+import { assertSafeEnvironment } from '../src/common/database/assert-safe-environment.util';
 
 dotenv.config();
 
@@ -10,6 +11,7 @@ const password = process.env.DB_PASSWORD || '';
 const database = process.env.DB_NAME || '';
 
 async function main(): Promise<void> {
+  assertSafeEnvironment('db-recreate (DROP DATABASE)');
   const conn = await mysql.createConnection({ host, port, user, password });
 
   console.log(`Dropping database "${database}"...`);

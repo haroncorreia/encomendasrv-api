@@ -1,7 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Knex } from 'knex';
+import { assertSafeEnvironment } from '../../common/database/assert-safe-environment.util';
 
 export async function seed(knex: Knex): Promise<void> {
+  assertSafeEnvironment('seed transportadoras_init');
   await knex('transportadoras').del();
 
   await knex('transportadoras').insert([

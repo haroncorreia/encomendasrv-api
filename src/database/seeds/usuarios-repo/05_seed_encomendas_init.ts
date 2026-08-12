@@ -1,7 +1,14 @@
 import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
+import { assertSafeEnvironment } from '../../../common/database/assert-safe-environment.util';
 
 export async function seed(knex: Knex): Promise<void> {
+  assertSafeEnvironment('seed encomendas_init');
+  // Nota: esta checagem nunca é verdadeira na prática neste projeto — NODE_ENV
+  // não é setado como 'development' pelo Knex CLI local. Mantida como está
+  // (fora do escopo do card #51, que é sobre segurança em produção, não sobre
+  // fazer esse seed de amostra voltar a rodar) — se for corrigido, revalidar
+  // que a suíte e2e não depende do banco de teste ficar sem estas linhas.
   if (process.env.NODE_ENV !== 'development') {
     return;
   }

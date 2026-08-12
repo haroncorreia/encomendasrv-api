@@ -1,7 +1,9 @@
 import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
+import { assertSafeEnvironment } from '../../common/database/assert-safe-environment.util';
 
 export async function seed(knex: Knex): Promise<void> {
+  assertSafeEnvironment('seed unidades_init');
   await knex('unidades').del();
   const UUID_CONDOMINIO = await knex('condominios')
     .select('uuid')

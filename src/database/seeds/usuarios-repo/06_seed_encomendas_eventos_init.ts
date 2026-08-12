@@ -1,7 +1,10 @@
 import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
+import { assertSafeEnvironment } from '../../../common/database/assert-safe-environment.util';
 
 export async function seed(knex: Knex): Promise<void> {
+  assertSafeEnvironment('seed encomendas_eventos_init');
+  // Checagem abaixo nunca é verdadeira na prática (ver 05_seed_encomendas_init.ts) — mantida como está, fora do escopo do card #51.
   if (process.env.NODE_ENV !== 'development') {
     return;
   }

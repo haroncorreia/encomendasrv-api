@@ -1,9 +1,12 @@
 import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
+import { assertSafeEnvironment } from '../../common/database/assert-safe-environment.util';
 
 export async function seed(knex: Knex): Promise<void> {
-  const senhaHash = await bcrypt.hash('Senha@123', 10);
+  assertSafeEnvironment('seed usuarios_admin');
+  const senha = process.env.SEED_ADMIN_SENHA ?? 'Senha@123';
+  const senhaHash = await bcrypt.hash(senha, 10);
   const UUID_CONDOMINIO = await knex('condominios')
     .select('uuid')
     .first()
