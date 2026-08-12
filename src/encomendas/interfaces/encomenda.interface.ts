@@ -20,6 +20,7 @@ export interface Encomenda {
   entregue_por_uuid_usuario: string | null;
   entregue_para_uuid_usuario: string | null;
   justificativa_baixa_administrativa: string | null;
+  baixa_administrativa_em: Date | null;
   created_at: Date;
   created_by: string;
   updated_at: Date;

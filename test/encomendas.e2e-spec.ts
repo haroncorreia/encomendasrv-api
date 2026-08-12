@@ -1094,6 +1094,7 @@ describe('EncomendasModule (e2e)', () => {
         }),
     ).expect(201);
 
+    const entregueEmRetroativo = '2026-01-15T10:00:00.000Z';
     const retirada = await auth(
       adminToken,
       request(app.getHttpServer())
@@ -1103,12 +1104,162 @@ describe('EncomendasModule (e2e)', () => {
         .send({
           status: 'retirada',
           justificativa: 'Entrega confirmada pela administração.',
+          entregue_em: entregueEmRetroativo,
         }),
     ).expect(200);
 
     expect(retirada.body.status).toBe('retirada');
     expect(retirada.body.entregue_por_uuid_usuario).toBe(UUID_ADMIN);
     expect(retirada.body.entregue_para_uuid_usuario).toBe(UUID_MORADOR);
+    expect(new Date(retirada.body.entregue_em as string)).toEqual(
+      new Date(entregueEmRetroativo),
+    );
+    expect(retirada.body.baixa_administrativa_em).toBeTruthy();
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve exigir entregue_em quando status é retirada', async () => {
+    const created = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'BaixaSemData',
+          codigo_rastreamento: `BSD-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(
+          `${BASE_URL}/${created.body.uuid as string}/baixa-administrativa`,
+        )
+        .send({
+          status: 'retirada',
+          justificativa: 'Entrega confirmada pela administração.',
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo entregue_em é obrigatório para baixa administrativa com status retirada.',
+    );
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve rejeitar entregue_em no futuro', async () => {
+    const created = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'BaixaDataFutura',
+          codigo_rastreamento: `BDF-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const umAnoNoFuturo = new Date();
+    umAnoNoFuturo.setFullYear(umAnoNoFuturo.getFullYear() + 1);
+
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(
+          `${BASE_URL}/${created.body.uuid as string}/baixa-administrativa`,
+        )
+        .send({
+          status: 'retirada',
+          justificativa: 'Entrega confirmada pela administração.',
+          entregue_em: umAnoNoFuturo.toISOString(),
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo entregue_em não pode ser uma data futura.',
+    );
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa deve rejeitar entregue_em quando status é cancelada', async () => {
+    const created = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'BaixaCancDtErro',
+          codigo_rastreamento: `BCE-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(
+          `${BASE_URL}/${created.body.uuid as string}/baixa-administrativa`,
+        )
+        .send({
+          status: 'cancelada',
+          justificativa: 'Encomenda extraviada.',
+          entregue_em: '2026-01-15T10:00:00.000Z',
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toBe(
+      'O campo entregue_em só pode ser informado para baixa administrativa com status retirada.',
+    );
+  });
+
+  it('PATCH /encomendas/:id/baixa-administrativa: baixa_administrativa_em não muda com edição posterior de campo livre', async () => {
+    const created = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'BaixaEstavel',
+          codigo_rastreamento: `BES-${Date.now()}`,
+          restricao_retirada: 'pessoal',
+        }),
+    ).expect(201);
+
+    const retirada = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(
+          `${BASE_URL}/${created.body.uuid as string}/baixa-administrativa`,
+        )
+        .send({
+          status: 'retirada',
+          justificativa: 'Entrega confirmada pela administração.',
+          entregue_em: '2026-01-15T10:00:00.000Z',
+        }),
+    ).expect(200);
+
+    const baixaAdministrativaEmOriginal = retirada.body
+      .baixa_administrativa_em as string;
+
+    await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${created.body.uuid as string}`)
+        .send({ descricao: 'Correção de descrição, meses depois.' }),
+    ).expect(200);
+
+    const encomenda = await knex('encomendas')
+      .where({ uuid: created.body.uuid as string })
+      .whereNull('deleted_at')
+      .first('baixa_administrativa_em');
+
+    expect(new Date(encomenda.baixa_administrativa_em as Date)).toEqual(
+      new Date(baixaAdministrativaEmOriginal),
+    );
   });
 
   it('PATCH /encomendas/:id/baixa-administrativa deve permitir cancelamento para admin e persistir justificativa na encomenda e no evento', async () => {

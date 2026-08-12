@@ -1518,15 +1518,35 @@ export class EncomendasService {
     }
 
     const now = new Date();
+
+    if (dto.status === EncomendaStatus.RETIRADA) {
+      if (!dto.entregue_em) {
+        throw new BadRequestException(
+          'O campo entregue_em é obrigatório para baixa administrativa com status retirada.',
+        );
+      }
+
+      if (new Date(dto.entregue_em).getTime() > now.getTime()) {
+        throw new BadRequestException(
+          'O campo entregue_em não pode ser uma data futura.',
+        );
+      }
+    } else if (dto.entregue_em) {
+      throw new BadRequestException(
+        'O campo entregue_em só pode ser informado para baixa administrativa com status retirada.',
+      );
+    }
+
     const payloadAtualizacao: Partial<Encomenda> = {
       status: dto.status,
       justificativa_baixa_administrativa: justificativa,
+      baixa_administrativa_em: now,
       updated_at: now,
       updated_by: user.email,
     };
 
     if (dto.status === EncomendaStatus.RETIRADA) {
-      payloadAtualizacao.entregue_em = now;
+      payloadAtualizacao.entregue_em = new Date(dto.entregue_em as string);
       payloadAtualizacao.entregue_por_uuid_usuario = user.sub;
       payloadAtualizacao.entregue_para_uuid_usuario = encomenda.uuid_usuario;
     }
