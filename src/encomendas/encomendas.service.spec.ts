@@ -3,6 +3,9 @@ import { EncomendasService } from './encomendas.service';
 import { EncomendaStatus } from './enums/encomenda-status.enum';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { BaixaAdministrativaEncomendaDto } from './dto/baixa-administrativa-encomenda.dto';
+import { CreateEncomendaDto } from './dto/create-encomenda.dto';
+import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
+import { EncomendaRestricaoRetirada } from './enums/encomenda-restricao-retirada.enum';
 
 describe('EncomendasService - Regras de exclusão para Portaria', () => {
   let service: EncomendasService;
@@ -240,6 +243,105 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
 
       const payload = updateMock.mock.calls[0][0];
       expect(payload).not.toHaveProperty('baixa_administrativa_em');
+    });
+
+    it('deve salvar restricao_retirada=unidade quando PATCH envia o campo como null (card #9)', async () => {
+      const userAdmin = {
+        sub: 'user-admin-123',
+        email: 'admin@condominio.com',
+        perfil: Perfil.ADMIN,
+        uuid_condominio: 'condo-123',
+      } as any;
+
+      jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({
+        uuid: 'enc-1',
+        uuid_usuario: 'morador-1',
+        restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
+      } as any);
+
+      const updateMock = jest.fn().mockResolvedValue(1);
+      const whereMock = jest.fn().mockReturnValue({ update: updateMock });
+      mockKnex.mockReturnValue({ where: whereMock });
+
+      const dto = { restricao_retirada: null } as unknown as UpdateEncomendaDto;
+      await service.update('enc-1', dto, userAdmin);
+
+      const payload = updateMock.mock.calls[0][0];
+      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.UNIDADE);
+    });
+
+    it('não deve incluir restricao_retirada no payload quando o campo não é informado no PATCH', async () => {
+      const userAdmin = {
+        sub: 'user-admin-123',
+        email: 'admin@condominio.com',
+        perfil: Perfil.ADMIN,
+        uuid_condominio: 'condo-123',
+      } as any;
+
+      jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({
+        uuid: 'enc-1',
+        uuid_usuario: 'morador-1',
+        restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
+      } as any);
+
+      const updateMock = jest.fn().mockResolvedValue(1);
+      const whereMock = jest.fn().mockReturnValue({ update: updateMock });
+      mockKnex.mockReturnValue({ where: whereMock });
+
+      await service.update('enc-1', { descricao: 'Correção de texto' }, userAdmin);
+
+      const payload = updateMock.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('restricao_retirada');
+    });
+  });
+
+  describe('create', () => {
+    const userMorador = {
+      sub: 'morador-1',
+      email: 'morador@condominio.com',
+      perfil: Perfil.MORADOR,
+      uuid_condominio: 'condo-123',
+    } as any;
+
+    const actorMorador = {
+      uuid: 'morador-1',
+      uuid_condominio: 'condo-123',
+      uuid_unidade: 'unidade-1',
+      perfil: Perfil.MORADOR,
+    };
+
+    const mockInsert = () => {
+      const insertMock = jest.fn().mockResolvedValue(undefined);
+      mockKnex.mockReturnValue({ insert: insertMock });
+      return insertMock;
+    };
+
+    beforeEach(() => {
+      jest.spyOn(service as any, 'findUsuarioAtivo').mockResolvedValue(actorMorador);
+      jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({ uuid: 'nova-enc' } as any);
+    });
+
+    it('deve salvar restricao_retirada=unidade quando o campo não é informado na criação (card #9)', async () => {
+      const insertMock = mockInsert();
+      const dto = { palavra_chave: 'Chave123' } as CreateEncomendaDto;
+
+      await service.create(dto, userMorador);
+
+      const payload = insertMock.mock.calls[0][0];
+      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.UNIDADE);
+    });
+
+    it('deve preservar restricao_retirada=pessoal quando informado explicitamente na criação', async () => {
+      const insertMock = mockInsert();
+      const dto = {
+        palavra_chave: 'Chave123',
+        restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
+      } as CreateEncomendaDto;
+
+      await service.create(dto, userMorador);
+
+      const payload = insertMock.mock.calls[0][0];
+      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.PESSOAL);
     });
   });
 });
