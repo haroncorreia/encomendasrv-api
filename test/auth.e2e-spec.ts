@@ -605,6 +605,54 @@ describe('AuthModule (e2e)', () => {
     );
   });
 
+  it('caminho feliz completo: morador se cadastra → admin aprova → morador faz sign-in com 200', async () => {
+    const moradorFluxoCompleto = {
+      nome: 'Morador Fluxo Completo',
+      email: `auth.morador.fluxo.${RUN_ID}@teste.com`,
+      celular: `13${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `14${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha: 'Senha@123',
+      unidade: SEED_UNIDADE,
+    };
+
+    const signUpRes = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-up`)
+      .send(moradorFluxoCompleto)
+      .expect(201);
+
+    const moradorUuid = signUpRes.body.usuario.uuid as string;
+
+    // Antes da aprovação, o sign-in continua bloqueado (mesma regra do teste anterior).
+    await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({
+        usuario: moradorFluxoCompleto.email,
+        senha: moradorFluxoCompleto.senha,
+      })
+      .expect(401);
+
+    // `accessToken` é do admin (usuarioBase), obtido no teste de sign-in acima.
+    await request(app.getHttpServer())
+      .patch(`/usuarios/${moradorUuid}/aprove-user`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const signInRes = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({
+        usuario: moradorFluxoCompleto.email,
+        senha: moradorFluxoCompleto.senha,
+      })
+      .expect(200);
+
+    expect(signInRes.body.access_token).toBeDefined();
+    expect(signInRes.body.refresh_token).toBeDefined();
+    expect(signInRes.body.usuario).toMatchObject({
+      email: moradorFluxoCompleto.email,
+      perfil: 'morador',
+    });
+  });
+
   it('POST /authenticate/refresh-token deve retornar 200 e gerar novos tokens', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/refresh-token`)
