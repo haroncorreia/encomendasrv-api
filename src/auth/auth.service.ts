@@ -40,7 +40,10 @@ export interface AuthResponse extends AuthTokens {
  * administrativa seguida de `signIn`.
  */
 export interface SignUpResponse {
-  usuario: Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>;
+  usuario: Omit<
+    Pick<Usuario, 'uuid' | 'nome' | 'email' | 'perfil'>,
+    'perfil'
+  > & { perfil: Perfil.MORADOR };
   message: string;
 }
 
@@ -195,6 +198,11 @@ export class AuthService {
       // O auto-cadastro não emite tokens de sessão: a conta nasce como
       // `morador` não aprovado e só obtém acesso após aprovação + signIn.
       const { uuid, nome, email, perfil } = usuario;
+      if (perfil !== Perfil.MORADOR) {
+        throw new Error(
+          'Invariante violada: signUp() só deve criar usuários morador.',
+        );
+      }
       return {
         usuario: { uuid, nome, email, perfil },
         message:
