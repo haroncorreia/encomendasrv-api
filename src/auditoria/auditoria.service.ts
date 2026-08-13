@@ -9,6 +9,14 @@ import { AuditoriaContext } from './interfaces/auditoria-context.interface';
 const DEFAULT_LIMIT = 20;
 const DEFAULT_PAGE = 1;
 
+/**
+ * Acima deste tamanho (em caracteres) um valor string do body deixa de ser
+ * persistido no log de auditoria — guarda-se apenas um marcador com o tamanho
+ * original. Evita gravar imagens em base64 (`imagem_base64`/`imagem_dano_base64`
+ * de encomenda), que inflavam a tabela `auditoria` em centenas de MB.
+ */
+const TAMANHO_MAX_VALOR_CHARS = 2048;
+
 export interface RegistrarAuditoriaDto {
   ctx: AuditoriaContext;
   user_mail?: string | null;
@@ -156,9 +164,17 @@ export class AuditoriaService {
   ): Record<string, unknown> {
     const CAMPOS_SENSIVEIS = ['senha', 'password', 'token', 'secret'];
     return Object.fromEntries(
-      Object.entries(obj).map(([k, v]) =>
-        CAMPOS_SENSIVEIS.includes(k.toLowerCase()) ? [k, '***'] : [k, v],
-      ),
+      Object.entries(obj).map(([k, v]): [string, unknown] => {
+        if (CAMPOS_SENSIVEIS.includes(k.toLowerCase())) {
+          return [k, '***'];
+        }
+        // Não persistir valores grandes (ex.: imagens base64 de encomenda) —
+        // preserva o restante do registro e mantém o log enxuto.
+        if (typeof v === 'string' && v.length > TAMANHO_MAX_VALOR_CHARS) {
+          return [k, `[valor omitido: ${v.length} caracteres]`];
+        }
+        return [k, v];
+      }),
     );
   }
 }
