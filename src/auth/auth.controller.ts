@@ -37,8 +37,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * Registra um novo usuário e retorna os tokens JWT.
-   * POST /auth/signup
+   * Registra um novo usuário como morador pendente de aprovação e não retorna tokens.
+   * POST /authenticate/sign-up
    */
   @Public()
   @UseGuards(ThrottlerGuard)
