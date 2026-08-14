@@ -44,6 +44,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Backups locais de env/config — nunca versionar (ex.: .env.save)
+*.save
+
 # temp directory
 .temp
 .tmp
