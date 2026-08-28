@@ -8,7 +8,10 @@ export async function up(knex: Knex): Promise<void> {
 
   await knex.schema.alterTable(TABLE, (table) => {
     if (!hasColumn) {
-      table.timestamp(COLUMN).nullable().after('justificativa_baixa_administrativa');
+      table
+        .timestamp(COLUMN)
+        .nullable()
+        .after('justificativa_baixa_administrativa');
     }
   });
 }

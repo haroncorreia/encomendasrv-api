@@ -33,6 +33,7 @@ import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
 import { EncomendaRestricaoRetirada } from './enums/encomenda-restricao-retirada.enum';
 import { EncomendaStatus } from './enums/encomenda-status.enum';
 import { Encomenda } from './interfaces/encomenda.interface';
+import type { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 
 const TABLE = 'encomendas';
 const DEFAULT_LIMIT = 50;
@@ -546,6 +547,58 @@ export class EncomendasService {
     if (filters.entregue_em_final) {
       query.andWhere('entregue_em', '<=', new Date(filters.entregue_em_final));
     }
+
+    if (filters.busca && filters.busca.trim()) {
+      const term = `%${filters.busca.trim()}%`;
+      const codeTerm = `%${filters.busca.trim()}`;
+
+      query.andWhere((builder) => {
+        builder
+          .where('uuid', 'like', codeTerm)
+          .orWhere('palavra_chave', 'like', term)
+          .orWhere('descricao', 'like', term)
+          .orWhere('codigo_rastreamento', 'like', term)
+          .orWhereIn(
+            'uuid_usuario',
+            this.knex('usuarios')
+              .where('nome', 'like', term)
+              .whereNull('deleted_at')
+              .select('uuid'),
+          )
+          .orWhereIn(
+            'uuid_unidade',
+            this.knex('unidades')
+              .where((uBuilder) => {
+                uBuilder
+                  .where('quadra', 'like', term)
+                  .orWhere('lote', 'like', term)
+                  .orWhere(
+                    this.knex.raw(
+                      "CONCAT(COALESCE(quadra, ''), COALESCE(lote, ''))",
+                    ),
+                    'like',
+                    term,
+                  )
+                  .orWhere(
+                    this.knex.raw(
+                      "CONCAT(COALESCE(quadra, ''), ' ', COALESCE(lote, ''))",
+                    ),
+                    'like',
+                    term,
+                  );
+              })
+              .whereNull('deleted_at')
+              .select('uuid'),
+          )
+          .orWhereIn(
+            'uuid_transportadora',
+            this.knex('transportadoras')
+              .where('nome', 'like', term)
+              .whereNull('deleted_at')
+              .select('uuid'),
+          );
+      });
+    }
   }
 
   private resolvePagination(pagination: PaginationEncomendasDto): {
@@ -681,35 +734,97 @@ export class EncomendasService {
   async findAll(
     user: JwtPayload,
     pagination: PaginationEncomendasDto,
-  ): Promise<EncomendaComRelacionamentos[]> {
-    const { offset, limit } = this.resolvePagination(pagination);
+  ): Promise<
+    PaginatedResult<EncomendaComRelacionamentos> | EncomendaComRelacionamentos[]
+  > {
+    const isPaginated = Boolean(
+      pagination.paginate || pagination.page !== undefined,
+    );
+    const { offset, limit, page } = this.resolvePagination(pagination);
 
     const { query } = await this.scopedListQuery(user);
+
+    if (pagination.busca || pagination.status) {
+      this.applyFilters(query, {
+        busca: pagination.busca,
+        status: pagination.status,
+      });
+    }
+
+    let total = 0;
+    if (isPaginated) {
+      const countResult = await query
+        .clone()
+        .clearSelect()
+        .clearOrder()
+        .count<{ count: string | number }>('uuid as count')
+        .first();
+      total = Number(countResult?.count ?? 0);
+    }
+
     const encomendas = await query
       .select('*')
       .orderBy('created_at', 'desc')
       .offset(offset)
       .limit(limit);
 
-    return this.enrichWithRelacionamentos(encomendas);
+    const data = await this.enrichWithRelacionamentos(encomendas);
+
+    if (isPaginated) {
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      };
+    }
+
+    return data;
   }
 
   async findByFilters(
     filters: FilterEncomendasDto,
     user: JwtPayload,
-  ): Promise<EncomendaComRelacionamentos[]> {
-    const { offset, limit } = this.resolvePagination(filters);
+  ): Promise<
+    PaginatedResult<EncomendaComRelacionamentos> | EncomendaComRelacionamentos[]
+  > {
+    const isPaginated = Boolean(filters.paginate || filters.page !== undefined);
+    const { offset, limit, page } = this.resolvePagination(filters);
 
     const { query } = await this.scopedListQuery(user);
-    query.select('*');
     this.applyFilters(query, filters);
 
+    let total = 0;
+    if (isPaginated) {
+      const countResult = await query
+        .clone()
+        .clearSelect()
+        .clearOrder()
+        .count<{ count: string | number }>('uuid as count')
+        .first();
+      total = Number(countResult?.count ?? 0);
+    }
+
     const encomendas = await query
+      .select('*')
       .orderBy('created_at', 'desc')
       .offset(offset)
       .limit(limit);
 
-    return this.enrichWithRelacionamentos(encomendas);
+    const data = await this.enrichWithRelacionamentos(encomendas);
+
+    if (isPaginated) {
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      };
+    }
+
+    return data;
   }
 
   async findPrevistas(

@@ -1,5 +1,15 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { EncomendaStatus } from '../enums/encomenda-status.enum';
 
 export class PaginationEncomendasDto {
   @IsOptional()
@@ -14,4 +24,18 @@ export class PaginationEncomendasDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  paginate?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  busca?: string;
+
+  @IsOptional()
+  @IsEnum(EncomendaStatus)
+  status?: EncomendaStatus;
 }

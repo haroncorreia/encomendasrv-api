@@ -13,6 +13,7 @@ import { EncomendaRestricaoRetirada } from '../encomendas/enums/encomenda-restri
 import { FilterEncomendasEventosDto } from './dto/filter-encomendas-eventos.dto';
 import { PaginationEncomendasEventosDto } from './dto/pagination-encomendas-eventos.dto';
 import { EncomendaEvento } from './interfaces/encomenda-evento.interface';
+import type { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 
 const TABLE = 'encomendas_eventos';
 const ENCOMENDAS_TABLE = 'encomendas';
@@ -36,6 +37,7 @@ export class EncomendasEventosService {
   }
 
   private resolvePagination(pagination: PaginationEncomendasEventosDto): {
+    page: number;
     offset: number;
     limit: number;
   } {
@@ -43,7 +45,7 @@ export class EncomendasEventosService {
     const limit = pagination.limit ?? DEFAULT_LIMIT;
     const offset = (page - 1) * limit;
 
-    return { offset, limit };
+    return { page, offset, limit };
   }
 
   private async findUsuarioAtivo(
@@ -108,6 +110,18 @@ export class EncomendasEventosService {
     if (filters.evento) {
       query.andWhere('evento', 'like', `%${filters.evento}%`);
     }
+
+    if (filters.busca && filters.busca.trim()) {
+      const term = `%${filters.busca.trim()}%`;
+      const codeTerm = `%${filters.busca.trim()}`;
+      query.andWhere((builder) => {
+        builder
+          .where('evento', 'like', term)
+          .orWhere('created_by', 'like', term)
+          .orWhere('justificativa', 'like', term)
+          .orWhere('uuid_encomenda', 'like', codeTerm);
+      });
+    }
   }
 
   async registrarEventoEmTrx(
@@ -153,24 +167,55 @@ export class EncomendasEventosService {
   async findAll(
     user: JwtPayload,
     pagination: PaginationEncomendasEventosDto,
-  ): Promise<EncomendaEvento[]> {
-    const { offset, limit } = this.resolvePagination(pagination);
+  ): Promise<PaginatedResult<EncomendaEvento> | EncomendaEvento[]> {
+    const isPaginated = Boolean(
+      pagination.paginate || pagination.page !== undefined,
+    );
+    const { offset, limit, page } = this.resolvePagination(pagination);
 
-    return this.scopedQuery(user)
+    const query = this.scopedQuery(user);
+
+    if (pagination.busca && pagination.busca.trim()) {
+      this.applyFilters(query, { busca: pagination.busca });
+    }
+
+    let total = 0;
+    if (isPaginated) {
+      const countResult = await query
+        .clone()
+        .clearSelect()
+        .clearOrder()
+        .count<{ count: string | number }>('uuid as count')
+        .first();
+      total = Number(countResult?.count ?? 0);
+    }
+
+    const data = await query
       .select('*')
       .orderBy('created_at', 'desc')
       .offset(offset)
       .limit(limit);
+
+    if (isPaginated) {
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      };
+    }
+
+    return data;
   }
 
   async findByFilters(
     filters: FilterEncomendasEventosDto,
     user: JwtPayload,
-  ): Promise<EncomendaEvento[]> {
-    const { offset, limit } = this.resolvePagination(filters);
-    const query = this.knex<EncomendaEvento>(TABLE)
-      .whereNull('deleted_at')
-      .select('*');
+  ): Promise<PaginatedResult<EncomendaEvento> | EncomendaEvento[]> {
+    const isPaginated = Boolean(filters.paginate || filters.page !== undefined);
+    const { offset, limit, page } = this.resolvePagination(filters);
+    const query = this.knex<EncomendaEvento>(TABLE).whereNull('deleted_at');
 
     if (user.perfil === Perfil.MORADOR) {
       const usuario = await this.findUsuarioAtivo(user.sub);
@@ -194,7 +239,34 @@ export class EncomendasEventosService {
 
     this.applyFilters(query, filters);
 
-    return query.orderBy('created_at', 'desc').offset(offset).limit(limit);
+    let total = 0;
+    if (isPaginated) {
+      const countResult = await query
+        .clone()
+        .clearSelect()
+        .clearOrder()
+        .count<{ count: string | number }>('uuid as count')
+        .first();
+      total = Number(countResult?.count ?? 0);
+    }
+
+    const data = await query
+      .select('*')
+      .orderBy('created_at', 'desc')
+      .offset(offset)
+      .limit(limit);
+
+    if (isPaginated) {
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      };
+    }
+
+    return data;
   }
 
   async findOne(uuid: string, user: JwtPayload): Promise<EncomendaEvento> {

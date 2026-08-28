@@ -45,11 +45,13 @@ export const throttlerOptions: ThrottlerModuleOptions = {
   ],
 };
 
-// Limites por rota (aplicados via @Throttle no AuthController).
 export const THROTTLE_SIGN_IN = {
   ip: {
     ttl: seconds(60),
-    limit: numEnv(process.env.THROTTLE_SIGNIN_LIMIT, 10),
+    limit: numEnv(
+      process.env.THROTTLE_SIGNIN_LIMIT,
+      process.env.NODE_ENV === 'production' ? 10 : 100,
+    ),
   },
 };
 export const THROTTLE_SIGN_UP = { ip: { ttl: hours(1), limit: 5 } };

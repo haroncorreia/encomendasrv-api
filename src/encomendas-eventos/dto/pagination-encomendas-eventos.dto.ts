@@ -1,5 +1,13 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class PaginationEncomendasEventosDto {
   @IsOptional()
@@ -14,4 +22,14 @@ export class PaginationEncomendasEventosDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  paginate?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  busca?: string;
 }

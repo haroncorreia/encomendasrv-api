@@ -46,10 +46,6 @@ export class FilterEncomendasDto extends PaginationEncomendasDto {
   codigo_rastreamento?: string;
 
   @IsOptional()
-  @IsEnum(EncomendaStatus)
-  status?: EncomendaStatus;
-
-  @IsOptional()
   @IsUUID('4')
   recebido_por_uuid_usuario?: string;
 

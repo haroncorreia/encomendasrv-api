@@ -231,7 +231,8 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
         uuid: 'enc-baixa-1',
         uuid_usuario: 'morador-1',
         status: EncomendaStatus.RETIRADA,
-        justificativa_baixa_administrativa: 'Recebido diretamente pela administração',
+        justificativa_baixa_administrativa:
+          'Recebido diretamente pela administração',
         baixa_administrativa_em: new Date('2026-01-15T10:00:00.000Z'),
       } as any);
 
@@ -239,7 +240,11 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       const whereMock = jest.fn().mockReturnValue({ update: updateMock });
       mockKnex.mockReturnValue({ where: whereMock });
 
-      await service.update('enc-baixa-1', { descricao: 'Correção de texto' }, userAdmin);
+      await service.update(
+        'enc-baixa-1',
+        { descricao: 'Correção de texto' },
+        userAdmin,
+      );
 
       const payload = updateMock.mock.calls[0][0];
       expect(payload).not.toHaveProperty('baixa_administrativa_em');
@@ -267,7 +272,9 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       await service.update('enc-1', dto, userAdmin);
 
       const payload = updateMock.mock.calls[0][0];
-      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.UNIDADE);
+      expect(payload.restricao_retirada).toBe(
+        EncomendaRestricaoRetirada.UNIDADE,
+      );
     });
 
     it('não deve incluir restricao_retirada no payload quando o campo não é informado no PATCH', async () => {
@@ -288,7 +295,11 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       const whereMock = jest.fn().mockReturnValue({ update: updateMock });
       mockKnex.mockReturnValue({ where: whereMock });
 
-      await service.update('enc-1', { descricao: 'Correção de texto' }, userAdmin);
+      await service.update(
+        'enc-1',
+        { descricao: 'Correção de texto' },
+        userAdmin,
+      );
 
       const payload = updateMock.mock.calls[0][0];
       expect(payload).not.toHaveProperty('restricao_retirada');
@@ -317,8 +328,12 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
     };
 
     beforeEach(() => {
-      jest.spyOn(service as any, 'findUsuarioAtivo').mockResolvedValue(actorMorador);
-      jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({ uuid: 'nova-enc' } as any);
+      jest
+        .spyOn(service as any, 'findUsuarioAtivo')
+        .mockResolvedValue(actorMorador);
+      jest
+        .spyOn(service, 'findActiveByUuid')
+        .mockResolvedValue({ uuid: 'nova-enc' } as any);
     });
 
     it('deve salvar restricao_retirada=unidade quando o campo não é informado na criação (card #9)', async () => {
@@ -328,7 +343,9 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       await service.create(dto, userMorador);
 
       const payload = insertMock.mock.calls[0][0];
-      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.UNIDADE);
+      expect(payload.restricao_retirada).toBe(
+        EncomendaRestricaoRetirada.UNIDADE,
+      );
     });
 
     it('deve preservar restricao_retirada=pessoal quando informado explicitamente na criação', async () => {
@@ -341,7 +358,240 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       await service.create(dto, userMorador);
 
       const payload = insertMock.mock.calls[0][0];
-      expect(payload.restricao_retirada).toBe(EncomendaRestricaoRetirada.PESSOAL);
+      expect(payload.restricao_retirada).toBe(
+        EncomendaRestricaoRetirada.PESSOAL,
+      );
+    });
+  });
+
+  describe('findAll e findByFilters (Dual-mode Pagination & Busca)', () => {
+    const userAdmin = {
+      sub: 'admin-1',
+      email: 'admin@condominio.com',
+      perfil: Perfil.ADMIN,
+      uuid_condominio: 'condo-123',
+    } as any;
+
+    it('deve retornar Array cru quando chamado sem parâmetro de paginação (cliente legado)', async () => {
+      const mockEncomendas = [{ uuid: 'enc-1', status: 'recebida' }] as any[];
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findAll(userAdmin, {});
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result).toEqual(mockEncomendas);
+    });
+
+    it('deve retornar envelope PaginatedResult quando chamado com paginate=true', async () => {
+      const mockEncomendas = [{ uuid: 'enc-1', status: 'recebida' }] as any[];
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+        clone: jest.fn().mockReturnValue({
+          clearSelect: jest.fn().mockReturnThis(),
+          clearOrder: jest.fn().mockReturnThis(),
+          count: jest.fn().mockReturnValue({
+            first: jest.fn().mockResolvedValue({ count: 42 }),
+          }),
+        }),
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findAll(userAdmin, {
+        paginate: true,
+        page: 2,
+        limit: 10,
+      });
+
+      expect(Array.isArray(result)).toBe(false);
+      expect(result).toEqual({
+        data: mockEncomendas,
+        total: 42,
+        page: 2,
+        limit: 10,
+        totalPages: 5,
+      });
+    });
+
+    it('deve retornar envelope PaginatedResult no findByFilters com busca', async () => {
+      const mockEncomendas = [
+        { uuid: 'enc-2', status: 'aguardando retirada' },
+      ] as any[];
+      const andWhereMock = jest.fn();
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+        andWhere: andWhereMock,
+        clone: jest.fn().mockReturnValue({
+          clearSelect: jest.fn().mockReturnThis(),
+          clearOrder: jest.fn().mockReturnThis(),
+          count: jest.fn().mockReturnValue({
+            first: jest.fn().mockResolvedValue({ count: 1 }),
+          }),
+        }),
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findByFilters(
+        {
+          paginate: true,
+          busca: '12345',
+          page: 1,
+          limit: 15,
+        },
+        userAdmin,
+      );
+
+      expect(result).toEqual({
+        data: mockEncomendas,
+        total: 1,
+        page: 1,
+        limit: 15,
+        totalPages: 1,
+      });
+      expect(andWhereMock).toHaveBeenCalled();
+    });
+
+    it('deve aplicar filtro de status no findAll quando informado', async () => {
+      const mockEncomendas = [
+        { uuid: 'enc-prevista', status: EncomendaStatus.PREVISTA },
+      ] as any[];
+      const andWhereMock = jest.fn();
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+        andWhere: andWhereMock,
+        clone: jest.fn().mockReturnValue({
+          clearSelect: jest.fn().mockReturnThis(),
+          clearOrder: jest.fn().mockReturnThis(),
+          count: jest.fn().mockReturnValue({
+            first: jest.fn().mockResolvedValue({ count: 1 }),
+          }),
+        }),
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findAll(userAdmin, {
+        paginate: true,
+        status: EncomendaStatus.PREVISTA,
+        page: 1,
+        limit: 10,
+      });
+
+      expect(result).toEqual({
+        data: mockEncomendas,
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      });
+      expect(andWhereMock).toHaveBeenCalledWith(
+        'status',
+        EncomendaStatus.PREVISTA,
+      );
+    });
+
+    it('deve retornar Array cru no findByFilters quando cliente legado não envia parâmetros de paginação', async () => {
+      const mockEncomendas = [
+        { uuid: 'enc-filtro-legado', status: EncomendaStatus.PREVISTA },
+      ] as any[];
+      const andWhereMock = jest.fn();
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+        andWhere: andWhereMock,
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findByFilters(
+        {
+          status: EncomendaStatus.PREVISTA,
+        },
+        userAdmin,
+      );
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result).toEqual(mockEncomendas);
+      expect(andWhereMock).toHaveBeenCalledWith(
+        'status',
+        EncomendaStatus.PREVISTA,
+      );
+    });
+
+    it('deve retornar Array cru no findAll quando cliente legado envia apenas status sem paginação', async () => {
+      const mockEncomendas = [
+        { uuid: 'enc-legado-status', status: EncomendaStatus.RECEBIDA },
+      ] as any[];
+      const andWhereMock = jest.fn();
+      const queryMock: any = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        offset: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockEncomendas),
+        andWhere: andWhereMock,
+      };
+
+      jest
+        .spyOn(service as any, 'scopedListQuery')
+        .mockResolvedValue({ query: queryMock });
+      jest
+        .spyOn(service as any, 'enrichWithRelacionamentos')
+        .mockResolvedValue(mockEncomendas);
+
+      const result = await service.findAll(userAdmin, {
+        status: EncomendaStatus.RECEBIDA,
+      });
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result).toEqual(mockEncomendas);
+      expect(andWhereMock).toHaveBeenCalledWith(
+        'status',
+        EncomendaStatus.RECEBIDA,
+      );
     });
   });
 });
