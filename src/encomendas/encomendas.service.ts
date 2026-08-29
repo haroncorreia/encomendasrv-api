@@ -1243,6 +1243,7 @@ export class EncomendasService {
           tabelaReferencia: TABLE,
           statusMomentoCaptura: EncomendaStatus.RECEBIDA,
           actorEmail: user.email,
+          tipoImagem: 'comum',
         },
         trx,
       );
@@ -1257,6 +1258,7 @@ export class EncomendasService {
           tabelaReferencia: TABLE,
           statusMomentoCaptura: EncomendaStatus.RECEBIDA,
           actorEmail: user.email,
+          tipoImagem: 'dano',
         },
         trx,
       );
@@ -1430,6 +1432,7 @@ export class EncomendasService {
             tabelaReferencia: TABLE,
             statusMomentoCaptura: EncomendaStatus.RECEBIDA,
             actorEmail: user.email,
+            tipoImagem: 'comum',
           },
           trx,
         );
@@ -1444,6 +1447,7 @@ export class EncomendasService {
             tabelaReferencia: TABLE,
             statusMomentoCaptura: EncomendaStatus.RECEBIDA,
             actorEmail: user.email,
+            tipoImagem: 'dano',
           },
           trx,
         );
@@ -1552,6 +1556,7 @@ export class EncomendasService {
             tabelaReferencia: TABLE,
             statusMomentoCaptura: EncomendaStatus.RETIRADA,
             actorEmail: user.email,
+            tipoImagem: 'comum',
           },
           trx,
         );
@@ -1566,6 +1571,7 @@ export class EncomendasService {
             tabelaReferencia: TABLE,
             statusMomentoCaptura: EncomendaStatus.RETIRADA,
             actorEmail: user.email,
+            tipoImagem: 'dano',
           },
           trx,
         );

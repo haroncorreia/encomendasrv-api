@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto';
 import {
   existsSync,
   mkdirSync,
-  renameSync,
+  readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
   createReadStream,
@@ -19,7 +20,9 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import type { CoordenadasImagemDto } from './dto/coordenadas-imagem.dto';
 import type { ImagemMetadadosDto } from './dto/imagem-metadados.dto';
+import type { TipoImagemEncomenda } from './imagens.constants';
 import type { Imagem } from './interfaces/imagem.interface';
+import { processarImagem } from './processamento-imagem.util';
 
 const TABLE = 'imagens';
 const TIPOS_PERMITIDOS = ['jpeg', 'jpg', 'png', 'webp'];
@@ -32,6 +35,12 @@ export interface SalvarImagemBase64Params {
   tabelaReferencia: string;
   statusMomentoCaptura?: string | null;
   actorEmail: string;
+  /**
+   * Tipo da imagem, derivado do campo do DTO que a transportou
+   * (`imagem_dano_base64` -> 'dano'). Nunca inferido de `nome_original`:
+   * o prefixo `dano_` é convenção de apresentação do app legado.
+   */
+  tipoImagem?: TipoImagemEncomenda;
 }
 
 export interface SalvarImagemArquivoParams {
@@ -45,9 +54,11 @@ interface PersistirParams {
   nomeArquivo: string;
   nomeOriginal: string;
   tipo: string;
+  /** Medidos do arquivo efetivamente gravado, nunca copiados do DTO. */
   tamanho: number;
   altura: number | null;
   largura: number | null;
+  comprimida: boolean;
   coordenadas: CoordenadasImagemDto | undefined;
   caminho: string;
   uuidReferencia: string;
@@ -130,6 +141,7 @@ export class ImagensService {
       tabelaReferencia,
       actorEmail,
       statusMomentoCaptura,
+      tipoImagem = 'comum',
     } = params;
 
     const tipoNormalizado = this.normalizarTipo(metadados.tipo);
@@ -159,17 +171,22 @@ export class ImagensService {
       mkdirSync(diretorioAbsoluto, { recursive: true });
     }
 
-    writeFileSync(caminhoAbsoluto, buffer);
+    const processada = await processarImagem(buffer, tipoImagem);
+
+    writeFileSync(caminhoAbsoluto, processada.buffer);
 
     try {
       return await this.persistir(
         {
           nomeArquivo,
+          // `nome_original` é gravado sem transformação: o app legado usa o
+          // prefixo `dano_` como regra de negócio.
           nomeOriginal: metadados.nome,
           tipo,
-          tamanho: buffer.length,
-          altura: metadados.altura ?? null,
-          largura: metadados.largura ?? null,
+          tamanho: statSync(caminhoAbsoluto).size,
+          altura: processada.altura,
+          largura: processada.largura,
+          comprimida: processada.comprimida,
           coordenadas: metadados.coordenadas,
           caminho: caminhoRel,
           uuidReferencia,
@@ -206,7 +223,15 @@ export class ImagensService {
       mkdirSync(diretorioAbsoluto, { recursive: true });
     }
 
-    renameSync(origemAbsoluta, caminhoAbsoluto);
+    // A rota multipart não distingue foto de dano; o limite comum é o default
+    // seguro.
+    const processada = await processarImagem(
+      readFileSync(origemAbsoluta),
+      'comum',
+    );
+
+    writeFileSync(caminhoAbsoluto, processada.buffer);
+    unlinkSync(origemAbsoluta);
 
     try {
       return await this.persistir(
@@ -214,9 +239,10 @@ export class ImagensService {
           nomeArquivo: arquivo.filename,
           nomeOriginal: arquivo.originalname,
           tipo,
-          tamanho: arquivo.size,
-          altura: null,
-          largura: null,
+          tamanho: statSync(caminhoAbsoluto).size,
+          altura: processada.altura,
+          largura: processada.largura,
+          comprimida: processada.comprimida,
           coordenadas: undefined,
           caminho: caminhoRel,
           uuidReferencia,
@@ -251,6 +277,7 @@ export class ImagensService {
       tamanho: params.tamanho,
       altura: params.altura,
       largura: params.largura,
+      comprimida: params.comprimida,
       latitude: params.coordenadas?.latitude ?? null,
       longitude: params.coordenadas?.longitude ?? null,
       accuracy: params.coordenadas?.accuracy ?? null,
@@ -312,7 +339,9 @@ export class ImagensService {
     return new StreamableFile(createReadStream(caminhoAbsoluto), {
       type: `image/${imagem.tipo}`,
       disposition: 'inline',
-      length: imagem.tamanho,
+      // Lido do disco, e não da coluna `tamanho`: o Content-Length precisa
+      // descrever o arquivo realmente servido, sob qualquer circunstância.
+      length: statSync(caminhoAbsoluto).size,
     });
   }
 
