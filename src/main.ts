@@ -1,3 +1,12 @@
+import { webcrypto } from 'node:crypto';
+
+// Node 18 só expõe o global `crypto` (Web Crypto API) em modo eval/REPL,
+// não ao executar um arquivo — @nestjs/schedule usa `crypto.randomUUID()`
+// sem importar o módulo, então precisa do polyfill antes do Nest inicializar.
+if (!globalThis.crypto) {
+  (globalThis as unknown as { crypto: typeof webcrypto }).crypto = webcrypto;
+}
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { json, urlencoded } from 'express';
