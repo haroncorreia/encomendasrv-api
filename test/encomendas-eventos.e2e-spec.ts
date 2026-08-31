@@ -258,9 +258,9 @@ describe('EncomendasEventosModule (e2e)', () => {
       request(app.getHttpServer()).get(BASE_URL).query({ page: 2, limit: 10 }),
     ).expect(200);
 
-    expect(page1.body).toHaveLength(10);
-    expect(page2.body).toHaveLength(10);
-    expect(page1.body[0].uuid).not.toBe(page2.body[0].uuid);
+    expect(page1.body.data).toHaveLength(10);
+    expect(page2.body.data).toHaveLength(10);
+    expect(page1.body.data[0].uuid).not.toBe(page2.body.data[0].uuid);
   });
 
   it('GET /encomendas-eventos/filter deve aplicar filtros e limite padrão de 50', async () => {

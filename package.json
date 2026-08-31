@@ -1,6 +1,6 @@
 {
   "name": "encomendasrv-api",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "API de suporte ao aplicativo de gestão de encomendas do condomínio Recanto Verde.",
   "productName": "Encomendas RV API",
   "author": "Halgoritmo <contato@halgoritmo.com.br>",

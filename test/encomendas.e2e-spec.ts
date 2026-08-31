@@ -341,9 +341,9 @@ describe('EncomendasModule (e2e)', () => {
       request(app.getHttpServer()).get(BASE_URL).query({ page: 2, limit: 10 }),
     ).expect(200);
 
-    expect(page1.body).toHaveLength(10);
-    expect(page2.body).toHaveLength(10);
-    expect(page1.body[0].uuid).not.toBe(page2.body[0].uuid);
+    expect(page1.body.data).toHaveLength(10);
+    expect(page2.body.data).toHaveLength(10);
+    expect(page1.body.data[0].uuid).not.toBe(page2.body.data[0].uuid);
   });
 
   it('GET /encomendas deve restringir o morador às próprias encomendas', async () => {
@@ -465,9 +465,9 @@ describe('EncomendasModule (e2e)', () => {
         .query({ palavra_chave: 'PAGINACAO_DEFAULT', page: 2, limit: 10 }),
     ).expect(200);
 
-    expect(page1.body).toHaveLength(10);
-    expect(page2.body).toHaveLength(10);
-    expect(page1.body[0].uuid).not.toBe(page2.body[0].uuid);
+    expect(page1.body.data).toHaveLength(10);
+    expect(page2.body.data).toHaveLength(10);
+    expect(page1.body.data[0].uuid).not.toBe(page2.body.data[0].uuid);
   });
 
   it('GET /encomendas/filter deve manter o escopo do morador mesmo com filtros', async () => {
