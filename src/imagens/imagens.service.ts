@@ -354,9 +354,9 @@ export class ImagensService {
     const qb = trx ?? this.knex;
 
     await qb<Imagem>(TABLE).where({ uuid }).update({
-      deleted_at: new Date(),
+      deleted_at: this.knex.fn.now(),
       deleted_by: actorEmail,
-      updated_at: new Date(),
+      updated_at: this.knex.fn.now(),
       updated_by: actorEmail,
     });
   }
@@ -382,7 +382,7 @@ export class ImagensService {
     await qb<Imagem>(TABLE).where({ uuid }).update({
       deleted_at: null,
       deleted_by: null,
-      updated_at: new Date(),
+      updated_at: this.knex.fn.now(),
       updated_by: actorEmail,
     });
 
