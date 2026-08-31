@@ -1,4 +1,5 @@
 import { existsSync, rmSync } from 'fs';
+import sharp from 'sharp';
 import { join } from 'path';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,8 +23,11 @@ let UUID_MORADOR: string;
 let UUID_SEED_ENCOMENDA: string;
 let UUID_ENCOMENDA_SEM_IMAGEM: string;
 
-const FAKE_JPEG_BUFFER = Buffer.from('fake-jpeg-binary-content-for-e2e-test');
-const FAKE_JPEG_BASE64 = FAKE_JPEG_BUFFER.toString('base64');
+// JPEG real: o servidor agora mede as dimensões do arquivo em vez de copiá-las
+// do DTO, então o payload precisa ser decodificável. 1920x2560 cai para
+// 960x1280 no limite de imagem comum, exercitando a compressão.
+let FAKE_JPEG_BUFFER: Buffer;
+let FAKE_JPEG_BASE64: string;
 
 const buildImagemPayload = () => ({
   imagem_base64: FAKE_JPEG_BASE64,
@@ -56,6 +60,18 @@ describe('ImagensModule (e2e)', () => {
   let encomendaComImagemUuid: string;
 
   beforeAll(async () => {
+    FAKE_JPEG_BUFFER = await sharp({
+      create: {
+        width: 1920,
+        height: 2560,
+        channels: 3,
+        background: { r: 130, g: 90, b: 50 },
+      },
+    })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+    FAKE_JPEG_BASE64 = FAKE_JPEG_BUFFER.toString('base64');
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

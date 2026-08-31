@@ -9,6 +9,8 @@ export interface Imagem {
   tamanho: number;
   altura: number | null;
   largura: number | null;
+  /** Null para imagens gravadas antes da vigência da otimização. */
+  comprimida: boolean | null;
   latitude: number | null;
   longitude: number | null;
   accuracy: number | null;
