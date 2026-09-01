@@ -663,6 +663,88 @@ describe('UsuariosModule (e2e)', () => {
     ).expect(403);
   });
 
+  it('GET /usuarios/porteiros deve retornar 200 para super, admin e portaria, listando apenas porteiros', async () => {
+    const superRes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(200);
+
+    const adminRes = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(200);
+
+    const portariaRes = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(200);
+
+    for (const res of [superRes, adminRes, portariaRes]) {
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(
+        res.body.every((u: { perfil: string }) => u.perfil === 'portaria'),
+      ).toBe(true);
+      expect(
+        res.body.some((u: { uuid: string }) => u.uuid === portariaUuid),
+      ).toBe(true);
+      expect(res.body[0]?.senha).toBeUndefined();
+      expect(res.body[0]?.activation_code_hash).toBeUndefined();
+      expect(res.body[0]?.reset_password_token_hash).toBeUndefined();
+      expect(res.body[0]?.refresh_token_hash).toBeUndefined();
+    }
+  });
+
+  it('GET /usuarios/porteiros deve retornar 403 para perfil morador', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(403);
+  });
+
+  it('GET /usuarios/porteiros não deve incluir porteiro com acesso revogado', async () => {
+    const novoPorteiroRes = await auth(
+      superToken,
+      request(app.getHttpServer()).post(BASE_URL).send({
+        nome: 'Porteiro Revogado Teste',
+        email: 'usuarios.porteiro.revogado@teste.com',
+        celular: '11881111913',
+        cpf_cnpj: '11881111913',
+        senha: 'Senha@123',
+        perfil: 'portaria',
+        unidade: SEED_UNIDADE,
+      }),
+    ).expect(201);
+
+    const porteiroRevogadoUuid = novoPorteiroRes.body.uuid as string;
+
+    const listaAntes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(200);
+    expect(
+      listaAntes.body.some(
+        (u: { uuid: string }) => u.uuid === porteiroRevogadoUuid,
+      ),
+    ).toBe(true);
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(
+        `${BASE_URL}/${porteiroRevogadoUuid}/revoke-user`,
+      ),
+    ).expect(200);
+
+    const listaDepois = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/porteiros`),
+    ).expect(200);
+    expect(
+      listaDepois.body.some(
+        (u: { uuid: string }) => u.uuid === porteiroRevogadoUuid,
+      ),
+    ).toBe(false);
+  });
+
   // Rotas PATCH
 
   it('PATCH /usuarios/:id deve retornar 200 e modificar o próprio usuário', async () => {
