@@ -251,7 +251,12 @@ describe('EncomendasModule (e2e)', () => {
     UUID_SEED_CANCELADA_SHP321 = shpResp.body.uuid as string;
   });
 
+  const usuariosRevogadosCriados: string[] = [];
+
   afterAll(async () => {
+    if (usuariosRevogadosCriados.length > 0) {
+      await knex('usuarios').whereIn('uuid', usuariosRevogadosCriados).del();
+    }
     await app.close();
     await knex.destroy();
   });
@@ -264,6 +269,7 @@ describe('EncomendasModule (e2e)', () => {
     uuidUnidade: string | null = null,
   ): Promise<string> {
     const uuid = randomUUID();
+    usuariosRevogadosCriados.push(uuid);
     await knex('usuarios').insert({
       uuid,
       uuid_condominio: UUID_CONDOMINIO,

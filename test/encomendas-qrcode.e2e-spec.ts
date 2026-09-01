@@ -323,21 +323,12 @@ describe('Encomendas QRCode (e2e)', () => {
         }),
     ).expect(201);
 
-    const outroMorador = await knex('usuarios')
-      .where({ perfil: 'morador' })
-      .whereNot('uuid', UUID_MORADOR)
-      .whereNull('deleted_at')
-      .whereNotNull('uuid_unidade')
-      .first('uuid');
-
-    expect(outroMorador).toBeTruthy();
-
     const createdOutro = await auth(
       portariaToken,
       request(app.getHttpServer())
         .post(BASE_URL)
         .send({
-          uuid_usuario: outroMorador.uuid as string,
+          uuid_usuario: UUID_MORADOR_2,
           recebido_por_uuid_usuario: UUID_PORTARIA,
           palavra_chave: 'QRCodeLoteBloqueado',
           codigo_rastreamento: `QRLX-${Date.now()}`,

@@ -227,7 +227,15 @@ describe('UsuariosModule (e2e)', () => {
     roleMoradorTargetUuid = morador2Usuario.uuid as string;
   });
 
+  const usuariosRevogadosCriados: string[] = [];
+
   afterAll(async () => {
+    if (usuariosRevogadosCriados.length > 0) {
+      await knex('notificacoes')
+        .whereIn('uuid_usuario', usuariosRevogadosCriados)
+        .del();
+      await knex('usuarios').whereIn('uuid', usuariosRevogadosCriados).del();
+    }
     await app.close();
     await knex.destroy();
   });
@@ -677,6 +685,7 @@ describe('UsuariosModule (e2e)', () => {
       .expect(201);
 
     const moradorRevogadoUuid = novoMoradorRes.body.usuario.uuid as string;
+    usuariosRevogadosCriados.push(moradorRevogadoUuid);
 
     await auth(
       superToken,
@@ -766,6 +775,7 @@ describe('UsuariosModule (e2e)', () => {
     ).expect(201);
 
     const porteiroRevogadoUuid = novoPorteiroRes.body.uuid as string;
+    usuariosRevogadosCriados.push(porteiroRevogadoUuid);
 
     const listaAntes = await auth(
       superToken,
