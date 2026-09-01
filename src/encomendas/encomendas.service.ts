@@ -44,6 +44,7 @@ interface UsuarioLookup {
   uuid_condominio: string;
   uuid_unidade: string;
   perfil: Perfil;
+  aproved_at: Date | null;
 }
 
 type UsuarioEncomendaInfo = Pick<
@@ -290,7 +291,7 @@ export class EncomendasService {
     const usuario = await qb<UsuarioLookup>('usuarios')
       .where({ uuid })
       .whereNull('deleted_at')
-      .select('uuid', 'uuid_condominio', 'uuid_unidade', 'perfil')
+      .select('uuid', 'uuid_condominio', 'uuid_unidade', 'perfil', 'aproved_at')
       .first();
 
     if (!usuario) {
@@ -300,12 +301,29 @@ export class EncomendasService {
     return usuario;
   }
 
+  /**
+   * Só deve ser chamado para uuids que chegam via DTO (referenciando outro
+   * usuário como recebedor/entregador/destinatário) — nunca para o lookup do
+   * próprio ator (`user.sub`), cuja validade de sessão é tratada à parte.
+   */
+  private assertUsuarioComAcessoAtivo(
+    usuario: UsuarioLookup,
+    field: string,
+  ): void {
+    if (!usuario.aproved_at) {
+      throw new BadRequestException(
+        `O campo ${field} deve referenciar um usuário com acesso ativo (não revogado).`,
+      );
+    }
+  }
+
   private async validateUsuarioPortaria(
     uuid: string,
     field: 'recebido_por_uuid_usuario' | 'entregue_por_uuid_usuario',
     trx?: Knex.Transaction,
   ): Promise<string> {
     const usuario = await this.findUsuarioAtivo(uuid, trx);
+    this.assertUsuarioComAcessoAtivo(usuario, field);
 
     if (usuario.perfil !== Perfil.PORTARIA) {
       throw new BadRequestException(
@@ -331,6 +349,10 @@ export class EncomendasService {
     const usuarioEntreguePara = await this.findUsuarioAtivo(
       uuidEntreguePara,
       trx,
+    );
+    this.assertUsuarioComAcessoAtivo(
+      usuarioEntreguePara,
+      'entregue_para_uuid_usuario',
     );
 
     if (usuarioEntreguePara.perfil !== Perfil.MORADOR) {
@@ -1122,6 +1144,7 @@ export class EncomendasService {
       }
 
       const usuarioDestino = await this.findUsuarioAtivo(dto.uuid_usuario, trx);
+      this.assertUsuarioComAcessoAtivo(usuarioDestino, 'uuid_usuario');
 
       if (usuarioDestino.perfil !== Perfil.MORADOR) {
         throw new BadRequestException(
@@ -1169,6 +1192,7 @@ export class EncomendasService {
           dto.uuid_usuario,
           trx,
         );
+        this.assertUsuarioComAcessoAtivo(usuarioDestino, 'uuid_usuario');
         uuidUsuarioEncomenda = usuarioDestino.uuid;
         uuidUnidadeEncomenda = usuarioDestino.uuid_unidade;
       }

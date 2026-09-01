@@ -162,6 +162,7 @@ export class UsuariosService {
   async findMoradores(): Promise<UsuarioComCondominio[]> {
     const usuarios = await this.query
       .where({ perfil: Perfil.MORADOR })
+      .whereNotNull('aproved_at')
       .select('*')
       .orderBy('created_at', 'desc');
     return this.enrichWithRelations(usuarios);

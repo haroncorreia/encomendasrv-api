@@ -133,6 +133,8 @@ describe('EncomendasModule (e2e)', () => {
         celular: null,
         senha: 'hash_teste',
         perfil: 'morador',
+        aproved_at: new Date(),
+        aproved_by_uuid_usuario: null,
         activation_code_hash: null,
         activation_code_exp: null,
         activated_at: null,
@@ -256,6 +258,39 @@ describe('EncomendasModule (e2e)', () => {
 
   const auth = (token: string, req: request.Test) =>
     req.set('Authorization', `Bearer ${token}`);
+
+  async function criarUsuarioComAcessoRevogado(
+    perfil: 'portaria' | 'morador',
+    uuidUnidade: string | null = null,
+  ): Promise<string> {
+    const uuid = randomUUID();
+    await knex('usuarios').insert({
+      uuid,
+      uuid_condominio: UUID_CONDOMINIO,
+      uuid_unidade: uuidUnidade,
+      nome: `Usuario Acesso Revogado Teste ${uuid}`,
+      cpf_cnpj: String(Date.now()).slice(-11),
+      rg: null,
+      email: `revogado-${uuid}@teste.local`,
+      celular: null,
+      senha: 'hash_teste',
+      perfil,
+      aproved_at: null,
+      aproved_by_uuid_usuario: null,
+      activation_code_hash: null,
+      activation_code_exp: null,
+      activated_at: null,
+      reset_password_token_hash: null,
+      reset_password_exp: null,
+      refresh_token_hash: null,
+      refresh_token_exp: null,
+      created_by: 'test',
+      updated_by: 'test',
+      deleted_at: null,
+      deleted_by: null,
+    });
+    return uuid;
+  }
 
   it('GET /encomendas deve retornar 401 sem autenticação', async () => {
     await request(app.getHttpServer()).get(BASE_URL).expect(401);
@@ -1403,5 +1438,83 @@ describe('EncomendasModule (e2e)', () => {
 
     expect(res.body).toHaveLength(1);
     expect(res.body[0].uuid).toBe(UUID_SEED_RETIRADA_MORADOR);
+  });
+
+  it('POST /encomendas deve rejeitar recebido_por_uuid_usuario de porteiro com acesso revogado', async () => {
+    const porteiroRevogadoUuid =
+      await criarUsuarioComAcessoRevogado('portaria');
+
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          palavra_chave: 'RecebedorRevogado',
+          codigo_rastreamento: `RCV-${Date.now()}`,
+          recebido_por_uuid_usuario: porteiroRevogadoUuid,
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toContain('acesso ativo');
+  });
+
+  it('POST /encomendas deve rejeitar uuid_usuario de morador com acesso revogado', async () => {
+    const moradorUnidade = await knex('usuarios')
+      .where({ uuid: UUID_MORADOR })
+      .first('uuid_unidade');
+    const moradorRevogadoUuid = await criarUsuarioComAcessoRevogado(
+      'morador',
+      moradorUnidade.uuid_unidade as string,
+    );
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: moradorRevogadoUuid,
+          palavra_chave: 'DestinatarioRevogado',
+          codigo_rastreamento: `DTR-${Date.now()}`,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toContain('acesso ativo');
+  });
+
+  it('PATCH /encomendas/:id/update-status deve rejeitar entregue_para_uuid_usuario de morador com acesso revogado', async () => {
+    const moradorUnidade = await knex('usuarios')
+      .where({ uuid: UUID_MORADOR })
+      .first('uuid_unidade');
+    const moradorRevogadoUuid = await criarUsuarioComAcessoRevogado(
+      'morador',
+      moradorUnidade.uuid_unidade as string,
+    );
+
+    const created = await auth(
+      adminToken,
+      request(app.getHttpServer())
+        .post(BASE_URL)
+        .send({
+          uuid_usuario: UUID_MORADOR,
+          recebido_por_uuid_usuario: UUID_PORTARIA,
+          palavra_chave: 'RetiradaRevogado',
+          codigo_rastreamento: `RTR-${Date.now()}`,
+          restricao_retirada: 'unidade',
+        }),
+    ).expect(201);
+
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${created.body.uuid as string}/update-status`)
+        .send({
+          status: 'retirada',
+          entregue_para_uuid_usuario: moradorRevogadoUuid,
+        }),
+    ).expect(400);
+
+    expect(res.body.message).toContain('acesso ativo');
   });
 });

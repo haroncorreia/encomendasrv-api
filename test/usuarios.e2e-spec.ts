@@ -663,6 +663,56 @@ describe('UsuariosModule (e2e)', () => {
     ).expect(403);
   });
 
+  it('GET /usuarios/moradores não deve incluir morador com acesso revogado', async () => {
+    const novoMoradorRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Morador Revogado Teste',
+        email: 'usuarios.morador.revogado@teste.com',
+        celular: '11881111914',
+        cpf_cnpj: '11881111914',
+        senha: 'Senha@123',
+        unidade: SEED_UNIDADE,
+      })
+      .expect(201);
+
+    const moradorRevogadoUuid = novoMoradorRes.body.usuario.uuid as string;
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(
+        `${BASE_URL}/${moradorRevogadoUuid}/aprove-user`,
+      ),
+    ).expect(200);
+
+    const listaAntes = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+    expect(
+      listaAntes.body.some(
+        (u: { uuid: string }) => u.uuid === moradorRevogadoUuid,
+      ),
+    ).toBe(true);
+
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(
+        `${BASE_URL}/${moradorRevogadoUuid}/revoke-user`,
+      ),
+    ).expect(200);
+
+    const listaDepois = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+    expect(
+      listaDepois.body.some(
+        (u: { uuid: string }) => u.uuid === moradorRevogadoUuid,
+      ),
+    ).toBe(false);
+  });
+
   it('GET /usuarios/porteiros deve retornar 200 para super, admin e portaria, listando apenas porteiros', async () => {
     const superRes = await auth(
       superToken,
