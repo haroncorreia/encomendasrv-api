@@ -40,6 +40,7 @@ export class UsuariosController {
   ) {}
 
   @Get()
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
   async findAll(@CurrentUser() user: JwtPayload) {
     const result = await this.usuariosService.findAll();
     if (user.perfil === Perfil.SUPER) return result;

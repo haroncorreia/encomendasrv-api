@@ -593,6 +593,19 @@ describe('UsuariosModule (e2e)', () => {
     expect(item.senha).toBeUndefined();
   });
 
+  it('GET /usuarios deve retornar 403 para perfil morador', async () => {
+    await auth(moradorToken, request(app.getHttpServer()).get(BASE_URL)).expect(
+      403,
+    );
+  });
+
+  it('GET /usuarios deve retornar 403 para perfil portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(403);
+  });
+
   it('GET /usuarios/:id deve retornar 200 com o condomínio e unidade vinculados', async () => {
     const res = await auth(
       superToken,
