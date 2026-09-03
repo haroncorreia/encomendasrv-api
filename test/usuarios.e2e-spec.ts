@@ -639,6 +639,47 @@ describe('UsuariosModule (e2e)', () => {
       request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
     ).expect(404);
   });
+
+  it('GET /usuarios/:id deve retornar 200 ao consultar o próprio perfil (morador)', async () => {
+    const res = await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${moradorUuid}`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(moradorUuid);
+  });
+
+  it('GET /usuarios/:id deve retornar 200 ao consultar o próprio perfil (portaria)', async () => {
+    const res = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${portariaUuid}`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(portariaUuid);
+  });
+
+  it('GET /usuarios/:id deve retornar 403 ao consultar perfil de outro usuário (morador)', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${portariaUuid}`),
+    ).expect(403);
+  });
+
+  it('GET /usuarios/:id deve retornar 403 ao consultar perfil de outro usuário (portaria)', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${moradorUuid}`),
+    ).expect(403);
+  });
+
+  it('GET /usuarios/:id deve retornar 200 para admin consultando perfil de outro usuário (não-super)', async () => {
+    const res = await auth(
+      adminToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/${moradorUuid}`),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(moradorUuid);
+  });
   it('GET /usuarios/moradores deve retornar 200 para super, admin e portaria, listando apenas moradores', async () => {
     const superRes = await auth(
       superToken,

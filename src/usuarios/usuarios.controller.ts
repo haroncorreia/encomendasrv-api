@@ -72,6 +72,16 @@ export class UsuariosController {
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ) {
+    const podeConsultar =
+      user.sub === id ||
+      user.perfil === Perfil.SUPER ||
+      user.perfil === Perfil.ADMIN;
+    if (!podeConsultar) {
+      throw new ForbiddenException(
+        'Você não tem permissão para consultar informações de outro usuário.',
+      );
+    }
+
     const result = await this.usuariosService.findOne(id);
     if (result.perfil === Perfil.SUPER && user.perfil !== Perfil.SUPER) {
       throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
