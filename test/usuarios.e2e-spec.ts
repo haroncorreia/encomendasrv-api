@@ -776,6 +776,54 @@ describe('UsuariosModule (e2e)', () => {
     ).toBe(false);
   });
 
+  it('GET /usuarios/moradores/pendentes deve retornar 200 e listar apenas moradores com aproved_at nulo', async () => {
+    const novoMoradorRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Morador Pendente Teste',
+        email: 'usuarios.morador.pendente@teste.com',
+        celular: '11881111915',
+        cpf_cnpj: '11881111915',
+        senha: 'Senha@123',
+        unidade: SEED_UNIDADE,
+      })
+      .expect(201);
+
+    const moradorPendenteUuid = novoMoradorRes.body.usuario.uuid as string;
+    usuariosRevogadosCriados.push(moradorPendenteUuid);
+
+    const res = await auth(
+      superToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores/pendentes`),
+    ).expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(
+      res.body.every((u: { aproved_at: string | null }) => !u.aproved_at),
+    ).toBe(true);
+    expect(
+      res.body.some((u: { uuid: string }) => u.uuid === moradorPendenteUuid),
+    ).toBe(true);
+    expect(res.body.some((u: { uuid: string }) => u.uuid === moradorUuid)).toBe(
+      false,
+    );
+    expect(res.body[0]?.senha).toBeUndefined();
+  });
+
+  it('GET /usuarios/moradores/pendentes deve retornar 403 para perfil portaria', async () => {
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores/pendentes`),
+    ).expect(403);
+  });
+
+  it('GET /usuarios/moradores/pendentes deve retornar 403 para perfil morador', async () => {
+    await auth(
+      moradorToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores/pendentes`),
+    ).expect(403);
+  });
+
   it('GET /usuarios/porteiros deve retornar 200 para super, admin e portaria, listando apenas porteiros', async () => {
     const superRes = await auth(
       superToken,

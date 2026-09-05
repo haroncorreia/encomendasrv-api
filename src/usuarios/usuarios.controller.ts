@@ -61,6 +61,12 @@ export class UsuariosController {
     return this.usuariosService.findMoradores();
   }
 
+  @Get('moradores/pendentes')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  findMoradoresPendentes() {
+    return this.usuariosService.findMoradoresPendentes();
+  }
+
   @Get('porteiros')
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
   findPorteiros() {

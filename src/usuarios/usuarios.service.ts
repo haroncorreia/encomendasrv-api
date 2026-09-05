@@ -168,6 +168,21 @@ export class UsuariosService {
     return this.enrichWithRelations(usuarios);
   }
 
+  /**
+   * Moradores aguardando aprovação de acesso — usado pela fila de liberação
+   * de acesso (LiberarAcessoUsuariosPage). Distinto de findMoradores(), que
+   * exclui exatamente esses usuários (card #117) por ser usado no seletor de
+   * recebimento de encomenda, onde só faz sentido morador com acesso ativo.
+   */
+  async findMoradoresPendentes(): Promise<UsuarioComCondominio[]> {
+    const usuarios = await this.query
+      .where({ perfil: Perfil.MORADOR })
+      .whereNull('aproved_at')
+      .select('*')
+      .orderBy('created_at', 'desc');
+    return this.enrichWithRelations(usuarios);
+  }
+
   async findPorteiros(): Promise<UsuarioComCondominio[]> {
     const usuarios = await this.query
       .where({ perfil: Perfil.PORTARIA })
