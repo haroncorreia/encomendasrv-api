@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { isUUID } from 'class-validator';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { requireJwtSecret } from '../common/auth/require-jwt-secret.util';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Unidade } from '../unidades/interfaces/unidade.interface';
@@ -95,12 +96,12 @@ export class EncomendasService {
   ) {}
 
   private getQrCodeSecret(): string {
-    return this.configService.get<string>(
-      'JWT_QRCODE_SECRET',
-      this.configService.get<string>(
-        'JWT_SECRET',
-        'troque_por_uma_chave_secreta_forte_em_producao',
-      ),
+    const valor =
+      this.configService.get<string>('JWT_QRCODE_SECRET') ??
+      this.configService.get<string>('JWT_SECRET');
+    return requireJwtSecret(
+      valor,
+      'JWT_QRCODE_SECRET (ou JWT_SECRET como fallback)',
     );
   }
 

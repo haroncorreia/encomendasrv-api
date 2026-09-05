@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuditoriaModule } from '../auditoria/auditoria.module';
+import { requireJwtSecret } from '../common/auth/require-jwt-secret.util';
 import { EmailModule } from '../email/email.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
@@ -21,7 +22,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+        secret: requireJwtSecret(
+          configService.get<string>('JWT_SECRET'),
+          'JWT_SECRET',
+        ),
         signOptions: {
           expiresIn: configService.get<string>('JWT_EXPIRES_IN', '15m') as any,
         },

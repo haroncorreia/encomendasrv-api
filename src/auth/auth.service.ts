@@ -15,6 +15,7 @@ import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuditoriaContext } from '../auditoria/interfaces/auditoria-context.interface';
+import { requireJwtSecret } from '../common/auth/require-jwt-secret.util';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EmailService } from '../email/email.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -59,7 +60,13 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
-  ) {}
+  ) {
+    requireJwtSecret(configService.get<string>('JWT_SECRET'), 'JWT_SECRET');
+    requireJwtSecret(
+      configService.get<string>('JWT_REFRESH_SECRET'),
+      'JWT_REFRESH_SECRET',
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Helpers privados
