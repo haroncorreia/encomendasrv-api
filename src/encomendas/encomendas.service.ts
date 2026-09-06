@@ -251,14 +251,23 @@ export class EncomendasService {
     return this.knex<Encomenda>(TABLE).whereNull('deleted_at');
   }
 
-  private scopedQuery(user: JwtPayload, trx?: Knex.Transaction) {
+  private async scopedQuery(
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<{ query: Knex.QueryBuilder<Encomenda, Encomenda[]> }> {
     const qb = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
 
     if (user.perfil === Perfil.MORADOR) {
       qb.andWhere('uuid_usuario', user.sub);
+      return { query: qb };
     }
 
-    return qb;
+    if (user.perfil !== Perfil.SUPER) {
+      const usuario = await this.findUsuarioAtivo(user.sub, trx);
+      qb.andWhere('uuid_condominio', usuario.uuid_condominio);
+    }
+
+    return { query: qb };
   }
 
   private async scopedListQuery(
@@ -267,11 +276,16 @@ export class EncomendasService {
   ): Promise<{ query: Knex.QueryBuilder<Encomenda, Encomenda[]> }> {
     const query = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
 
-    if (user.perfil !== Perfil.MORADOR) {
+    if (user.perfil === Perfil.SUPER) {
       return { query };
     }
 
     const usuario = await this.findUsuarioAtivo(user.sub, trx);
+
+    if (user.perfil !== Perfil.MORADOR) {
+      query.andWhere('uuid_condominio', usuario.uuid_condominio);
+      return { query };
+    }
 
     query.andWhere((builder) => {
       builder.where('uuid_usuario', user.sub).orWhere((subBuilder) => {
@@ -431,7 +445,18 @@ export class EncomendasService {
     encomenda: Encomenda,
     user: JwtPayload,
   ): Promise<void> {
+    if (user.perfil === Perfil.SUPER) {
+      return;
+    }
+
     if (user.perfil !== Perfil.MORADOR) {
+      const usuario = await this.findUsuarioAtivo(user.sub);
+
+      if (usuario.uuid_condominio !== encomenda.uuid_condominio) {
+        throw new ForbiddenException(
+          'Seu perfil não possui permissão para acessar esta encomenda.',
+        );
+      }
       return;
     }
 
@@ -454,8 +479,26 @@ export class EncomendasService {
     }
   }
 
-  private assertWriteAccess(encomenda: Encomenda, user: JwtPayload): void {
-    if (user.perfil === Perfil.MORADOR && encomenda.uuid_usuario !== user.sub) {
+  private async assertWriteAccess(
+    encomenda: Encomenda,
+    user: JwtPayload,
+  ): Promise<void> {
+    if (user.perfil === Perfil.MORADOR) {
+      if (encomenda.uuid_usuario !== user.sub) {
+        throw new ForbiddenException(
+          'Seu perfil não possui permissão para modificar esta encomenda.',
+        );
+      }
+      return;
+    }
+
+    if (user.perfil === Perfil.SUPER) {
+      return;
+    }
+
+    const usuario = await this.findUsuarioAtivo(user.sub);
+
+    if (usuario.uuid_condominio !== encomenda.uuid_condominio) {
       throw new ForbiddenException(
         'Seu perfil não possui permissão para modificar esta encomenda.',
       );
@@ -853,7 +896,8 @@ export class EncomendasService {
   async findPrevistas(
     user: JwtPayload,
   ): Promise<EncomendaComRelacionamentos[]> {
-    const encomendas = await this.scopedQuery(user)
+    const { query } = await this.scopedQuery(user);
+    const encomendas = await query
       .andWhere('status', EncomendaStatus.PREVISTA)
       .select('*')
       .orderBy('created_at', 'desc');
@@ -1359,7 +1403,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user);
 
     const uuidTransportadora =
       dto.uuid_transportadora === undefined
@@ -1404,6 +1448,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
+    await this.assertWriteAccess(encomenda, user);
     const usuarioEncomenda = encomenda.uuid_usuario;
     const justificativa = dto.justificativa?.trim();
 
@@ -1644,6 +1689,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
+    await this.assertWriteAccess(encomenda, user);
     const justificativa = dto.justificativa.trim();
     const statusOrigemPermitidos = [
       EncomendaStatus.PREVISTA,
@@ -1743,6 +1789,8 @@ export class EncomendasService {
       );
     }
 
+    await this.assertWriteAccess(encomenda, user);
+
     await qb<Encomenda>(TABLE).where({ uuid }).update({
       deleted_at: null,
       deleted_by: null,
@@ -1760,7 +1808,7 @@ export class EncomendasService {
   ): Promise<void> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user);
 
     if (user.perfil === Perfil.PORTARIA) {
       if (

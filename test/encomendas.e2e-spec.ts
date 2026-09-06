@@ -1523,4 +1523,244 @@ describe('EncomendasModule (e2e)', () => {
 
     expect(res.body.message).toContain('acesso ativo');
   });
+
+  describe('isolamento multi-tenant por condomínio (card #49)', () => {
+    let adminOutroCondominioToken: string;
+    let portariaOutroCondominioToken: string;
+    let encomendaOutroCondominioUuid: string;
+    let encomendaOutroCondominioExcluidaUuid: string;
+
+    const construirToken = (
+      sub: string,
+      nome: string,
+      email: string,
+      perfil: 'super' | 'admin' | 'portaria' | 'morador',
+    ): string =>
+      jwtService.sign(
+        { sub, nome, email, perfil },
+        {
+          secret: configService.get<string>('JWT_SECRET'),
+          expiresIn: '15m',
+        },
+      );
+
+    beforeAll(async () => {
+      const runId = Date.now();
+      const uuidCondominioOutro = randomUUID();
+      const uuidUnidadeOutro = randomUUID();
+      const unidadeCodigo = `9${String(runId).slice(-3)}`;
+
+      await knex('condominios').insert({
+        uuid: uuidCondominioOutro,
+        nome: 'Condomínio Outro (Teste #49)',
+        created_by: 'test',
+        updated_by: 'test',
+      });
+
+      await knex('unidades').insert({
+        uuid: uuidUnidadeOutro,
+        uuid_condominio: uuidCondominioOutro,
+        unidade: unidadeCodigo,
+        quadra: '01',
+        lote: '01',
+        created_by: 'test',
+        updated_by: 'test',
+      });
+
+      const adminOutroRes = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .post('/usuarios')
+          .send({
+            nome: 'Admin Outro Condominio',
+            email: `admin.outro.${runId}@teste.com`,
+            celular: `11${String(runId).slice(-9)}`,
+            cpf_cnpj: `21${String(runId).slice(-9)}`,
+            senha: 'Senha@123',
+            perfil: 'admin',
+            unidade: unidadeCodigo,
+          }),
+      ).expect(201);
+      adminOutroCondominioToken = construirToken(
+        adminOutroRes.body.uuid as string,
+        adminOutroRes.body.nome as string,
+        adminOutroRes.body.email as string,
+        'admin',
+      );
+
+      const portariaOutroRes = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .post('/usuarios')
+          .send({
+            nome: 'Portaria Outro Condominio',
+            email: `portaria.outro.${runId}@teste.com`,
+            celular: `12${String(runId).slice(-9)}`,
+            cpf_cnpj: `22${String(runId).slice(-9)}`,
+            senha: 'Senha@123',
+            perfil: 'portaria',
+            unidade: unidadeCodigo,
+          }),
+      ).expect(201);
+      portariaOutroCondominioToken = construirToken(
+        portariaOutroRes.body.uuid as string,
+        portariaOutroRes.body.nome as string,
+        portariaOutroRes.body.email as string,
+        'portaria',
+      );
+
+      const moradorOutroRes = await request(app.getHttpServer())
+        .post('/authenticate/sign-up')
+        .send({
+          nome: 'Morador Outro Condominio',
+          email: `morador.outro.${runId}@teste.com`,
+          celular: `13${String(runId).slice(-9)}`,
+          cpf_cnpj: `23${String(runId).slice(-9)}`,
+          senha: 'Senha@123',
+          unidade: unidadeCodigo,
+        })
+        .expect(201);
+      const moradorOutroUuid = moradorOutroRes.body.usuario.uuid as string;
+      await auth(
+        superToken,
+        request(app.getHttpServer()).patch(
+          `/usuarios/${moradorOutroUuid}/aprove-user`,
+        ),
+      ).expect(200);
+
+      const encomendaOutroRes = await auth(
+        portariaOutroCondominioToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            uuid_usuario: moradorOutroUuid,
+            recebido_por_uuid_usuario: portariaOutroRes.body.uuid as string,
+            palavra_chave: 'OutroCondominio',
+            codigo_rastreamento: `OUT-${runId}`,
+          }),
+      ).expect(201);
+      encomendaOutroCondominioUuid = encomendaOutroRes.body.uuid as string;
+
+      const encomendaExcluidaRes = await auth(
+        portariaOutroCondominioToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            uuid_usuario: moradorOutroUuid,
+            recebido_por_uuid_usuario: portariaOutroRes.body.uuid as string,
+            palavra_chave: 'OutroCondomExcluida',
+            codigo_rastreamento: `OUTDEL-${runId}`,
+          }),
+      ).expect(201);
+      encomendaOutroCondominioExcluidaUuid = encomendaExcluidaRes.body
+        .uuid as string;
+      await auth(
+        superToken,
+        request(app.getHttpServer()).delete(
+          `${BASE_URL}/${encomendaOutroCondominioExcluidaUuid}`,
+        ),
+      ).expect(204);
+    });
+
+    it('GET /encomendas não deve incluir encomenda de outro condomínio para portaria', async () => {
+      const res = await auth(
+        portariaToken,
+        request(app.getHttpServer()).get(BASE_URL),
+      ).expect(200);
+
+      const uuids = (res.body as Array<{ uuid: string }>).map((e) => e.uuid);
+      expect(uuids).not.toContain(encomendaOutroCondominioUuid);
+    });
+
+    it('GET /encomendas/:id deve retornar 403 para admin em encomenda de outro condomínio', async () => {
+      await auth(
+        adminToken,
+        request(app.getHttpServer()).get(
+          `${BASE_URL}/${encomendaOutroCondominioUuid}`,
+        ),
+      ).expect(403);
+    });
+
+    it('PATCH /encomendas/:id/update-status deve retornar 403 para portaria em encomenda de outro condomínio', async () => {
+      await auth(
+        portariaToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${encomendaOutroCondominioUuid}/update-status`)
+          .send({
+            status: 'retirada',
+            entregue_para_uuid_usuario: UUID_MORADOR,
+          }),
+      ).expect(403);
+
+      const encomenda = await knex('encomendas')
+        .where({ uuid: encomendaOutroCondominioUuid })
+        .first('status');
+      expect(encomenda.status).toBe('aguardando retirada');
+    });
+
+    it('PATCH /encomendas/:id/baixa-administrativa deve retornar 403 para admin em encomenda de outro condomínio', async () => {
+      await auth(
+        adminToken,
+        request(app.getHttpServer())
+          .patch(
+            `${BASE_URL}/${encomendaOutroCondominioUuid}/baixa-administrativa`,
+          )
+          .send({
+            status: 'cancelada',
+            justificativa: 'Tentativa cross-tenant.',
+          }),
+      ).expect(403);
+
+      const encomenda = await knex('encomendas')
+        .where({ uuid: encomendaOutroCondominioUuid })
+        .first('justificativa_baixa_administrativa');
+      expect(encomenda.justificativa_baixa_administrativa).toBeNull();
+    });
+
+    it('PATCH /encomendas/:id/restore deve retornar 403 para admin em encomenda excluída de outro condomínio', async () => {
+      await auth(
+        adminToken,
+        request(app.getHttpServer()).patch(
+          `${BASE_URL}/${encomendaOutroCondominioExcluidaUuid}/restore`,
+        ),
+      ).expect(403);
+
+      const encomenda = await knex('encomendas')
+        .where({ uuid: encomendaOutroCondominioExcluidaUuid })
+        .first('deleted_at');
+      expect(encomenda.deleted_at).not.toBeNull();
+    });
+
+    it('DELETE /encomendas/:id deve retornar 403 para portaria em encomenda de outro condomínio', async () => {
+      await auth(
+        portariaToken,
+        request(app.getHttpServer()).delete(
+          `${BASE_URL}/${encomendaOutroCondominioUuid}`,
+        ),
+      ).expect(403);
+
+      const encomenda = await knex('encomendas')
+        .where({ uuid: encomendaOutroCondominioUuid })
+        .first('deleted_at');
+      expect(encomenda.deleted_at).toBeNull();
+    });
+
+    it('super continua com acesso irrestrito a encomenda de qualquer condomínio', async () => {
+      await auth(
+        superToken,
+        request(app.getHttpServer()).get(
+          `${BASE_URL}/${encomendaOutroCondominioUuid}`,
+        ),
+      ).expect(200);
+    });
+
+    it('admin/portaria do outro condomínio continua com acesso normal à própria encomenda', async () => {
+      await auth(
+        adminOutroCondominioToken,
+        request(app.getHttpServer()).get(
+          `${BASE_URL}/${encomendaOutroCondominioUuid}`,
+        ),
+      ).expect(200);
+    });
+  });
 });

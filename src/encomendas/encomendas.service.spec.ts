@@ -24,9 +24,20 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       uuid_condominio: 'condo-123',
     } as any;
 
+    beforeEach(() => {
+      jest.spyOn(service as any, 'findUsuarioAtivo').mockResolvedValue({
+        uuid: userPortaria.sub,
+        uuid_condominio: 'condo-123',
+        uuid_unidade: 'unidade-123',
+        perfil: Perfil.PORTARIA,
+        aproved_at: new Date(),
+      });
+    });
+
     it('deve lançar ForbiddenException se a encomenda foi cadastrada por outro operador', async () => {
       const encomendaOutroOperador = {
         uuid: 'enc-1',
+        uuid_condominio: 'condo-123',
         recebido_por_uuid_usuario: 'outro-operador-999',
         created_by: 'outro@condominio.com',
         status: EncomendaStatus.AGUARDANDO_RETIRADA,
@@ -45,6 +56,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
     it('deve lançar BadRequestException se a encomenda já foi retirada por morador', async () => {
       const encomendaRetirada = {
         uuid: 'enc-2',
+        uuid_condominio: 'condo-123',
         recebido_por_uuid_usuario: userPortaria.sub,
         created_by: userPortaria.email,
         status: EncomendaStatus.RETIRADA,
@@ -64,6 +76,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
     it('deve lançar BadRequestException se a encomenda sofreu baixa administrativa', async () => {
       const encomendaBaixaAdmin = {
         uuid: 'enc-3',
+        uuid_condominio: 'condo-123',
         recebido_por_uuid_usuario: userPortaria.sub,
         created_by: userPortaria.email,
         status: EncomendaStatus.RETIRADA,
@@ -82,6 +95,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
     it('deve permitir a exclusão de encomenda cadastrada pelo próprio operador, pendente e sem baixa admin', async () => {
       const encomendaElegivel = {
         uuid: 'enc-4',
+        uuid_condominio: 'condo-123',
         recebido_por_uuid_usuario: userPortaria.sub,
         created_by: userPortaria.email,
         status: EncomendaStatus.AGUARDANDO_RETIRADA,
@@ -119,6 +133,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
     const encomendaAguardandoRetirada = {
       uuid: 'enc-baixa-1',
       uuid_usuario: 'morador-1',
+      uuid_condominio: 'condo-123',
       status: EncomendaStatus.AGUARDANDO_RETIRADA,
       justificativa_baixa_administrativa: null,
     } as any;
@@ -134,6 +149,13 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       jest
         .spyOn(service, 'findActiveByUuid')
         .mockResolvedValue(encomendaAguardandoRetirada);
+      jest.spyOn(service as any, 'findUsuarioAtivo').mockResolvedValue({
+        uuid: userAdmin.sub,
+        uuid_condominio: 'condo-123',
+        uuid_unidade: 'unidade-123',
+        perfil: Perfil.ADMIN,
+        aproved_at: new Date(),
+      });
     });
 
     it('deve gravar entregue_em com a data retroativa informada e baixa_administrativa_em com o instante do registro, quando status é retirada', async () => {
@@ -219,6 +241,16 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
   });
 
   describe('update', () => {
+    beforeEach(() => {
+      jest.spyOn(service as any, 'findUsuarioAtivo').mockResolvedValue({
+        uuid: 'user-admin-123',
+        uuid_condominio: 'condo-123',
+        uuid_unidade: 'unidade-123',
+        perfil: Perfil.ADMIN,
+        aproved_at: new Date(),
+      });
+    });
+
     it('não deve incluir baixa_administrativa_em no payload ao editar campos livres da encomenda', async () => {
       const userAdmin = {
         sub: 'user-admin-123',
@@ -230,6 +262,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({
         uuid: 'enc-baixa-1',
         uuid_usuario: 'morador-1',
+        uuid_condominio: 'condo-123',
         status: EncomendaStatus.RETIRADA,
         justificativa_baixa_administrativa:
           'Recebido diretamente pela administração',
@@ -261,6 +294,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({
         uuid: 'enc-1',
         uuid_usuario: 'morador-1',
+        uuid_condominio: 'condo-123',
         restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
       } as any);
 
@@ -288,6 +322,7 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       jest.spyOn(service, 'findActiveByUuid').mockResolvedValue({
         uuid: 'enc-1',
         uuid_usuario: 'morador-1',
+        uuid_condominio: 'condo-123',
         restricao_retirada: EncomendaRestricaoRetirada.PESSOAL,
       } as any);
 
