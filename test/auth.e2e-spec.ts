@@ -11,6 +11,7 @@ import { EmailService } from '../src/email/email.service';
 import {
   assinarAccessToken,
   criarUsuarioPrivilegiado,
+  criarUsuarioPrivilegiadoComToken,
   type UsuarioPrivilegiadoPayload,
 } from './utils/e2e-usuarios';
 
@@ -673,6 +674,103 @@ describe('AuthModule (e2e)', () => {
     expect(res.body.usuario.uuid).toBeDefined();
   });
 
+  it('GET /authenticate/validate-token deve retornar 401 para access token de usuário com acesso revogado (card #46)', async () => {
+    const superToken = await getSeededSuperToken();
+    const { usuario, token } = await criarUsuarioPrivilegiadoComToken(
+      app,
+      superToken,
+      jwtService,
+      configService,
+      {
+        nome: 'Auth Test Revogado',
+        email: `auth.test.revogado.${RUN_ID}@teste.com`,
+        celular: `21${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+        cpf_cnpj: `31${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+        senha: 'Senha@123',
+        perfil: 'admin',
+        unidade: SEED_UNIDADE,
+      },
+    );
+
+    await request(app.getHttpServer())
+      .get(`${BASE_URL}/validate-token`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/usuarios/${usuario.uuid}/revoke-user`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`${BASE_URL}/validate-token`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(401);
+  });
+
+  it('GET /authenticate/validate-token deve retornar 401 para access token de usuário excluído (card #46)', async () => {
+    const superToken = await getSeededSuperToken();
+    const { usuario, token } = await criarUsuarioPrivilegiadoComToken(
+      app,
+      superToken,
+      jwtService,
+      configService,
+      {
+        nome: 'Auth Test Excluido',
+        email: `auth.test.excluido.${RUN_ID}@teste.com`,
+        celular: `22${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+        cpf_cnpj: `32${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+        senha: 'Senha@123',
+        perfil: 'admin',
+        unidade: SEED_UNIDADE,
+      },
+    );
+
+    await request(app.getHttpServer())
+      .delete(`/usuarios/${usuario.uuid}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`${BASE_URL}/validate-token`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(401);
+  });
+
+  it('POST /authenticate/refresh-token deve retornar 401 e não emitir novos tokens para usuário com acesso revogado (card #46)', async () => {
+    const superToken = await getSeededSuperToken();
+    const senha = 'Senha@123';
+    const email = `auth.test.refresh.revogado.${RUN_ID}@teste.com`;
+    const usuario = await criarUsuarioPrivilegiado(app, superToken, {
+      nome: 'Auth Test Refresh Revogado',
+      email,
+      celular: `23${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      cpf_cnpj: `33${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`,
+      senha,
+      perfil: 'admin',
+      unidade: SEED_UNIDADE,
+    });
+
+    const signInRes = await request(app.getHttpServer())
+      .post(`${BASE_URL}/sign-in`)
+      .send({ usuario: email, senha })
+      .expect(200);
+    const refreshTokenRevogado = signInRes.body.refresh_token as string;
+
+    await request(app.getHttpServer())
+      .patch(`/usuarios/${usuario.uuid}/revoke-user`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .post(`${BASE_URL}/refresh-token`)
+      .send({ refresh_token: refreshTokenRevogado })
+      .expect(401);
+
+    expect(res.body.access_token).toBeUndefined();
+    expect(res.body.refresh_token).toBeUndefined();
+  });
+
   it('POST /authenticate/request-user-activation deve retornar 200 com mensagem genérica para usuário existente', async () => {
     const res = await request(app.getHttpServer())
       .post(`${BASE_URL}/request-user-activation`)
@@ -739,7 +837,12 @@ describe('AuthModule (e2e)', () => {
     expect(auditoria.uuid).toBeDefined();
   });
 
-  it('POST /authenticate/request-user-activation deve retornar 200 com mensagem genérica para usuário inexistente', async () => {
+  it('POST /authenticate/request-user-activation deve retornar 401 para token de usuário excluído (card #46)', async () => {
+    // Antes do card #46, um token válido de usuário excluído ainda chegava ao
+    // service (que tinha sua própria resposta genérica anti-enumeração aqui).
+    // Com a checagem de deleted_at/aproved_at em JwtStrategy.validate(), o
+    // guard agora barra a requisição com 401 antes mesmo de chegar no
+    // controller — a rota deixa de ser um jeito de sondar existência de conta.
     const ghostUser = {
       nome: 'Ghost User',
       email: `auth.ghost.${RUN_ID}@teste.com`,
@@ -764,18 +867,18 @@ describe('AuthModule (e2e)', () => {
 
     await knex('usuarios').where({ uuid: ghostUuid }).delete();
 
-    const res = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`${BASE_URL}/request-user-activation`)
       .set('Authorization', `Bearer ${ghostAccessToken}`)
-      .expect(200);
-
-    expect(res.body).toEqual({
-      message:
-        'Se sua conta existir e ainda não estiver ativada, um código será enviado para o e-mail cadastrado.',
-    });
+      .expect(401);
   });
 
-  it('POST /authenticate/request-user-activation deve retornar 409 para usuário já ativado', async () => {
+  it('POST /authenticate/request-user-activation deve retornar 401 para token de usuário nunca aprovado (card #46)', async () => {
+    // Este morador nunca passou por aprovação (sign-up não aprova, e sign-in
+    // já bloqueava aproved_at nulo) — na prática nunca existiria um token
+    // válido para ele fora de um forjado em teste. Antes do card #46 esse
+    // token ainda chegava ao controller e o 409 "já ativado" era alcançável;
+    // agora o guard barra com 401 antes disso.
     const activatedUser = {
       nome: 'Activated User',
       email: `auth.activated.${RUN_ID}@teste.com`,
@@ -802,12 +905,10 @@ describe('AuthModule (e2e)', () => {
       activated_at: new Date(),
     });
 
-    const res = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`${BASE_URL}/request-user-activation`)
       .set('Authorization', `Bearer ${activatedAccessToken}`)
-      .expect(409);
-
-    expect(res.body.message).toBe('Usuário já está ativado.');
+      .expect(401);
   });
 
   it('POST /authenticate/request-reset-password deve retornar 200 e persistir hash de reset', async () => {

@@ -125,8 +125,15 @@ describe('CondominiosModule (e2e)', () => {
       })
       .expect(201);
 
+    const moradorUuid = moradorRes.body.usuario.uuid as string;
+
+    await request(app.getHttpServer())
+      .patch(`/usuarios/${moradorUuid}/aprove-user`)
+      .set('Authorization', `Bearer ${bootstrapSuperToken}`)
+      .expect(200);
+
     moradorToken = assinarAccessToken(jwtService, configService, {
-      sub: moradorRes.body.usuario.uuid as string,
+      sub: moradorUuid,
       nome: 'Condominio Morador',
       email: moradorEmail,
       perfil: 'morador',

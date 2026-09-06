@@ -280,6 +280,11 @@ export class AuthService {
       });
 
       const usuario = await this.usuariosService.findOne(payload.sub);
+      if (!usuario.aproved_at) {
+        throw new UnauthorizedException(
+          'Sessão inválida: acesso revogado ou conta removida.',
+        );
+      }
       if (usuario.perfil === Perfil.PORTARIA) {
         throw new UnauthorizedException(
           'Perfil portaria não possui renovação de sessão.',

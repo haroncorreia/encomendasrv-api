@@ -171,6 +171,12 @@ describe('UsuariosModule (e2e)', () => {
       .expect(201);
 
     selfDeleteMoradorUuid = selfDeleteMoradorRes.body.usuario.uuid as string;
+    await auth(
+      superToken,
+      request(app.getHttpServer()).patch(
+        `${BASE_URL}/${selfDeleteMoradorUuid}/aprove-user`,
+      ),
+    ).expect(200);
     // O sign-up não emite mais token; forja-se o token do morador criado.
     selfDeleteMoradorToken = buildToken(
       selfDeleteMoradorUuid,

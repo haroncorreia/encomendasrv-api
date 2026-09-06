@@ -25,8 +25,8 @@ describe('UsuariosAprovarModule (e2e)', () => {
   let superToken: string;
   let adminToken: string;
   let portariaToken: string;
-  let moradorToken: string;
   let moradorUuid: string;
+  let moradorAprovadoToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -120,10 +120,31 @@ describe('UsuariosAprovarModule (e2e)', () => {
       })
       .expect(201);
     moradorUuid = moradorRes.body.usuario.uuid as string;
-    moradorToken = assinarAccessToken(jwtService, configService, {
-      sub: moradorUuid,
-      nome: 'Aprove Morador',
-      email: 'aprove.morador@teste.com',
+
+    // Morador separado, já aprovado — usado apenas como ATOR nos testes de
+    // permissão (o card #46 passou a exigir aproved_at válido em qualquer
+    // token; o `moradorUuid` acima precisa continuar pendente, pois é o ALVO
+    // dos testes de aprovação).
+    const moradorAprovadoRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-up`)
+      .send({
+        nome: 'Aprove Morador Aprovado',
+        email: 'aprove.morador.aprovado@teste.com',
+        celular: '11720000008',
+        cpf_cnpj: '11720000008',
+        senha: 'Senha@123',
+        unidade: SEED_UNIDADE,
+      })
+      .expect(201);
+    const moradorAprovadoUuid = moradorAprovadoRes.body.usuario.uuid as string;
+    await request(app.getHttpServer())
+      .patch(`${BASE_URL}/${moradorAprovadoUuid}/aprove-user`)
+      .set('Authorization', `Bearer ${bootstrapSuperToken}`)
+      .expect(200);
+    moradorAprovadoToken = assinarAccessToken(jwtService, configService, {
+      sub: moradorAprovadoUuid,
+      nome: 'Aprove Morador Aprovado',
+      email: 'aprove.morador.aprovado@teste.com',
       perfil: 'morador',
     });
   });
@@ -157,7 +178,7 @@ describe('UsuariosAprovarModule (e2e)', () => {
 
   it('PATCH /usuarios/:id/aprove-user deve retornar 403 para perfil morador', async () => {
     await auth(
-      moradorToken,
+      moradorAprovadoToken,
       request(app.getHttpServer()).patch(
         `${BASE_URL}/${moradorUuid}/aprove-user`,
       ),
