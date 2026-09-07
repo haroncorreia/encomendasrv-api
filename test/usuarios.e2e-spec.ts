@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -1302,5 +1303,185 @@ describe('UsuariosModule (e2e)', () => {
     expect(auditoria).toBeDefined();
     expect(auditoria.description).toContain('hard delete');
     expect(auditoria.description).toContain(hardDeleteTargetUuid);
+  });
+
+  describe('PATCH /usuarios/:id/unidade (card #120)', () => {
+    let unidadeNovaCodigo: string;
+    let unidadeNovaUuid: string;
+    let moradorAlvoUuid: string;
+    let portariaAlvoUuid: string;
+    let adminAlvoUuid: string;
+    let superAlvoUuid: string;
+
+    beforeAll(async () => {
+      const runId = Date.now();
+      const seedUnidadeRow = await knex('unidades')
+        .where({ unidade: SEED_UNIDADE })
+        .whereNull('deleted_at')
+        .first('uuid_condominio');
+      const uuidCondominio = seedUnidadeRow.uuid_condominio as string;
+
+      unidadeNovaUuid = randomUUID();
+      unidadeNovaCodigo = `9${String(runId).slice(-3)}`;
+      await knex('unidades').insert({
+        uuid: unidadeNovaUuid,
+        uuid_condominio: uuidCondominio,
+        unidade: unidadeNovaCodigo,
+        quadra: '02',
+        lote: '02',
+        created_by: 'test',
+        updated_by: 'test',
+      });
+
+      const moradorRes = await request(app.getHttpServer())
+        .post(`${AUTH_BASE}/sign-up`)
+        .send({
+          nome: 'Unidade Morador Alvo',
+          email: `unidade.morador.${runId}@teste.com`,
+          celular: `41${String(runId).slice(-9)}`,
+          cpf_cnpj: `51${String(runId).slice(-9)}`,
+          senha: 'Senha@123',
+          unidade: SEED_UNIDADE,
+        })
+        .expect(201);
+      moradorAlvoUuid = moradorRes.body.usuario.uuid as string;
+      await auth(
+        superToken,
+        request(app.getHttpServer()).patch(
+          `${BASE_URL}/${moradorAlvoUuid}/aprove-user`,
+        ),
+      ).expect(200);
+
+      const portariaRes = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            nome: 'Unidade Portaria Alvo',
+            email: `unidade.portaria.${runId}@teste.com`,
+            celular: `42${String(runId).slice(-9)}`,
+            cpf_cnpj: `52${String(runId).slice(-9)}`,
+            senha: 'Senha@123',
+            perfil: 'portaria',
+            unidade: SEED_UNIDADE,
+          }),
+      ).expect(201);
+      portariaAlvoUuid = portariaRes.body.uuid as string;
+
+      const adminRes = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            nome: 'Unidade Admin Alvo',
+            email: `unidade.admin.${runId}@teste.com`,
+            celular: `43${String(runId).slice(-9)}`,
+            cpf_cnpj: `53${String(runId).slice(-9)}`,
+            senha: 'Senha@123',
+            perfil: 'admin',
+            unidade: SEED_UNIDADE,
+          }),
+      ).expect(201);
+      adminAlvoUuid = adminRes.body.uuid as string;
+
+      const superRes = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            nome: 'Unidade Super Alvo',
+            email: `unidade.super.${runId}@teste.com`,
+            celular: `44${String(runId).slice(-9)}`,
+            cpf_cnpj: `54${String(runId).slice(-9)}`,
+            senha: 'Senha@123',
+            perfil: 'super',
+            unidade: SEED_UNIDADE,
+          }),
+      ).expect(201);
+      superAlvoUuid = superRes.body.uuid as string;
+    });
+
+    it('super corrige a unidade de um morador', async () => {
+      const res = await auth(
+        superToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${moradorAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(200);
+
+      expect(res.body.uuid).toBe(moradorAlvoUuid);
+      expect(res.body.uuid_unidade).toBe(unidadeNovaUuid);
+      expect(res.body.unidade.unidade).toBe(unidadeNovaCodigo);
+
+      const row = await knex('usuarios')
+        .where({ uuid: moradorAlvoUuid })
+        .first('uuid_unidade', 'uuid_condominio');
+      expect(row.uuid_unidade).toBe(unidadeNovaUuid);
+    });
+
+    it('admin corrige a unidade de uma portaria', async () => {
+      const res = await auth(
+        adminToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${portariaAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(200);
+
+      expect(res.body.uuid_unidade).toBe(unidadeNovaUuid);
+    });
+
+    it('retorna 400 para unidade inexistente e não altera o usuário', async () => {
+      const antes = await knex('usuarios')
+        .where({ uuid: moradorAlvoUuid })
+        .first('uuid_unidade');
+
+      await auth(
+        superToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${moradorAlvoUuid}/unidade`)
+          .send({ unidade: 'ZZZZ' }),
+      ).expect(400);
+
+      const depois = await knex('usuarios')
+        .where({ uuid: moradorAlvoUuid })
+        .first('uuid_unidade');
+      expect(depois.uuid_unidade).toBe(antes.uuid_unidade);
+    });
+
+    it('retorna 403 quando o alvo é super, mesmo para outro super', async () => {
+      await auth(
+        superToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${superAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(403);
+    });
+
+    it('retorna 403 quando admin tenta corrigir a unidade de outro admin', async () => {
+      await auth(
+        adminToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${adminAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(403);
+    });
+
+    it('retorna 403 para portaria', async () => {
+      await auth(
+        portariaToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${moradorAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(403);
+    });
+
+    it('retorna 403 para morador', async () => {
+      await auth(
+        moradorToken,
+        request(app.getHttpServer())
+          .patch(`${BASE_URL}/${moradorAlvoUuid}/unidade`)
+          .send({ unidade: unidadeNovaCodigo }),
+      ).expect(403);
+    });
   });
 });

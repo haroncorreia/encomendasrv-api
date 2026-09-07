@@ -504,6 +504,71 @@ export class UsuariosService {
     };
   }
 
+  async updateUnidade(
+    uuid: string,
+    unidade: string,
+    editadoPor?: string,
+    trx?: Knex.Transaction,
+  ): Promise<UsuarioComCondominio> {
+    await this.findOne(uuid);
+
+    const qb = trx ?? this.knex;
+
+    const unidadeRow = await qb('unidades')
+      .where({ unidade })
+      .whereNull('deleted_at')
+      .first<{ uuid: string; uuid_condominio: string }>();
+
+    if (!unidadeRow) {
+      throw new BadRequestException(`Unidade '${unidade}' não encontrada.`);
+    }
+
+    await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .update({
+        uuid_unidade: unidadeRow.uuid,
+        uuid_condominio: unidadeRow.uuid_condominio,
+        updated_at: new Date(),
+        updated_by: editadoPor ?? 'system',
+      });
+
+    const atualizado = await qb<Usuario>(TABLE)
+      .where({ uuid })
+      .whereNull('deleted_at')
+      .first();
+
+    const usuarioSemCredenciais = this.omitSenha(atualizado!);
+    const [condominio, unidadeAtualizada, aprovadorRaw] = await Promise.all([
+      usuarioSemCredenciais.uuid_condominio
+        ? qb<Condominio>('condominios')
+            .where({ uuid: usuarioSemCredenciais.uuid_condominio })
+            .whereNull('deleted_at')
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
+      usuarioSemCredenciais.uuid_unidade
+        ? qb<Unidade>('unidades')
+            .where({ uuid: usuarioSemCredenciais.uuid_unidade })
+            .whereNull('deleted_at')
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
+      atualizado!.aproved_by_uuid_usuario
+        ? qb<Usuario>(TABLE)
+            .where({ uuid: atualizado!.aproved_by_uuid_usuario })
+            .first()
+            .then((r) => r ?? null)
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      ...usuarioSemCredenciais,
+      condominio,
+      unidade: unidadeAtualizada,
+      aprovado_por: aprovadorRaw ? this.omitSenha(aprovadorRaw) : null,
+    };
+  }
+
   async remove(
     uuid: string,
     excluidoPor?: string,

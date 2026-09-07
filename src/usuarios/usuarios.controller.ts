@@ -26,6 +26,7 @@ import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from './enums/perfil.enum';
 import { CreateFuncionarioDto } from './dto/create-funcionario.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { UpdateUnidadeUsuarioDto } from './dto/update-unidade-usuario.dto';
 import { UpdateUsuarioRoleDto } from './dto/update-usuario-role.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
@@ -307,6 +308,52 @@ export class UsuariosController {
           ctx,
           user_mail: user.email,
           description: `Perfil de usuário atualizado de ${perfilAlvoAtual} para ${novoPerfil}. (uuid: ${id})`,
+        },
+        trx,
+      );
+
+      return usuario;
+    });
+  }
+
+  @Patch(':id/unidade')
+  @Roles(Perfil.SUPER, Perfil.ADMIN)
+  updateUnidade(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @Body() dto: UpdateUnidadeUsuarioDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      if (usuarioAlvo.perfil === Perfil.SUPER) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
+      if (user.perfil === Perfil.ADMIN && usuarioAlvo.perfil === Perfil.ADMIN) {
+        throw new ForbiddenException(
+          'Recurso não permitido para o seu perfil de usuário.',
+        );
+      }
+
+      const usuario = await this.usuariosService.updateUnidade(
+        id,
+        dto.unidade,
+        user.email,
+        trx,
+      );
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Unidade do usuário corrigida para '${dto.unidade}'. (uuid: ${id})`,
         },
         trx,
       );
