@@ -23,6 +23,7 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
+import { montarDescricaoLeituraQrCode } from './descricao-leitura-qrcode.util';
 import { BaixaAdministrativaEncomendaDto } from './dto/baixa-administrativa-encomenda.dto';
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { FilterEncomendasDto } from './dto/filter-encomendas.dto';
@@ -117,14 +118,14 @@ export class EncomendasController {
       );
 
       const uuids = Array.isArray(resultado)
-        ? resultado.map((item) => item.uuid).join(', ')
-        : resultado.uuid;
+        ? resultado.map((item) => item.uuid)
+        : [resultado.uuid];
 
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
           user_mail: user.email,
-          description: `Leitura de QRCode de encomenda realizada. (uuid: ${uuids})`,
+          description: montarDescricaoLeituraQrCode(uuids),
         },
         trx,
       );

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import { TAMANHO_MAXIMO_DESCRICAO_AUDITORIA } from './auditoria.constants';
 import type { Auditoria } from './interfaces/auditoria.interface';
 import { PaginationAuditoriaDto } from './dto/pagination-auditoria.dto';
 import { AuditoriaContext } from './interfaces/auditoria-context.interface';
@@ -155,8 +156,27 @@ export class AuditoriaService {
         : null,
       user_ip: ctx.user_ip ?? null,
       user_mail: dto.user_mail ?? null,
-      description: dto.description,
+      description: this.limitarDescricao(dto.description),
     };
+  }
+
+  /**
+   * Rede de proteção: `auditoria.description` é `VARCHAR(500)` e o MySQL em modo
+   * estrito rejeita o INSERT que a ultrapassa (`Data too long for column`). Em
+   * `registrarEmTrx` isso derrubava a operação inteira com HTTP 500 (card #151);
+   * em `registrar`, o evento de auditoria se perdia. Truncar aqui garante que
+   * nenhuma auditoria estoure a coluna, seja qual for o chamador.
+   */
+  private limitarDescricao(descricao: string): string {
+    if (descricao.length <= TAMANHO_MAXIMO_DESCRICAO_AUDITORIA) {
+      return descricao;
+    }
+
+    // O VARCHAR conta caracteres (pontos de código), não unidades UTF-16:
+    // cortar por pontos de código evita partir um emoji ao meio.
+    return Array.from(descricao)
+      .slice(0, TAMANHO_MAXIMO_DESCRICAO_AUDITORIA)
+      .join('');
   }
 
   private omitirSensiveis(

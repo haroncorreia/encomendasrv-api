@@ -662,4 +662,100 @@ describe('Encomendas QRCode (e2e)', () => {
     expect(leitura.body[0].entregue_para_usuario).toBeDefined();
     expect(leitura.body[0].entregue_para_usuario.uuid).toBe(UUID_MORADOR);
   });
+
+  // ---------------------------------------------------------------------------
+  // Card #151 — descrição de auditoria da leitura em lote (VARCHAR(500))
+  // ---------------------------------------------------------------------------
+
+  it('POST /encomendas/ler-qrcode deve aceitar lote de 12 encomendas e gravar auditoria dentro do limite da coluna', async () => {
+    // Antes da correção a descrição listava todos os UUIDs: com 12 passava dos
+    // 500 caracteres de `auditoria.description`, o INSERT falhava, a transação
+    // fazia rollback e a portaria recebia HTTP 500.
+    const TOTAL = 12;
+    const uuidsCriados: string[] = [];
+
+    for (let i = 0; i < TOTAL; i += 1) {
+      const criada = await auth(
+        moradorToken,
+        request(app.getHttpServer())
+          .post(BASE_URL)
+          .send({
+            palavra_chave: `QRCodeLote12-${i}`,
+            codigo_rastreamento: `QRL12-${i}-${Date.now()}`,
+            restricao_retirada: 'unidade',
+          }),
+      ).expect(201);
+      uuidsCriados.push(criada.body.uuid as string);
+    }
+
+    const batchTokenRes = await auth(
+      moradorToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/gerar-qrcode-lotes`)
+        .send({ uuids_encomendas: uuidsCriados }),
+    ).expect(201);
+
+    const payload = jwtService.verify<QrLotePayload>(batchTokenRes.body.token, {
+      secret: qrSecret,
+    });
+    expect(payload.tipo).toBe('retirada_lote');
+    expect(payload.uuids_encomendas).toHaveLength(TOTAL);
+
+    const leitura = await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/ler-qrcode`)
+        .send({ token: batchTokenRes.body.token }),
+    ).expect(201);
+
+    const encomendasLidas = leitura.body as Array<{ uuid: string }>;
+    expect(Array.isArray(encomendasLidas)).toBe(true);
+    expect(encomendasLidas).toHaveLength(TOTAL);
+    expect(encomendasLidas.map((item) => item.uuid).sort()).toEqual(
+      [...uuidsCriados].sort(),
+    );
+
+    const auditoria = await knex('auditoria')
+      .where({
+        route: '/encomendas/ler-qrcode',
+        user_mail: SEEDED_PORTARIA_EMAIL,
+      })
+      .whereRaw('description LIKE ?', [`%${TOTAL} encomendas%`])
+      .orderBy('created_at', 'desc')
+      .first();
+
+    expect(auditoria).toBeTruthy();
+    expect(auditoria.description.length).toBeLessThanOrEqual(500);
+    expect(auditoria.description).toContain(`${TOTAL} encomendas`);
+    expect(auditoria.description).toContain(
+      'Leitura de QRCode de encomenda realizada.',
+    );
+    expect(auditoria.description).toContain(encomendasLidas[0].uuid);
+  });
+
+  it('POST /encomendas/ler-qrcode deve manter inalterada a descrição de auditoria da leitura de encomenda única', async () => {
+    const generated = await auth(
+      moradorToken,
+      request(app.getHttpServer()).post(
+        `${BASE_URL}/${UUID_ENCOMENDA_MORADOR_ATIVA}/gerar-qrcode`,
+      ),
+    ).expect(201);
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer())
+        .post(`${BASE_URL}/ler-qrcode`)
+        .send({ token: generated.body.token }),
+    ).expect(201);
+
+    const auditoria = await knex('auditoria')
+      .where({
+        route: '/encomendas/ler-qrcode',
+        user_mail: SEEDED_PORTARIA_EMAIL,
+        description: `Leitura de QRCode de encomenda realizada. (uuid: ${UUID_ENCOMENDA_MORADOR_ATIVA})`,
+      })
+      .first();
+
+    expect(auditoria).toBeTruthy();
+  });
 });
