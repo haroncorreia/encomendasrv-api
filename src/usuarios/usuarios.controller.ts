@@ -43,7 +43,7 @@ export class UsuariosController {
   @Get()
   @Roles(Perfil.SUPER, Perfil.ADMIN)
   async findAll(@CurrentUser() user: JwtPayload) {
-    const result = await this.usuariosService.findAll();
+    const result = await this.usuariosService.findAll(user);
     if (user.perfil === Perfil.SUPER) return result;
     return result.filter((u) => u.perfil !== Perfil.SUPER);
   }
@@ -51,27 +51,27 @@ export class UsuariosController {
   @Get('removed')
   @Roles(Perfil.ADMIN, Perfil.SUPER)
   async findRemoved(@CurrentUser() user: JwtPayload) {
-    const result = await this.usuariosService.findRemoved();
+    const result = await this.usuariosService.findRemoved(user);
     if (user.perfil === Perfil.SUPER) return result;
     return result.filter((u) => u.perfil !== Perfil.SUPER);
   }
 
   @Get('moradores')
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
-  findMoradores() {
-    return this.usuariosService.findMoradores();
+  findMoradores(@CurrentUser() user: JwtPayload) {
+    return this.usuariosService.findMoradores(user);
   }
 
   @Get('moradores/pendentes')
   @Roles(Perfil.SUPER, Perfil.ADMIN)
-  findMoradoresPendentes() {
-    return this.usuariosService.findMoradoresPendentes();
+  findMoradoresPendentes(@CurrentUser() user: JwtPayload) {
+    return this.usuariosService.findMoradoresPendentes(user);
   }
 
   @Get('porteiros')
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
-  findPorteiros() {
-    return this.usuariosService.findPorteiros();
+  findPorteiros(@CurrentUser() user: JwtPayload) {
+    return this.usuariosService.findPorteiros(user);
   }
 
   @Get(':id')
@@ -92,6 +92,12 @@ export class UsuariosController {
     const result = await this.usuariosService.findOne(id);
     if (result.perfil === Perfil.SUPER && user.perfil !== Perfil.SUPER) {
       throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+    }
+
+    // Depois do 404 acima, para um 403 não revelar um super de outro
+    // condomínio. O próprio usuário sempre consulta o próprio perfil.
+    if (user.sub !== id) {
+      await this.usuariosService.assertMesmoCondominio(user, result);
     }
     return result;
   }
@@ -177,6 +183,8 @@ export class UsuariosController {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
 
+      await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
+
       if (usuarioAlvo.perfil === Perfil.SUPER) {
         throw new ForbiddenException(
           'Recurso não permitido para o seu perfil de usuário.',
@@ -218,6 +226,8 @@ export class UsuariosController {
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
+
+      await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
 
       if (usuarioAlvo.perfil === Perfil.SUPER) {
         throw new ForbiddenException(
@@ -261,6 +271,8 @@ export class UsuariosController {
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
+
+      await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
 
       const perfilAlvoAtual = usuarioAlvo.perfil;
       const novoPerfil = dto.perfil;
@@ -330,6 +342,8 @@ export class UsuariosController {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
 
+      await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
+
       if (usuarioAlvo.perfil === Perfil.SUPER) {
         throw new ForbiddenException(
           'Recurso não permitido para o seu perfil de usuário.',
@@ -342,10 +356,11 @@ export class UsuariosController {
         );
       }
 
+      // O service também recusa (403) unidade nova de outro condomínio.
       const usuario = await this.usuariosService.updateUnidade(
         id,
         dto.unidade,
-        user.email,
+        user,
         trx,
       );
 
@@ -389,6 +404,15 @@ export class UsuariosController {
       }
 
       const ehProprioUsuario = user.sub === id;
+
+      // O próprio usuário sempre pode se excluir, com ou sem condomínio.
+      if (!ehProprioUsuario) {
+        await this.usuariosService.assertMesmoCondominio(
+          user,
+          usuarioAlvo,
+          trx,
+        );
+      }
 
       const podeExcluir =
         (user.perfil === Perfil.SUPER &&
@@ -454,6 +478,15 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
+      // O alvo está excluído: a busca precisa incluir excluídos.
+      const usuarioAlvo =
+        await this.usuariosService.findByIdInternoIncluindoExcluidos(id, trx);
+      if (!usuarioAlvo) {
+        throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
+      }
+
+      await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
+
       await this.usuariosService.restore(id, user.email, trx);
       await this.auditoriaService.registrarEmTrx(
         {

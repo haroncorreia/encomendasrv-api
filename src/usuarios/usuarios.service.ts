@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { Unidade } from '../unidades/interfaces/unidade.interface';
@@ -37,12 +39,103 @@ type UsuarioComCondominio = UsuarioSemCredenciais & {
   aprovado_por: UsuarioSemCredenciais | null;
 };
 
+/**
+ * Escopo de um chamador não-`super` que não tem condomínio. Não corresponde a
+ * nenhum usuário: falha fechado (listas vazias, 403 nas rotas por id).
+ */
+export const SEM_CONDOMINIO = Symbol('sem-condominio');
+
+/**
+ * Resultado de `resolverEscopoCondominio`: `null` = sem restrição (`super`);
+ * string = uuid do condomínio do chamador; `SEM_CONDOMINIO` = nenhum.
+ */
+export type EscopoCondominio = string | null | typeof SEM_CONDOMINIO;
+
 @Injectable()
 export class UsuariosService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   private get query() {
     return this.knex<Usuario>(TABLE).whereNull('deleted_at');
+  }
+
+  /**
+   * Ponto único de resolução do condomínio de quem chama, usado pelas
+   * listagens e pelas rotas por id (spec `isolamento-multitenant-usuarios`,
+   * cards #157/#158; mesmo padrão do #49 em encomendas). `super` não tem
+   * restrição. Para os demais perfis, o condomínio é lido do banco por
+   * `user.sub`: o JWT não o carrega, e ele pode mudar durante a sessão
+   * (`PATCH /usuarios/:id/unidade`). Sem condomínio, o escopo é
+   * `SEM_CONDOMINIO`, nunca "todos".
+   */
+  async resolverEscopoCondominio(
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<EscopoCondominio> {
+    if (user.perfil === Perfil.SUPER) {
+      return null;
+    }
+
+    const chamador = await (trx ?? this.knex)<Usuario>(TABLE)
+      .where({ uuid: user.sub })
+      .whereNull('deleted_at')
+      .first('uuid_condominio');
+
+    return chamador?.uuid_condominio ?? SEM_CONDOMINIO;
+  }
+
+  /**
+   * Rejeita com 403 a operação sobre um usuário de outro condomínio (spec
+   * `isolamento-multitenant-usuarios`). Deve ser chamado logo depois de
+   * carregar o alvo e antes de qualquer escrita, dentro da transação quando
+   * houver. `super` passa sempre; quem não tem condomínio nunca passa, nem
+   * para alvo também sem condomínio.
+   */
+  async assertMesmoCondominio(
+    user: JwtPayload,
+    alvo: Pick<Usuario, 'uuid_condominio'>,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    this.assertDentroDoEscopo(
+      await this.resolverEscopoCondominio(user, trx),
+      alvo.uuid_condominio,
+      'Seu perfil não possui permissão para acessar este usuário.',
+    );
+  }
+
+  /** Lança 403 quando `uuidCondominio` está fora do escopo do chamador. */
+  private assertDentroDoEscopo(
+    escopo: EscopoCondominio,
+    uuidCondominio: string | null,
+    mensagem: string,
+  ): void {
+    if (escopo === null) {
+      return;
+    }
+
+    if (escopo === SEM_CONDOMINIO || escopo !== uuidCondominio) {
+      throw new ForbiddenException(mensagem);
+    }
+  }
+
+  /**
+   * Restringe uma consulta de usuários ao escopo do chamador. Nunca repassa
+   * `null` ao `where`: o knex o traduziria para `IS NULL`, e quem não tem
+   * condomínio passaria a ver os outros usuários sem condomínio.
+   */
+  private aplicarEscopoCondominio<TResult>(
+    qb: Knex.QueryBuilder<Usuario, TResult>,
+    escopo: EscopoCondominio,
+  ): Knex.QueryBuilder<Usuario, TResult> {
+    if (escopo === null) {
+      return qb;
+    }
+
+    if (escopo === SEM_CONDOMINIO) {
+      return qb.whereRaw('1 = 0');
+    }
+
+    return qb.where('uuid_condominio', escopo);
   }
 
   private hashValor(valor: string): string {
@@ -146,47 +239,80 @@ export class UsuariosService {
     }));
   }
 
-  async findAll(): Promise<UsuarioComCondominio[]> {
-    const usuarios = await this.query.select('*').orderBy('created_at', 'desc');
+  async findAll(user: JwtPayload): Promise<UsuarioComCondominio[]> {
+    const escopo = await this.resolverEscopoCondominio(user);
+    const usuarios = await this.aplicarEscopoCondominio(this.query, escopo)
+      .select('*')
+      .orderBy('created_at', 'desc');
     return this.enrichWithRelations(usuarios);
   }
 
-  async findRemoved(): Promise<UsuarioComCondominio[]> {
-    const usuarios = await this.knex<Usuario>(TABLE)
-      .whereNotNull('deleted_at')
+  async findRemoved(user: JwtPayload): Promise<UsuarioComCondominio[]> {
+    const escopo = await this.resolverEscopoCondominio(user);
+    const usuarios = await this.aplicarEscopoCondominio(
+      this.knex<Usuario>(TABLE).whereNotNull('deleted_at'),
+      escopo,
+    )
       .select('*')
       .orderBy('deleted_at', 'desc');
     return this.enrichWithRelations(usuarios);
   }
 
-  async findMoradores(): Promise<UsuarioComCondominio[]> {
-    const usuarios = await this.query
-      .where({ perfil: Perfil.MORADOR })
-      .whereNotNull('aproved_at')
-      .select('*')
-      .orderBy('created_at', 'desc');
+  /**
+   * `GET /usuarios/moradores` tem contrato por perfil (spec
+   * `listagem-moradores-ativos`, cards #117 e #157), porque atende dois
+   * consumidores legados com necessidades opostas:
+   * - a fila "Liberar acesso" do app de loja 1.1.0 e do web 1.2.0 (admin e
+   *   super) chama esta rota e filtra `!aproved_at` no cliente. Admin e super
+   *   precisam continuar recebendo pendentes e revogados, como na v1.2.2;
+   * - o seletor de morador do recebimento de encomenda (portaria) só deve
+   *   oferecer quem tem acesso ativo. A gravação já recusa inativos (#117).
+   * Quem distingue os dois consumidores é o perfil: o filtro de acesso ativo
+   * vale para todo perfil que não seja admin ou super (na prática, portaria,
+   * porque o `@Roles` da rota barra morador). Clientes novos usam
+   * `/moradores/pendentes` na fila.
+   */
+  async findMoradores(user: JwtPayload): Promise<UsuarioComCondominio[]> {
+    const escopo = await this.resolverEscopoCondominio(user);
+    const query = this.aplicarEscopoCondominio(
+      this.query.where({ perfil: Perfil.MORADOR }),
+      escopo,
+    );
+
+    const recebePendentesERevogados =
+      user.perfil === Perfil.SUPER || user.perfil === Perfil.ADMIN;
+    if (!recebePendentesERevogados) {
+      query.whereNotNull('aproved_at');
+    }
+
+    const usuarios = await query.select('*').orderBy('created_at', 'desc');
     return this.enrichWithRelations(usuarios);
   }
 
   /**
-   * Moradores aguardando aprovação de acesso — usado pela fila de liberação
-   * de acesso (LiberarAcessoUsuariosPage). Distinto de findMoradores(), que
-   * exclui exatamente esses usuários (card #117) por ser usado no seletor de
-   * recebimento de encomenda, onde só faz sentido morador com acesso ativo.
+   * Moradores aguardando aprovação de acesso, usado pela fila de liberação
+   * de acesso dos clientes atuais (LiberarAcessoUsuariosPage, #119). Os
+   * clientes legados montam a mesma fila a partir de `findMoradores()`.
    */
-  async findMoradoresPendentes(): Promise<UsuarioComCondominio[]> {
-    const usuarios = await this.query
-      .where({ perfil: Perfil.MORADOR })
-      .whereNull('aproved_at')
+  async findMoradoresPendentes(
+    user: JwtPayload,
+  ): Promise<UsuarioComCondominio[]> {
+    const escopo = await this.resolverEscopoCondominio(user);
+    const usuarios = await this.aplicarEscopoCondominio(
+      this.query.where({ perfil: Perfil.MORADOR }).whereNull('aproved_at'),
+      escopo,
+    )
       .select('*')
       .orderBy('created_at', 'desc');
     return this.enrichWithRelations(usuarios);
   }
 
-  async findPorteiros(): Promise<UsuarioComCondominio[]> {
-    const usuarios = await this.query
-      .where({ perfil: Perfil.PORTARIA })
-      .whereNotNull('aproved_at')
+  async findPorteiros(user: JwtPayload): Promise<UsuarioComCondominio[]> {
+    const escopo = await this.resolverEscopoCondominio(user);
+    const usuarios = await this.aplicarEscopoCondominio(
+      this.query.where({ perfil: Perfil.PORTARIA }).whereNotNull('aproved_at'),
+      escopo,
+    )
       .select('*')
       .orderBy('created_at', 'desc');
     return this.enrichWithRelations(usuarios);
@@ -504,10 +630,16 @@ export class UsuariosService {
     };
   }
 
+  /**
+   * Corrige a unidade (e o condomínio) de um usuário. A unidade nova precisa
+   * estar no escopo de condomínio do `ator` (spec `correcao-unidade-usuario`),
+   * por isso ele é obrigatório. A busca por código continua global porque o
+   * código é único na base (#159).
+   */
   async updateUnidade(
     uuid: string,
     unidade: string,
-    editadoPor?: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
     await this.findOne(uuid);
@@ -523,14 +655,18 @@ export class UsuariosService {
       throw new BadRequestException(`Unidade '${unidade}' não encontrada.`);
     }
 
-    await qb<Usuario>(TABLE)
-      .where({ uuid })
-      .update({
-        uuid_unidade: unidadeRow.uuid,
-        uuid_condominio: unidadeRow.uuid_condominio,
-        updated_at: new Date(),
-        updated_by: editadoPor ?? 'system',
-      });
+    this.assertDentroDoEscopo(
+      await this.resolverEscopoCondominio(ator, trx),
+      unidadeRow.uuid_condominio,
+      'Seu perfil não possui permissão para atribuir unidade de outro condomínio.',
+    );
+
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      uuid_unidade: unidadeRow.uuid,
+      uuid_condominio: unidadeRow.uuid_condominio,
+      updated_at: new Date(),
+      updated_by: ator.email,
+    });
 
     const atualizado = await qb<Usuario>(TABLE)
       .where({ uuid })
@@ -766,6 +902,17 @@ export class UsuariosService {
       .where({ uuid })
       .whereNull('deleted_at')
       .first();
+  }
+
+  /**
+   * Como `findByIdInterno`, mas inclui usuários excluídos (soft delete). Usado
+   * pelo `restore`, cujo alvo está excluído. Uso interno.
+   */
+  async findByIdInternoIncluindoExcluidos(
+    uuid: string,
+    trx?: Knex.Transaction,
+  ): Promise<Usuario | undefined> {
+    return (trx ?? this.knex)<Usuario>(TABLE).where({ uuid }).first();
   }
 
   /** Salva o token de redefinição de senha e sua expiração. */

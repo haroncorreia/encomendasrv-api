@@ -732,7 +732,7 @@ describe('UsuariosModule (e2e)', () => {
     ).expect(403);
   });
 
-  it('GET /usuarios/moradores não deve incluir morador com acesso revogado', async () => {
+  it('GET /usuarios/moradores não deve incluir morador com acesso revogado para a portaria (super continua recebendo, contrato v1.2.2)', async () => {
     const novoMoradorRes = await request(app.getHttpServer())
       .post(`${AUTH_BASE}/sign-up`)
       .send({
@@ -772,15 +772,27 @@ describe('UsuariosModule (e2e)', () => {
       ),
     ).expect(200);
 
-    const listaDepois = await auth(
+    const listaPortariaDepois = await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
+    ).expect(200);
+    expect(
+      listaPortariaDepois.body.some(
+        (u: { uuid: string }) => u.uuid === moradorRevogadoUuid,
+      ),
+    ).toBe(false);
+
+    // Admin/super seguem recebendo revogados e pendentes: a fila de liberação
+    // dos apps legados filtra `!aproved_at` no cliente (card #157).
+    const listaSuperDepois = await auth(
       superToken,
       request(app.getHttpServer()).get(`${BASE_URL}/moradores`),
     ).expect(200);
     expect(
-      listaDepois.body.some(
+      listaSuperDepois.body.some(
         (u: { uuid: string }) => u.uuid === moradorRevogadoUuid,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('GET /usuarios/moradores/pendentes deve retornar 200 e listar apenas moradores com aproved_at nulo', async () => {
