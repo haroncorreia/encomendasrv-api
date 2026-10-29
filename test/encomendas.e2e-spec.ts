@@ -1529,6 +1529,10 @@ describe('EncomendasModule (e2e)', () => {
     let portariaOutroCondominioToken: string;
     let encomendaOutroCondominioUuid: string;
     let encomendaOutroCondominioExcluidaUuid: string;
+    const uuidCondominioOutro = randomUUID();
+    const uuidUnidadeOutro = randomUUID();
+    const usuariosOutroCondominio: string[] = [];
+    const encomendasOutroCondominio: string[] = [];
 
     const construirToken = (
       sub: string,
@@ -1546,8 +1550,6 @@ describe('EncomendasModule (e2e)', () => {
 
     beforeAll(async () => {
       const runId = Date.now();
-      const uuidCondominioOutro = randomUUID();
-      const uuidUnidadeOutro = randomUUID();
       const unidadeCodigo = `9${String(runId).slice(-3)}`;
 
       await knex('condominios').insert({
@@ -1579,8 +1581,11 @@ describe('EncomendasModule (e2e)', () => {
             senha: 'Senha@123',
             perfil: 'admin',
             unidade: unidadeCodigo,
+            // Com dois condomínios, o super informa o condomínio (card #167).
+            uuid_condominio: uuidCondominioOutro,
           }),
       ).expect(201);
+      usuariosOutroCondominio.push(adminOutroRes.body.uuid as string);
       adminOutroCondominioToken = construirToken(
         adminOutroRes.body.uuid as string,
         adminOutroRes.body.nome as string,
@@ -1600,8 +1605,10 @@ describe('EncomendasModule (e2e)', () => {
             senha: 'Senha@123',
             perfil: 'portaria',
             unidade: unidadeCodigo,
+            uuid_condominio: uuidCondominioOutro,
           }),
       ).expect(201);
+      usuariosOutroCondominio.push(portariaOutroRes.body.uuid as string);
       portariaOutroCondominioToken = construirToken(
         portariaOutroRes.body.uuid as string,
         portariaOutroRes.body.nome as string,
@@ -1621,6 +1628,7 @@ describe('EncomendasModule (e2e)', () => {
         })
         .expect(201);
       const moradorOutroUuid = moradorOutroRes.body.usuario.uuid as string;
+      usuariosOutroCondominio.push(moradorOutroUuid);
       await auth(
         superToken,
         request(app.getHttpServer()).patch(
@@ -1640,6 +1648,7 @@ describe('EncomendasModule (e2e)', () => {
           }),
       ).expect(201);
       encomendaOutroCondominioUuid = encomendaOutroRes.body.uuid as string;
+      encomendasOutroCondominio.push(encomendaOutroCondominioUuid);
 
       const encomendaExcluidaRes = await auth(
         portariaOutroCondominioToken,
@@ -1654,12 +1663,41 @@ describe('EncomendasModule (e2e)', () => {
       ).expect(201);
       encomendaOutroCondominioExcluidaUuid = encomendaExcluidaRes.body
         .uuid as string;
+      encomendasOutroCondominio.push(encomendaOutroCondominioExcluidaUuid);
       await auth(
         superToken,
         request(app.getHttpServer()).delete(
           `${BASE_URL}/${encomendaOutroCondominioExcluidaUuid}`,
         ),
       ).expect(204);
+    });
+
+    // Remove o segundo condomínio e o que o referencia. Se ficasse no banco,
+    // os arquivos seguintes da execução teriam dois condomínios, e o
+    // `POST /usuarios` do super sem `uuid_condominio` passaria a 400 (card #167).
+    afterAll(async () => {
+      if (encomendasOutroCondominio.length > 0) {
+        await knex('notificacoes')
+          .whereIn('uuid_encomenda', encomendasOutroCondominio)
+          .del();
+        await knex('encomendas_eventos')
+          .whereIn('uuid_encomenda', encomendasOutroCondominio)
+          .del();
+        await knex('encomendas')
+          .whereIn('uuid', encomendasOutroCondominio)
+          .del();
+      }
+      if (usuariosOutroCondominio.length > 0) {
+        await knex('notificacoes')
+          .whereIn('uuid_usuario', usuariosOutroCondominio)
+          .del();
+        await knex('device_tokens')
+          .whereIn('uuid_usuario', usuariosOutroCondominio)
+          .del();
+        await knex('usuarios').whereIn('uuid', usuariosOutroCondominio).del();
+      }
+      await knex('unidades').where({ uuid: uuidUnidadeOutro }).del();
+      await knex('condominios').where({ uuid: uuidCondominioOutro }).del();
     });
 
     it('GET /encomendas não deve incluir encomenda de outro condomínio para portaria', async () => {

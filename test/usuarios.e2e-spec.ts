@@ -41,6 +41,7 @@ describe('UsuariosModule (e2e)', () => {
   let roleAdminTargetUuid: string;
   let rolePortariaTargetUuid: string;
   let roleMoradorTargetUuid: string;
+  let condominioSeedUuid: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -75,7 +76,7 @@ describe('UsuariosModule (e2e)', () => {
       knex('usuarios')
         .where({ email: SEEDED_ADMIN_EMAIL })
         .whereNull('deleted_at')
-        .first('uuid', 'nome', 'email'),
+        .first('uuid', 'nome', 'email', 'uuid_condominio'),
       knex('usuarios')
         .where({ email: SEEDED_PORTARIA_EMAIL })
         .whereNull('deleted_at')
@@ -137,6 +138,7 @@ describe('UsuariosModule (e2e)', () => {
 
     portariaUuid = portariaUsuario.uuid as string;
     moradorUuid = moradorUsuario.uuid as string;
+    condominioSeedUuid = adminUsuario.uuid_condominio as string;
 
     const selfDeletePortariaRes = await auth(
       superToken,
@@ -363,7 +365,8 @@ describe('UsuariosModule (e2e)', () => {
 
     expect(res.body.uuid).toBeDefined();
     expect(res.body.perfil).toBe('admin');
-    expect(res.body.uuid_condominio).toBeNull();
+    // Sem unidade, o funcionário fica no único condomínio da base (card #167).
+    expect(res.body.uuid_condominio).toBe(condominioSeedUuid);
     expect(res.body.uuid_unidade).toBeNull();
     expect(res.body.senha).toBeUndefined();
   });
@@ -590,8 +593,9 @@ describe('UsuariosModule (e2e)', () => {
     const item = res.body.find(
       (u: { uuid: string }) => u.uuid === usuarioCriadoUuid,
     );
-    expect(item.condominio).toBeDefined();
-    expect(item.condominio.uuid).toBe(item.uuid_condominio);
+    // Super criado por super não pertence a condomínio (card #167).
+    expect(item.uuid_condominio).toBeNull();
+    expect(item.condominio).toBeNull();
     expect(item.unidade).toBeDefined();
     expect(item.unidade.uuid).toBe(item.uuid_unidade);
     expect(item).toHaveProperty('aproved_at');
@@ -614,12 +618,14 @@ describe('UsuariosModule (e2e)', () => {
   });
 
   it('GET /usuarios/:id deve retornar 200 com o condomínio e unidade vinculados', async () => {
+    // Alvo com condomínio e unidade: o admin criado com unidade. O super
+    // criado por super não tem condomínio (card #167).
     const res = await auth(
       superToken,
-      request(app.getHttpServer()).get(`${BASE_URL}/${usuarioCriadoUuid}`),
+      request(app.getHttpServer()).get(`${BASE_URL}/${roleAdminTargetUuid}`),
     ).expect(200);
 
-    expect(res.body.uuid).toBe(usuarioCriadoUuid);
+    expect(res.body.uuid).toBe(roleAdminTargetUuid);
     expect(res.body.uuid_condominio).toBeDefined();
     expect(res.body.condominio).toBeDefined();
     expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
@@ -951,10 +957,9 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.nome).toBe('Usuario Editado');
     expect(res.body.cpf_cnpj).toBe('90909090909');
     expect(res.body.rg).toBe('RG9090909090909');
-    expect(res.body.uuid_condominio).toBeDefined();
-    expect(res.body.condominio).toBeDefined();
-    expect(res.body.condominio.uuid).toBe(res.body.uuid_condominio);
-    expect(typeof res.body.condominio.nome).toBe('string');
+    // O próprio usuário é um super criado por super: sem condomínio (card #167).
+    expect(res.body.uuid_condominio).toBeNull();
+    expect(res.body.condominio).toBeNull();
     expect(res.body.uuid_unidade).toBeDefined();
     expect(res.body.unidade).toBeDefined();
     expect(res.body.unidade.uuid).toBe(res.body.uuid_unidade);
@@ -967,6 +972,41 @@ describe('UsuariosModule (e2e)', () => {
     expect(res.body.reset_password_exp).toBeUndefined();
     expect(res.body.refresh_token_hash).toBeUndefined();
     expect(res.body.refresh_token_exp).toBeUndefined();
+  });
+
+  it('PATCH /usuarios/:id deve devolver o condomínio e a unidade vinculados ao próprio usuário', async () => {
+    // Alvo com condomínio e unidade (admin criado com unidade): cobre o join
+    // de `condominio` que o update() monta e o app lê no perfil.
+    const signInRes = await request(app.getHttpServer())
+      .post(`${AUTH_BASE}/sign-in`)
+      .send({
+        usuario: 'usuarios.role.admin.target@teste.com',
+        senha: 'Senha@123',
+      })
+      .expect(200);
+
+    const res = await auth(
+      signInRes.body.access_token as string,
+      request(app.getHttpServer())
+        .patch(`${BASE_URL}/${roleAdminTargetUuid}`)
+        .send({ nome: 'Role Admin Target Editado' }),
+    ).expect(200);
+
+    expect(res.body.uuid).toBe(roleAdminTargetUuid);
+    expect(res.body.nome).toBe('Role Admin Target Editado');
+    expect(res.body.uuid_condominio).toBe(condominioSeedUuid);
+    expect(res.body.condominio).toEqual(
+      expect.objectContaining({
+        uuid: condominioSeedUuid,
+        nome: expect.any(String),
+      }),
+    );
+    expect(res.body.unidade).toEqual(
+      expect.objectContaining({
+        uuid: res.body.uuid_unidade,
+        unidade: expect.any(String),
+      }),
+    );
   });
 
   const signInUsuarioCriado = async (): Promise<string> => {

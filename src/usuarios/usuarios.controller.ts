@@ -120,11 +120,13 @@ export class UsuariosController {
     }
 
     return this.knex.transaction(async (trx) => {
+      // Com o ator, o service grava o condomínio do funcionário (card #167).
       const usuario = await this.usuariosService.create(
         createFuncionarioDto,
         user.email,
         trx,
         user.sub,
+        user,
       );
       await this.auditoriaService.registrarEmTrx(
         {

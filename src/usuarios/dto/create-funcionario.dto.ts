@@ -5,6 +5,7 @@ import {
   MaxLength,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
 } from 'class-validator';
 import { Perfil } from '../enums/perfil.enum';
@@ -49,6 +50,15 @@ export class CreateFuncionarioDto {
   @IsOptional()
   @IsString({ message: 'A unidade deve ser válida.' })
   unidade?: string;
+
+  /**
+   * Condomínio do funcionário (card #167). Opcional: os clientes legados não
+   * o enviam, e o service resolve o condomínio pelo ator (spec
+   * `isolamento-multitenant-usuarios`).
+   */
+  @IsOptional()
+  @IsUUID('all', { message: 'O condomínio deve ser um UUID válido.' })
+  uuid_condominio?: string;
 
   @IsNotEmpty({ message: 'O perfil é obrigatório.' })
   @IsIn([Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA], {

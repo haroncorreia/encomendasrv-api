@@ -39,6 +39,9 @@ type UsuarioComCondominio = UsuarioSemCredenciais & {
   aprovado_por: UsuarioSemCredenciais | null;
 };
 
+/** Condomínio e unidade gravados para um usuário novo. */
+type VinculoCondominio = Pick<Usuario, 'uuid_condominio' | 'uuid_unidade'>;
+
 /**
  * Escopo de um chamador não-`super` que não tem condomínio. Não corresponde a
  * nenhum usuário: falha fechado (listas vazias, 403 nas rotas por id).
@@ -359,10 +362,12 @@ export class UsuariosService {
     dto: Omit<CreateUsuarioDto, 'unidade'> & {
       unidade?: string;
       perfil?: Perfil;
+      uuid_condominio?: string;
     },
     criadoPor?: string,
     trx?: Knex.Transaction,
     aprovadoPorUuid?: string,
+    ator?: JwtPayload,
   ): Promise<UsuarioSemCredenciais> {
     const qb = trx ?? this.knex;
 
@@ -396,26 +401,14 @@ export class UsuariosService {
       }
     }
 
+    // Cadastro administrativo (`POST /usuarios`, que passa o `ator`): o
+    // condomínio é resolvido pelo ator (card #167). Auto-cadastro (SignUp):
+    // condomínio e unidade vêm da unidade informada, como antes.
+    const { uuid_condominio, uuid_unidade } = ator
+      ? await this.resolverVinculoCadastroAdministrativo(dto, ator, trx)
+      : await this.resolverVinculoPelaUnidade(dto.unidade, qb);
+
     const senhaHash = await bcrypt.hash(dto.senha, BCRYPT_ROUNDS);
-
-    let uuid_condominio: string | null = null;
-    let uuid_unidade: string | null = null;
-
-    if (dto.unidade) {
-      const unidadeRow = await qb('unidades')
-        .where({ unidade: dto.unidade })
-        .whereNull('deleted_at')
-        .first<{ uuid: string; uuid_condominio: string }>();
-
-      if (!unidadeRow) {
-        throw new BadRequestException(
-          `Unidade '${dto.unidade}' não encontrada.`,
-        );
-      }
-
-      uuid_condominio = unidadeRow.uuid_condominio;
-      uuid_unidade = unidadeRow.uuid;
-    }
 
     // Auto-cadastro público (origem 'SignUp') nunca pode definir o próprio
     // perfil: é sempre 'morador'. Somente o caminho administrativo pode
@@ -455,6 +448,166 @@ export class UsuariosService {
     }
 
     return this.omitSenha(usuario);
+  }
+
+  /**
+   * Condomínio e unidade de quem é criado pelo cadastro administrativo
+   * (`POST /usuarios`). Pela spec `isolamento-multitenant-usuarios` (card
+   * #167), nenhum funcionário não-super nasce sem condomínio. Ordem da
+   * decisão 2 do design da change `vincular-funcionario-ao-condominio`:
+   * 1. perfil novo `super`: sem condomínio (é global); a unidade, se vier,
+   *    segue a regra anterior;
+   * 2. ator não-super (admin): o condomínio do próprio ator, lido do banco;
+   *    403 se ele não tiver condomínio ou informar outro;
+   * 3. ator `super`: o `uuid_condominio` informado ou, sem ele, o único
+   *    condomínio cadastrado; senão 400;
+   * 4. a unidade informada precisa existir (400) e ser do condomínio
+   *    resolvido (403 para admin, 400 para super).
+   * Roda antes do insert e na mesma transação: quando recusa, nada é criado.
+   */
+  private async resolverVinculoCadastroAdministrativo(
+    dto: { perfil?: Perfil; unidade?: string; uuid_condominio?: string },
+    ator: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<VinculoCondominio> {
+    const qb = trx ?? this.knex;
+
+    if (dto.perfil === Perfil.SUPER) {
+      // Mesma guarda do controller: só o super cria super.
+      if (ator.perfil !== Perfil.SUPER) {
+        throw new ForbiddenException(
+          'Usuário admin não pode criar usuário com perfil super.',
+        );
+      }
+
+      const unidade = dto.unidade
+        ? await this.buscarUnidadePorCodigo(dto.unidade, qb)
+        : undefined;
+      return { uuid_condominio: null, uuid_unidade: unidade?.uuid ?? null };
+    }
+
+    // `null` só para o ator super, que não tem restrição de condomínio.
+    const escopo = await this.resolverEscopoCondominio(ator, trx);
+    const uuidCondominio =
+      escopo === null
+        ? await this.resolverCondominioDoSuper(dto.uuid_condominio, qb)
+        : this.condominioDoAtor(escopo, dto.uuid_condominio);
+
+    if (!dto.unidade) {
+      return { uuid_condominio: uuidCondominio, uuid_unidade: null };
+    }
+
+    const unidade = await this.buscarUnidadePorCodigo(dto.unidade, qb);
+
+    // Admin: mesma recusa (403) do `updateUnidade`. Não restringe o super.
+    this.assertDentroDoEscopo(
+      escopo,
+      unidade.uuid_condominio,
+      'Seu perfil não possui permissão para atribuir unidade de outro condomínio.',
+    );
+
+    // Super: a unidade precisa ser do condomínio escolhido (400).
+    if (unidade.uuid_condominio !== uuidCondominio) {
+      throw new BadRequestException(
+        `A unidade '${dto.unidade}' não pertence ao condomínio do novo usuário.`,
+      );
+    }
+
+    return { uuid_condominio: uuidCondominio, uuid_unidade: unidade.uuid };
+  }
+
+  /**
+   * Condomínio de um funcionário criado por ator não-super: sempre o do
+   * próprio ator. Falha fechado (403) se ele não tiver condomínio ou se
+   * informar outro.
+   */
+  private condominioDoAtor(
+    escopo: string | typeof SEM_CONDOMINIO,
+    informado: string | undefined,
+  ): string {
+    if (escopo === SEM_CONDOMINIO) {
+      throw new ForbiddenException(
+        'Seu perfil não possui permissão para criar usuários sem condomínio vinculado.',
+      );
+    }
+
+    // O `@IsUUID` aceita maiúsculas: compara sem diferenciar caixa.
+    if (informado && informado.toLowerCase() !== escopo.toLowerCase()) {
+      throw new ForbiddenException(
+        'Seu perfil não possui permissão para criar usuários em outro condomínio.',
+      );
+    }
+
+    return escopo;
+  }
+
+  /**
+   * Condomínio escolhido pelo `super`: o informado, que precisa existir e não
+   * estar excluído, ou, sem ele, o único condomínio não excluído. Com nenhum
+   * ou mais de um, recusa (400) em vez de adivinhar.
+   */
+  private async resolverCondominioDoSuper(
+    informado: string | undefined,
+    qb: Knex | Knex.Transaction,
+  ): Promise<string> {
+    if (informado) {
+      const condominio = await qb<Condominio>('condominios')
+        .where({ uuid: informado })
+        .whereNull('deleted_at')
+        .first('uuid');
+
+      if (!condominio) {
+        throw new BadRequestException(
+          `Condomínio '${informado}' não encontrado.`,
+        );
+      }
+
+      return condominio.uuid;
+    }
+
+    const condominios = await qb<Condominio>('condominios')
+      .whereNull('deleted_at')
+      .limit(2)
+      .pluck('uuid');
+
+    if (condominios.length !== 1) {
+      throw new BadRequestException('Informe o condomínio (uuid_condominio).');
+    }
+
+    return condominios[0];
+  }
+
+  /** Vínculo do auto-cadastro: condomínio e unidade vêm da unidade. */
+  private async resolverVinculoPelaUnidade(
+    codigo: string | undefined,
+    qb: Knex | Knex.Transaction,
+  ): Promise<VinculoCondominio> {
+    if (!codigo) {
+      return { uuid_condominio: null, uuid_unidade: null };
+    }
+
+    const unidade = await this.buscarUnidadePorCodigo(codigo, qb);
+    return {
+      uuid_condominio: unidade.uuid_condominio,
+      uuid_unidade: unidade.uuid,
+    };
+  }
+
+  /** Unidade pelo código, único na base (#159). 400 se não existir. */
+  private async buscarUnidadePorCodigo(
+    codigo: string,
+    qb: Knex | Knex.Transaction,
+  ): Promise<{ uuid: string; uuid_condominio: string }> {
+    const unidadeRow = await qb('unidades')
+      .where({ unidade: codigo })
+      .whereNull('deleted_at')
+      .first<{ uuid: string; uuid_condominio: string }>();
+
+    if (!unidadeRow) {
+      throw new BadRequestException(`Unidade '${codigo}' não encontrada.`);
+    }
+
+    return unidadeRow;
   }
 
   async update(
