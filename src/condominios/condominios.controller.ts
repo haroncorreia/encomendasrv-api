@@ -33,13 +33,16 @@ export class CondominiosController {
   ) {}
 
   @Get()
-  findAll() {
-    return this.condominiosService.findAll();
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.condominiosService.findAll(user);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPtPipe) id: string) {
-    return this.condominiosService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.condominiosService.findOne(id, user);
   }
 
   @Patch(':id')
@@ -52,10 +55,12 @@ export class CondominiosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
+      // O escopo (403) é checado no service, antes da escrita. A auditoria só
+      // é registrada depois que a alteração acontece, na mesma transação.
       const atualizado = await this.condominiosService.update(
         id,
         dto,
-        user.email,
+        user,
         trx,
       );
 
