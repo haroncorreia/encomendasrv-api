@@ -16,6 +16,8 @@ import { DeviceTokensModule } from './device-tokens/device-tokens.module';
 import { EmailModule } from './email/email.module';
 import { EncomendasModule } from './encomendas/encomendas.module';
 import { ImagensModule } from './imagens/imagens.module';
+import { ModuloAtivoGuard } from './modulos/modulo-ativo.guard';
+import { ModulosModule } from './modulos/modulos.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PushModule } from './push/push.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
@@ -35,6 +37,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     EmailModule,
     UsuariosModule,
     CondominiosModule,
+    ModulosModule,
     UnidadesModule,
     TransportadorasModule,
     EncomendasModule,
@@ -54,6 +57,13 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    // Terceiro de propósito: o Nest executa os APP_GUARD na ordem de registro,
+    // e o 403 de perfil (RolesGuard) tem precedência sobre o de módulo
+    // inativo. Sem `@RequerModulo` na rota, devolve `true` sem nenhum I/O.
+    {
+      provide: APP_GUARD,
+      useClass: ModuloAtivoGuard,
     },
   ],
 })
