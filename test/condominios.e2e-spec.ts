@@ -17,6 +17,11 @@ import {
   UsuarioFixture,
 } from './utils/e2e-dois-condominios';
 import {
+  cnpjComDigitos,
+  criarGeradorDeCnpj,
+  formatarCnpj,
+} from './utils/e2e-cnpj';
+import {
   assinarAccessToken,
   criarUsuarioPrivilegiadoComToken,
   obterTokenSuperSemente,
@@ -26,6 +31,55 @@ const BASE_URL = '/condominios';
 const AUTH_BASE = '/authenticate';
 const RUN_ID = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-8);
 const SENHA = 'Senha@123';
+
+/**
+ * Campos que `admin`, `portaria` e `morador` recebem do condomínio (spec
+ * `isolamento-multitenant-condominios`, "Leitura por perfis não-super omite
+ * colunas internas", card #192 / Issue #183).
+ */
+const CAMPOS_NEGOCIO = [
+  'uuid',
+  'nome',
+  'cnpj',
+  'cep',
+  'endereco',
+  'bairro',
+  'cidade',
+  'uf',
+  'telefone',
+  'email',
+];
+
+/** Colunas internas (autoria, exclusão e status) que só o `super` recebe. */
+const CAMPOS_INTERNOS = [
+  'created_at',
+  'created_by',
+  'updated_at',
+  'updated_by',
+  'deleted_at',
+  'deleted_by',
+  'status',
+  'motivo_suspensao',
+  'status_alterado_em',
+  'status_alterado_por',
+];
+
+/** O corpo tem exatamente os campos de negócio, nem mais nem menos. */
+const expectSoCamposDeNegocio = (corpo: unknown) => {
+  expect(Object.keys(corpo as object).sort()).toEqual(
+    [...CAMPOS_NEGOCIO].sort(),
+  );
+};
+
+/** O corpo tem os campos de negócio e todas as colunas internas. */
+const expectTodasAsColunas = (corpo: unknown) => {
+  expect(Object.keys(corpo as object).sort()).toEqual(
+    [...CAMPOS_NEGOCIO, ...CAMPOS_INTERNOS].sort(),
+  );
+};
+
+const MENSAGEM_403_CNPJ =
+  'Seu perfil não possui permissão para alterar o CNPJ do condomínio.';
 
 const PERFIS_DO_A = ['morador', 'portaria', 'admin'] as const;
 type PerfilDoA = (typeof PERFIS_DO_A)[number];
@@ -250,7 +304,14 @@ describe('CondominiosModule (e2e)', () => {
     expect(res.body.uuid).toBe(condominioSeedUuid);
     expect(res.body.cidade).toBe('Barueri');
     expect(res.body.bairro).toBe('Alphaville');
-    expect(res.body.updated_by).toBe(adminEmail);
+    // O admin não recebe mais `updated_by` (#183): a autoria é conferida no
+    // banco.
+    expectSoCamposDeNegocio(res.body);
+    expect(
+      await knex('condominios')
+        .where({ uuid: condominioSeedUuid })
+        .first('updated_by'),
+    ).toEqual({ updated_by: adminEmail });
   });
 
   it('PATCH /condominios/:id deve retornar 200 para super', async () => {
@@ -485,31 +546,83 @@ describe('CondominiosModule (e2e)', () => {
       };
 
       it.each(PERFIS_DO_A)(
-        'GET /condominios: %s do A recebe só o condomínio A',
+        'Morador, portaria e admin listam só o próprio condomínio: GET /condominios do %s do A traz só o A, só com os campos de negócio',
         async (perfil) => {
           const res = await get(tokenDoA(perfil)).expect(200);
 
           expect(uuidsDe(res.body)).toEqual([condominioSeedUuid]);
           expectSemDadosDoB(res.body);
+          expectSoCamposDeNegocio(res.body[0]);
         },
       );
 
-      it('GET /condominios: super recebe A e B', async () => {
+      it('Super lista todos os condomínios: GET /condominios do super traz A e B, com todas as colunas', async () => {
         const res = await get(superToken).expect(200);
 
         expect(uuidsDe(res.body)).toEqual(
           expect.arrayContaining([condominioSeedUuid, fx.condominioB.uuid]),
         );
+        for (const condominio of res.body as object[]) {
+          expectTodasAsColunas(condominio);
+        }
       });
 
       it.each(PERFIS_SEM_CONDOMINIO)(
-        'GET /condominios: %s sem condomínio recebe lista vazia',
+        'Chamador sem condomínio recebe lista vazia: GET /condominios do %s sem condomínio',
         async (perfil) => {
           const res = await get(tokenSemCondominio(perfil)).expect(200);
 
           expect(res.body).toEqual([]);
         },
       );
+
+      it.each(PERFIS_DO_A)(
+        'Morador lê o próprio condomínio: GET /condominios/<A> do %s do A só com os campos de negócio, sem autoria, exclusão nem status',
+        async (perfil) => {
+          const res = await get(
+            tokenDoA(perfil),
+            `/${condominioSeedUuid}`,
+          ).expect(200);
+
+          expect(res.body.uuid).toBe(condominioSeedUuid);
+          expectSoCamposDeNegocio(res.body);
+          for (const campo of [
+            'created_by',
+            'updated_by',
+            'deleted_at',
+            'deleted_by',
+            'status',
+            'motivo_suspensao',
+          ]) {
+            expect(res.body).not.toHaveProperty(campo);
+          }
+        },
+      );
+
+      it('Super recebe tudo: GET /condominios/<A> do super traz também autoria e status', async () => {
+        const res = await get(superToken, `/${condominioSeedUuid}`).expect(200);
+
+        expectTodasAsColunas(res.body);
+        expect(res.body).toMatchObject({
+          uuid: condominioSeedUuid,
+          created_by: 'seed',
+          status: 'ativo',
+          motivo_suspensao: null,
+          status_alterado_em: null,
+          status_alterado_por: null,
+        });
+      });
+
+      it('admin do B: GET /condominios/<B> e a lista dele só com os campos de negócio', async () => {
+        const lista = await get(fx.tokens.adminB).expect(200);
+        const porId = await get(
+          fx.tokens.adminB,
+          `/${fx.condominioB.uuid}`,
+        ).expect(200);
+
+        expectSoCamposDeNegocio(lista.body[0]);
+        expectSoCamposDeNegocio(porId.body);
+      });
 
       it.each(PERFIS_DO_A)(
         'GET /condominios/<B>: %s do A recebe 403 sem dados do B',
@@ -638,24 +751,143 @@ describe('CondominiosModule (e2e)', () => {
         expect(await registroNoBanco(condominioSeedUuid)).toEqual(antes);
       });
 
-      it('admin do A alterando o A com e-mail ou telefone do B: 409 continua', async () => {
-        const antes = await registroNoBanco(condominioSeedUuid);
+      it('Admin usa o contato de outro condomínio: admin do A grava no A o e-mail e o telefone do B, com 200 e sem revelar que o contato já existe', async () => {
+        const original = await knex('condominios')
+          .where({ uuid: condominioSeedUuid })
+          .first('email', 'telefone');
 
-        const porEmail = await patch(adminToken, condominioSeedUuid, {
-          email: emailB,
-        }).expect(409);
-        expect(porEmail.body.message).toBe(
-          'Este e-mail já está em uso por outro condomínio.',
+        try {
+          const porEmail = await patch(adminToken, condominioSeedUuid, {
+            email: emailB,
+          }).expect(200);
+          const porTelefone = await patch(adminToken, condominioSeedUuid, {
+            telefone: telefoneB,
+          }).expect(200);
+
+          expect(porEmail.body).toMatchObject({
+            uuid: condominioSeedUuid,
+            email: emailB,
+          });
+          expect(porTelefone.body).toMatchObject({
+            uuid: condominioSeedUuid,
+            email: emailB,
+            telefone: telefoneB,
+          });
+          // Nada que aponte para o B, nem o aviso de contato repetido.
+          for (const corpo of [porEmail.body, porTelefone.body]) {
+            expectSoCamposDeNegocio(corpo);
+            expect(JSON.stringify(corpo)).not.toContain(fx.condominioB.uuid);
+          }
+          expect(await registroNoBanco(condominioSeedUuid)).toMatchObject({
+            email: emailB,
+            telefone: telefoneB,
+          });
+        } finally {
+          // O A é o condomínio do seed, compartilhado com os outros e2e.
+          await knex('condominios')
+            .where({ uuid: condominioSeedUuid })
+            .update(original);
+        }
+      });
+
+      it('Admin altera o próprio condomínio: admin do B muda o nome do B e recebe só os campos de negócio, com o nome novo', async () => {
+        const res = await patch(fx.tokens.adminB, fx.condominioB.uuid, {
+          nome: 'B renomeado pelo admin',
+        }).expect(200);
+
+        expectSoCamposDeNegocio(res.body);
+        expect(res.body).toMatchObject({
+          uuid: fx.condominioB.uuid,
+          nome: 'B renomeado pelo admin',
+        });
+      });
+
+      it('Admin altera o resto sem CNPJ: admin do B envia só o nome novo, com 200, e o nome é persistido', async () => {
+        await patch(fx.tokens.adminB, fx.condominioB.uuid, {
+          nome: 'B alterado sem CNPJ',
+        }).expect(200);
+
+        expect(await registroNoBanco(fx.condominioB.uuid)).toMatchObject({
+          nome: 'B alterado sem CNPJ',
+          updated_by: fx.b.admin.email,
+        });
+      });
+
+      describe('CNPJ alterado só pelo super', () => {
+        const gerarCnpj = criarGeradorDeCnpj();
+        const cnpjDoB = gerarCnpj();
+
+        beforeAll(async () => {
+          await knex('condominios')
+            .where({ uuid: fx.condominioB.uuid })
+            .update({ cnpj: cnpjDoB });
+        });
+
+        it('fixture: gerador de CNPJ independente confere o exemplo clássico e o B tem CNPJ', async () => {
+          expect(cnpjComDigitos('112223330001')).toBe('11222333000181');
+          expect(
+            await knex('condominios')
+              .where({ uuid: fx.condominioB.uuid })
+              .first('cnpj'),
+          ).toEqual({ cnpj: cnpjDoB });
+        });
+
+        it.each<[string, () => string]>([
+          ['CNPJ diferente', () => gerarCnpj()],
+          ['CNPJ igual ao atual', () => cnpjDoB],
+        ])(
+          'Admin tenta mudar o CNPJ (%s): admin do B envia cnpj e nome novos, recebe 403, e nem o CNPJ nem o nome mudam',
+          async (_rotulo, cnpj) => {
+            const antes = await knex('condominios')
+              .where({ uuid: fx.condominioB.uuid })
+              .first('nome', 'cnpj', 'updated_at', 'updated_by');
+            const auditoriaAntes = await knex('auditoria')
+              .where({
+                method: 'PATCH',
+                route: `${BASE_URL}/${fx.condominioB.uuid}`,
+              })
+              .pluck('uuid');
+
+            const res = await patch(fx.tokens.adminB, fx.condominioB.uuid, {
+              nome: 'Nome que não pode entrar',
+              cnpj: cnpj(),
+            }).expect(403);
+
+            expect(res.body.message).toBe(MENSAGEM_403_CNPJ);
+            expect(
+              await knex('condominios')
+                .where({ uuid: fx.condominioB.uuid })
+                .first('nome', 'cnpj', 'updated_at', 'updated_by'),
+            ).toEqual(antes);
+            expect(
+              await knex('auditoria')
+                .where({
+                  method: 'PATCH',
+                  route: `${BASE_URL}/${fx.condominioB.uuid}`,
+                })
+                .whereNotIn('uuid', auditoriaAntes)
+                .pluck('uuid'),
+            ).toEqual([]);
+          },
         );
 
-        const porTelefone = await patch(adminToken, condominioSeedUuid, {
-          telefone: telefoneB,
-        }).expect(409);
-        expect(porTelefone.body.message).toBe(
-          'Este telefone já está em uso por outro condomínio.',
-        );
+        it('admin do B com cnpj pontuado igual ao atual também recebe 403', async () => {
+          const res = await patch(fx.tokens.adminB, fx.condominioB.uuid, {
+            cnpj: formatarCnpj(cnpjDoB),
+          }).expect(403);
 
-        expect(await registroNoBanco(condominioSeedUuid)).toEqual(antes);
+          expect(res.body.message).toBe(MENSAGEM_403_CNPJ);
+        });
+
+        it('admin do A em PATCH /condominios/<B> com cnpj: 403 de escopo, antes do 403 de CNPJ', async () => {
+          const res = await patch(adminToken, fx.condominioB.uuid, {
+            cnpj: gerarCnpj(),
+          }).expect(403);
+
+          expect(res.body.message).toBe(
+            'Seu perfil não possui permissão para modificar este condomínio.',
+          );
+        });
       });
 
       it('admin do A em PATCH /condominios/<B> com e-mail ou telefone do próprio A: 403, não 409', async () => {

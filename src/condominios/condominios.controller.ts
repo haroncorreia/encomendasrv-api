@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   HttpCode,
   HttpStatus,
   Inject,
   Param,
   Patch,
+  Post,
   Get,
   UsePipes,
   ValidationPipe,
@@ -20,7 +22,10 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
+import { AlterarStatusCondominioDto } from './dto/alterar-status-condominio.dto';
+import { CreateCondominioDto } from './dto/create-condominio.dto';
 import { UpdateCondominioDto } from './dto/update-condominio.dto';
+import { StatusCondominio } from './interfaces/condominio.interface';
 import { CondominiosService } from './condominios.service';
 
 @Controller('condominios')
@@ -43,6 +48,34 @@ export class CondominiosController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.condominiosService.findOne(id, user);
+  }
+
+  /**
+   * Cria um condomínio cliente, já `ativo`. Só o `super` (spec
+   * `gestao-condominios`, card #192).
+   */
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @Roles(Perfil.SUPER)
+  criar(
+    @Body() dto: CreateCondominioDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const criado = await this.condominiosService.criar(dto, user, trx);
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Condomínio criado. (uuid: ${criado.uuid})`,
+        },
+        trx,
+      );
+
+      return criado;
+    });
   }
 
   @Patch(':id')
@@ -74,6 +107,70 @@ export class CondominiosController {
       );
 
       return atualizado;
+    });
+  }
+
+  /**
+   * Suspende (`motivo` obrigatório) ou reativa o condomínio. Só o `super`
+   * (spec `gestao-condominios`, card #192). Repetir o status atual responde
+   * 200 sem escrita e sem auditoria. Tem um segmento a mais que `PATCH :id`,
+   * então as rotas não colidem.
+   */
+  @Patch(':id/status')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Perfil.SUPER)
+  alterarStatus(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @Body() dto: AlterarStatusCondominioDto,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ) {
+    return this.knex.transaction(async (trx) => {
+      const { condominio, mudou } = await this.condominiosService.alterarStatus(
+        id,
+        dto,
+        user,
+        trx,
+      );
+
+      if (mudou) {
+        await this.auditoriaService.registrarEmTrx(
+          {
+            ctx,
+            user_mail: user.email,
+            description: `Condomínio ${condominio.status === StatusCondominio.SUSPENSO ? 'suspenso' : 'reativado'}. (uuid: ${id})`,
+          },
+          trx,
+        );
+      }
+
+      return condominio;
+    });
+  }
+
+  /**
+   * Exclusão lógica de condomínio suspenso (409 se ativo). Só o `super` (spec
+   * `gestao-condominios`, card #192). Não há rota de restauração.
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(Perfil.SUPER)
+  excluir(
+    @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @AuditoriaCtx() ctx: AuditoriaContext,
+  ): Promise<void> {
+    return this.knex.transaction(async (trx) => {
+      await this.condominiosService.excluir(id, user, trx);
+
+      await this.auditoriaService.registrarEmTrx(
+        {
+          ctx,
+          user_mail: user.email,
+          description: `Condomínio excluído. (uuid: ${id})`,
+        },
+        trx,
+      );
     });
   }
 }

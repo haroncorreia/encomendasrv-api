@@ -11,6 +11,10 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import {
+  AcessoCondominioService,
+  UsuarioComSituacaoCondominio,
+} from '../common/tenant/acesso-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { Unidade } from '../unidades/interfaces/unidade.interface';
@@ -43,6 +47,16 @@ type UsuarioComCondominio = UsuarioSemCredenciais & {
 type VinculoCondominio = Pick<Usuario, 'uuid_condominio' | 'uuid_unidade'>;
 
 /**
+ * O que a sessão (`JwtStrategy`) precisa a cada requisição: o usuário e a
+ * situação do condomínio dele, lidos numa consulta só.
+ */
+export type UsuarioDaSessao = Pick<
+  Usuario,
+  'uuid' | 'perfil' | 'uuid_condominio' | 'aproved_at'
+> &
+  UsuarioComSituacaoCondominio;
+
+/**
  * Escopo de um chamador não-`super` que não tem condomínio. Não corresponde a
  * nenhum usuário: falha fechado (listas vazias, 403 nas rotas por id).
  */
@@ -56,7 +70,10 @@ export type EscopoCondominio = string | null | typeof SEM_CONDOMINIO;
 
 @Injectable()
 export class UsuariosService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly acessoCondominio: AcessoCondominioService,
+  ) {}
 
   private get query() {
     return this.knex<Usuario>(TABLE).whereNull('deleted_at');
@@ -577,7 +594,13 @@ export class UsuariosService {
     return condominios[0];
   }
 
-  /** Vínculo do auto-cadastro: condomínio e unidade vêm da unidade. */
+  /**
+   * Vínculo do auto-cadastro: condomínio e unidade vêm da unidade. Unidade de
+   * condomínio suspenso ou excluído responde como inexistente, com a mesma
+   * 400 (spec `bloqueio-condominio-inativo`, card #192), antes do insert:
+   * nenhum usuário é criado e nenhum admin é avisado. Só o auto-cadastro passa
+   * por aqui; o cadastro administrativo do `super` não muda.
+   */
   private async resolverVinculoPelaUnidade(
     codigo: string | undefined,
     qb: Knex | Knex.Transaction,
@@ -587,6 +610,13 @@ export class UsuariosService {
     }
 
     const unidade = await this.buscarUnidadePorCodigo(codigo, qb);
+
+    if (
+      await this.acessoCondominio.estaBloqueado(unidade.uuid_condominio, qb)
+    ) {
+      throw new BadRequestException(`Unidade '${codigo}' não encontrada.`);
+    }
+
     return {
       uuid_condominio: unidade.uuid_condominio,
       uuid_unidade: unidade.uuid,
@@ -1055,6 +1085,28 @@ export class UsuariosService {
       .where({ uuid })
       .whereNull('deleted_at')
       .first();
+  }
+
+  /**
+   * Usuário não excluído com a situação do condomínio dele (LEFT JOIN pela
+   * chave primária), para a `JwtStrategy` decidir revogação e bloqueio de
+   * condomínio com uma consulta só por requisição, como antes do #192.
+   */
+  async findParaSessao(uuid: string): Promise<UsuarioDaSessao | undefined> {
+    const colunas = [
+      'u.uuid',
+      'u.perfil',
+      'u.uuid_condominio',
+      'u.aproved_at',
+      'c.status as condominio_status',
+      'c.deleted_at as condominio_deleted_at',
+    ];
+
+    return this.knex(`${TABLE} as u`)
+      .leftJoin('condominios as c', 'c.uuid', 'u.uuid_condominio')
+      .where('u.uuid', uuid)
+      .whereNull('u.deleted_at')
+      .first<UsuarioDaSessao | undefined>(...colunas);
   }
 
   /**

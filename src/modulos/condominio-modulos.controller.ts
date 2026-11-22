@@ -68,7 +68,7 @@ export class CondominioModulosController {
 
     return this.knex.transaction(async (trx) => {
       // O 400 de desligar `encomendas` sai do service, antes da auditoria.
-      const item = await this.modulosService.definir(
+      const { item, mudou } = await this.modulosService.definir(
         id,
         modulo,
         dto.ativo,
@@ -76,14 +76,19 @@ export class CondominioModulosController {
         trx,
       );
 
-      await this.auditoriaService.registrarEmTrx(
-        {
-          ctx,
-          user_mail: user.email,
-          description: `Módulo ${moduloDoCatalogo(modulo).rotulo} ${dto.ativo ? 'ligado' : 'desligado'} no condomínio. (uuid: ${id})`,
-        },
-        trx,
-      );
+      // Só a mudança real é auditada (#188): repetir o estado atual, desligar
+      // o que nunca foi ligado ou ligar `encomendas` respondem 200 sem linha
+      // na auditoria. A resposta HTTP é a mesma.
+      if (mudou) {
+        await this.auditoriaService.registrarEmTrx(
+          {
+            ctx,
+            user_mail: user.email,
+            description: `Módulo ${moduloDoCatalogo(modulo).rotulo} ${dto.ativo ? 'ligado' : 'desligado'} no condomínio. (uuid: ${id})`,
+          },
+          trx,
+        );
+      }
 
       return item;
     });

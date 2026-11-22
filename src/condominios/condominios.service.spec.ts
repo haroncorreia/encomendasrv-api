@@ -15,9 +15,11 @@ import { CondominiosService } from './condominios.service';
 
 /**
  * Escopo de condomínio nas rotas de `condominios` (spec
- * `isolamento-multitenant-condominios`, card #179). O banco é uma tabela
- * `condominios` em memória; o `resolver` do helper é simulado e o
- * `assertMesmoCondominio` é o real.
+ * `isolamento-multitenant-condominios`, card #179) e as regras do card #192
+ * (change `gestao-condominios`): projeção por perfil (#183), CNPJ só pelo
+ * `super`, CNPJ único inclusive entre excluídos e contato não único
+ * (#182/#184). O banco é uma tabela `condominios` em memória; o `resolver` do
+ * helper é simulado e o `assertMesmoCondominio` é o real.
  */
 describe('CondominiosService: escopo de condomínio do chamador', () => {
   type Linha = Record<string, unknown>;
@@ -32,6 +34,32 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
   const CONDOMINIO_B = 'condo-b';
   const CONDOMINIO_EXCLUIDO = 'condo-excluido';
 
+  const CNPJ_A = '11222333000181';
+  const CNPJ_B = '33000167000101';
+  const CNPJ_EXCLUIDO = '00000000000191';
+  const CNPJ_LIVRE = '12345678000195';
+
+  /** Campos que `admin`, `portaria` e `morador` recebem (#183). */
+  const CAMPOS_NEGOCIO = [
+    'uuid',
+    'nome',
+    'cnpj',
+    'cep',
+    'endereco',
+    'bairro',
+    'cidade',
+    'uf',
+    'telefone',
+    'email',
+  ];
+
+  const MENSAGEM_403_CNPJ =
+    'Seu perfil não possui permissão para alterar o CNPJ do condomínio.';
+  const MENSAGEM_409_CNPJ = 'Já existe um condomínio com este CNPJ.';
+  const MENSAGEM_409_CNPJ_EXCLUIDO =
+    'Este CNPJ pertence a um condomínio excluído. Peça ao suporte a restauração desse cadastro em vez de cadastrá-lo de novo.';
+
+  /** Linha completa, com todas as colunas da tabela depois do #192. */
   const condominio = (
     uuid: string,
     criadoEm: string,
@@ -39,11 +67,24 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
   ): Linha => ({
     uuid,
     nome: `Condomínio ${uuid}`,
+    cnpj: null,
+    cep: null,
+    endereco: null,
+    bairro: null,
+    cidade: null,
+    uf: null,
     telefone: null,
     email: null,
+    status: 'ativo',
+    motivo_suspensao: null,
+    status_alterado_em: null,
+    status_alterado_por: null,
     created_at: new Date(criadoEm),
+    created_by: 'seed',
+    updated_at: new Date(criadoEm),
     updated_by: 'seed',
     deleted_at: null,
+    deleted_by: null,
     ...extra,
   });
 
@@ -60,6 +101,8 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
   let escopoCondominio: EscopoCondominioService;
   let resolver: jest.SpyInstance;
   let service: CondominiosService;
+  /** Quando definido, todo UPDATE ou INSERT rejeita com este erro. */
+  let falhaNaEscrita: Error | undefined;
 
   /**
    * Conexão em memória com o subconjunto do query builder usado pelo
@@ -102,6 +145,10 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
           resultado = [];
           return builder;
         },
+        forUpdate: () => {
+          anotar('forUpdate', []);
+          return builder;
+        },
         select: () => builder,
         orderBy: (coluna: string, direcao: 'asc' | 'desc' = 'asc') => {
           const sinal = direcao === 'desc' ? -1 : 1;
@@ -115,8 +162,25 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
         first: () => Promise.resolve(resultado[0]),
         update: (payload: Linha) => {
           anotar('update', [payload]);
+          if (falhaNaEscrita !== undefined) {
+            return Promise.reject(falhaNaEscrita);
+          }
           resultado.forEach((linha) => Object.assign(linha, payload));
           return Promise.resolve(resultado.length);
+        },
+        insert: (linha: Linha) => {
+          anotar('insert', [linha]);
+          if (falhaNaEscrita !== undefined) {
+            return Promise.reject(falhaNaEscrita);
+          }
+          // Colunas com padrão no banco, como a migration do #192 define.
+          tabela.push({
+            ...condominio(String(linha.uuid), '2026-11-21T00:00:00Z'),
+            created_at: new Date(),
+            updated_at: new Date(),
+            ...linha,
+          });
+          return Promise.resolve([0]);
         },
         // `await` direto no builder (listagem) devolve as linhas filtradas.
         then: (
@@ -142,6 +206,8 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
 
   const uuids = (linhas: Array<{ uuid: string }>) => linhas.map((c) => c.uuid);
 
+  const chavesDe = (objeto: object) => Object.keys(objeto).sort();
+
   /** Valores que chegaram a algum `where`/`whereNot` (critério em objeto ou par coluna/valor). */
   const valoresDosWheres = (): unknown[] =>
     chamadas
@@ -161,6 +227,7 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       }),
     ];
     chamadas = [];
+    falhaNaEscrita = undefined;
     knex = bancoEmMemoria();
     // O helper não consulta o banco aqui: só o `resolver` (simulado) o faria.
     escopoCondominio = new EscopoCondominioService(
@@ -188,15 +255,38 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
     });
 
     it.each([Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])(
-      '%s: lista só com o próprio condomínio, no mesmo formato',
+      '%s: lista só com o próprio condomínio, no mesmo formato de lista',
       async (perfil) => {
         montar(CONDOMINIO_A);
 
         const lista = await service.findAll(chamador(perfil));
 
-        expect(lista).toEqual([tabela[0]]);
+        expect(uuids(lista)).toEqual([CONDOMINIO_A]);
       },
     );
+
+    it.each([Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])(
+      'Morador, portaria e admin listam só o próprio condomínio: %s recebe só os campos de negócio',
+      async (perfil) => {
+        montar(CONDOMINIO_A);
+        tabela[0].cnpj = CNPJ_A;
+
+        const [item] = await service.findAll(chamador(perfil));
+
+        expect(chavesDe(item)).toEqual([...CAMPOS_NEGOCIO].sort());
+        expect(item).toMatchObject({ uuid: CONDOMINIO_A, cnpj: CNPJ_A });
+      },
+    );
+
+    it('Super lista todos os condomínios: o super recebe todas as colunas', async () => {
+      montar(null);
+
+      const lista = await service.findAll(chamador(Perfil.SUPER));
+
+      for (const item of lista) {
+        expect(chavesDe(item)).toEqual(chavesDe(tabela[0]));
+      }
+    });
 
     it('chamador sem condomínio: lista vazia via whereRaw("1 = 0"), nunca where com null', async () => {
       montar(SEM_CONDOMINIO);
@@ -231,6 +321,25 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
         ).resolves.toMatchObject({ uuid: CONDOMINIO_A });
       },
     );
+
+    it.each([Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])(
+      'Morador lê o próprio condomínio: %s recebe só os campos de negócio, sem autoria, exclusão nem status',
+      async (perfil) => {
+        montar(CONDOMINIO_A);
+
+        const lido = await service.findOne(CONDOMINIO_A, chamador(perfil));
+
+        expect(chavesDe(lido)).toEqual([...CAMPOS_NEGOCIO].sort());
+      },
+    );
+
+    it('Super recebe tudo: o super recebe também autoria, exclusão e status', async () => {
+      montar(null);
+
+      const lido = await service.findOne(CONDOMINIO_A, chamador(Perfil.SUPER));
+
+      expect(lido).toEqual(tabela[0]);
+    });
 
     it.each([Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])(
       '%s: 403 para condomínio de outro tenant',
@@ -292,10 +401,17 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
      */
     function montarComTransacao(escopo: EscopoCondominio): void {
       montar(escopo);
-      tabela[0].email = 'contato@condo-a.com';
-      tabela[0].telefone = '68900000001';
-      tabela[1].email = 'contato@condo-b.com';
-      tabela[1].telefone = '68900000002';
+      Object.assign(tabela[0], {
+        email: 'contato@condo-a.com',
+        telefone: '68900000001',
+        cnpj: CNPJ_A,
+      });
+      Object.assign(tabela[1], {
+        email: 'contato@condo-b.com',
+        telefone: '68900000002',
+        cnpj: CNPJ_B,
+      });
+      tabela[2].cnpj = CNPJ_EXCLUIDO;
       trx = bancoEmMemoria();
       knex = jest.fn(() => {
         throw new Error('Consulta fora da transação.');
@@ -309,16 +425,21 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
     const atualizar = (uuid: string, dto: object, user: JwtPayload) =>
       service.update(uuid, dto, user, trx as unknown as Knex.Transaction);
 
-    /** Algum UPDATE ou checagem de unicidade (e-mail/telefone) chegou ao banco? */
-    const escreveuOuChecouUnicidade = () =>
+    const escreveu = () => chamadas.some((c) => c.metodo === 'update');
+
+    /** Alguma checagem de unicidade (e-mail, telefone ou CNPJ) chegou ao banco? */
+    const checouUnicidade = (...colunas: string[]) =>
       chamadas.some(
         ({ metodo, args: [criterio] }) =>
-          metodo === 'update' ||
-          (metodo === 'where' &&
-            typeof criterio === 'object' &&
-            criterio !== null &&
-            ('email' in criterio || 'telefone' in criterio)),
+          metodo === 'where' &&
+          typeof criterio === 'object' &&
+          criterio !== null &&
+          colunas.some((coluna) => coluna in criterio),
       );
+
+    /** Algum UPDATE ou checagem de unicidade chegou ao banco? */
+    const escreveuOuChecouUnicidade = () =>
+      escreveu() || checouUnicidade('email', 'telefone', 'cnpj');
 
     afterEach(() => {
       expect(knex).not.toHaveBeenCalled();
@@ -335,29 +456,48 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       expect(trx).toHaveBeenCalledWith('condominios');
     });
 
-    it('admin do A altera o próprio condomínio; updated_by é o e-mail do chamador', async () => {
+    it('admin do A altera o próprio condomínio; updated_by gravado é o e-mail do chamador', async () => {
       montarComTransacao(CONDOMINIO_A);
       const user = chamador(Perfil.ADMIN);
 
       await expect(
         atualizar(CONDOMINIO_A, { nome: 'Novo nome A' }, user),
-      ).resolves.toMatchObject({
-        uuid: CONDOMINIO_A,
+      ).resolves.toMatchObject({ uuid: CONDOMINIO_A, nome: 'Novo nome A' });
+      expect(tabela[0]).toMatchObject({
         nome: 'Novo nome A',
         updated_by: user.email,
       });
     });
 
-    it('super altera qualquer condomínio', async () => {
-      montarComTransacao(null);
+    it('Admin altera o próprio condomínio: a resposta do admin traz só os campos de negócio, com o nome novo', async () => {
+      montarComTransacao(CONDOMINIO_A);
 
-      await expect(
-        atualizar(
-          CONDOMINIO_B,
-          { nome: 'Novo nome B' },
-          chamador(Perfil.SUPER),
-        ),
-      ).resolves.toMatchObject({ uuid: CONDOMINIO_B, nome: 'Novo nome B' });
+      const atualizado = await atualizar(
+        CONDOMINIO_A,
+        { nome: 'Novo nome A' },
+        chamador(Perfil.ADMIN),
+      );
+
+      expect(chavesDe(atualizado)).toEqual([...CAMPOS_NEGOCIO].sort());
+      expect(atualizado).toMatchObject({ nome: 'Novo nome A' });
+    });
+
+    it('super altera qualquer condomínio e recebe todas as colunas', async () => {
+      montarComTransacao(null);
+      const user = chamador(Perfil.SUPER);
+
+      const atualizado = await atualizar(
+        CONDOMINIO_B,
+        { nome: 'Novo nome B' },
+        user,
+      );
+
+      expect(atualizado).toEqual(tabela[1]);
+      expect(atualizado).toMatchObject({
+        uuid: CONDOMINIO_B,
+        nome: 'Novo nome B',
+        updated_by: user.email,
+      });
     });
 
     it('admin do A no B: 403 antes de qualquer UPDATE, e o B fica inalterado', async () => {
@@ -402,17 +542,24 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       expect(escreveuOuChecouUnicidade()).toBe(false);
     });
 
-    it('admin do A alterando o A com e-mail do B: 409 continua, sem UPDATE', async () => {
+    it('Admin usa o contato de outro condomínio: e-mail e telefone do B no A, sem 409 e sem consultar unicidade de contato', async () => {
       montarComTransacao(CONDOMINIO_A);
 
       await expect(
         atualizar(
           CONDOMINIO_A,
-          { email: 'contato@condo-b.com' },
+          { email: 'contato@condo-b.com', telefone: '68900000002' },
           chamador(Perfil.ADMIN),
         ),
-      ).rejects.toThrow(ConflictException);
-      expect(chamadas.some((c) => c.metodo === 'update')).toBe(false);
+      ).resolves.toMatchObject({
+        email: 'contato@condo-b.com',
+        telefone: '68900000002',
+      });
+      expect(checouUnicidade('email', 'telefone')).toBe(false);
+      expect(tabela[0]).toMatchObject({
+        email: 'contato@condo-b.com',
+        telefone: '68900000002',
+      });
     });
 
     it.each<[string, EscopoCondominio]>([
@@ -431,8 +578,524 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
             chamador(Perfil.ADMIN),
           ),
         ).rejects.toThrow(NotFoundException);
-        expect(chamadas.some((c) => c.metodo === 'update')).toBe(false);
+        expect(escreveu()).toBe(false);
       },
     );
+
+    describe('ordem das checagens: 404 → 403 de escopo → 403 de CNPJ → 409 de CNPJ → UPDATE', () => {
+      it('1º 404: condomínio inexistente com cnpj enviado por admin responde 404, não 403', async () => {
+        montarComTransacao(CONDOMINIO_A);
+
+        await expect(
+          atualizar(
+            'condo-inexistente',
+            { cnpj: CNPJ_LIVRE },
+            chamador(Perfil.ADMIN),
+          ),
+        ).rejects.toThrow(NotFoundException);
+        expect(escreveuOuChecouUnicidade()).toBe(false);
+      });
+
+      it('2º 403 de escopo: admin do A no B com cnpj recebe a mensagem de escopo, não a de CNPJ', async () => {
+        montarComTransacao(CONDOMINIO_A);
+
+        const erro = await erroDe(
+          atualizar(CONDOMINIO_B, { cnpj: CNPJ_LIVRE }, chamador(Perfil.ADMIN)),
+        );
+
+        expect(erro).toBeInstanceOf(ForbiddenException);
+        expect(erro.message).toBe(MENSAGEM_403);
+        expect(escreveuOuChecouUnicidade()).toBe(false);
+      });
+
+      it.each<[string, string]>([
+        ['CNPJ novo e livre', CNPJ_LIVRE],
+        ['CNPJ igual ao atual', CNPJ_A],
+        ['CNPJ de outro condomínio (nem chega ao 409)', CNPJ_B],
+      ])(
+        'Admin tenta mudar o CNPJ (%s): 3º 403 de CNPJ antes da unicidade e de qualquer escrita, e nenhum campo muda',
+        async (_rotulo, cnpj) => {
+          montarComTransacao(CONDOMINIO_A);
+          const antes = { ...tabela[0] };
+
+          const erro = await erroDe(
+            atualizar(
+              CONDOMINIO_A,
+              { cnpj, nome: 'Nome novo' },
+              chamador(Perfil.ADMIN),
+            ),
+          );
+
+          expect(erro).toBeInstanceOf(ForbiddenException);
+          expect(erro.message).toBe(MENSAGEM_403_CNPJ);
+          expect(escreveuOuChecouUnicidade()).toBe(false);
+          expect(tabela[0]).toEqual(antes);
+        },
+      );
+
+      it('Alterar para CNPJ de outro condomínio: 4º 409 do super com o CNPJ do B, sem UPDATE, e o A fica inalterado', async () => {
+        montarComTransacao(null);
+        const antes = { ...tabela[0] };
+
+        const erro = await erroDe(
+          atualizar(
+            CONDOMINIO_A,
+            { cnpj: CNPJ_B, nome: 'Nome novo' },
+            chamador(Perfil.SUPER),
+          ),
+        );
+
+        expect(erro).toBeInstanceOf(ConflictException);
+        expect(erro.message).toBe(MENSAGEM_409_CNPJ);
+        expect(escreveu()).toBe(false);
+        expect(tabela[0]).toEqual(antes);
+      });
+
+      it('CNPJ de condomínio excluído: 409 do super com a mensagem que orienta a restauração pelo suporte', async () => {
+        montarComTransacao(null);
+
+        const erro = await erroDe(
+          atualizar(
+            CONDOMINIO_A,
+            { cnpj: CNPJ_EXCLUIDO },
+            chamador(Perfil.SUPER),
+          ),
+        );
+
+        expect(erro).toBeInstanceOf(ConflictException);
+        expect(erro.message).toBe(MENSAGEM_409_CNPJ_EXCLUIDO);
+        expect(escreveu()).toBe(false);
+      });
+
+      it('Reenviar o próprio CNPJ: o super reenviando o CNPJ que o A já tem não recebe 409 e grava', async () => {
+        montarComTransacao(null);
+
+        await expect(
+          atualizar(
+            CONDOMINIO_A,
+            { cnpj: CNPJ_A, nome: 'Nome novo' },
+            chamador(Perfil.SUPER),
+          ),
+        ).resolves.toMatchObject({ cnpj: CNPJ_A, nome: 'Nome novo' });
+      });
+
+      it('Super preenche o CNPJ: CNPJ válido e não usado é gravado', async () => {
+        montarComTransacao(null);
+        tabela[0].cnpj = null;
+
+        await expect(
+          atualizar(CONDOMINIO_A, { cnpj: CNPJ_LIVRE }, chamador(Perfil.SUPER)),
+        ).resolves.toMatchObject({ uuid: CONDOMINIO_A, cnpj: CNPJ_LIVRE });
+        expect(tabela[0].cnpj).toBe(CNPJ_LIVRE);
+      });
+
+      it('sem cnpj no corpo, o super não consulta a unicidade do CNPJ', async () => {
+        montarComTransacao(null);
+
+        await atualizar(
+          CONDOMINIO_A,
+          { cidade: 'Xapuri' },
+          chamador(Perfil.SUPER),
+        );
+
+        expect(checouUnicidade('cnpj')).toBe(false);
+        expect(escreveu()).toBe(true);
+      });
+
+      it('corrida: ER_DUP_ENTRY do índice único de CNPJ no UPDATE vira 409', async () => {
+        montarComTransacao(null);
+        falhaNaEscrita = Object.assign(
+          new Error(
+            "Duplicate entry '12345678000195' for key 'condominios_cnpj_unique'",
+          ),
+          { code: 'ER_DUP_ENTRY', errno: 1062 },
+        );
+
+        const erro = await erroDe(
+          atualizar(CONDOMINIO_A, { cnpj: CNPJ_LIVRE }, chamador(Perfil.SUPER)),
+        );
+
+        expect(erro).toBeInstanceOf(ConflictException);
+        expect(erro.message).toBe(MENSAGEM_409_CNPJ);
+      });
+
+      it('erro de banco que não é CNPJ duplicado é repassado sem virar 409', async () => {
+        montarComTransacao(null);
+        const falha = Object.assign(new Error('Lock wait timeout exceeded'), {
+          code: 'ER_LOCK_WAIT_TIMEOUT',
+        });
+        falhaNaEscrita = falha;
+
+        await expect(
+          atualizar(CONDOMINIO_A, { cnpj: CNPJ_LIVRE }, chamador(Perfil.SUPER)),
+        ).rejects.toBe(falha);
+      });
+    });
+  });
+
+  describe('criar(dto, user, trx)', () => {
+    let trx: jest.Mock;
+    const superUser = chamador(Perfil.SUPER);
+
+    /** Tabela com A (CNPJ_A) e um excluído (CNPJ_EXCLUIDO), tudo no `trx`. */
+    function montarParaCriar(): void {
+      montar(null);
+      tabela[0].cnpj = CNPJ_A;
+      tabela[2].cnpj = CNPJ_EXCLUIDO;
+      trx = bancoEmMemoria();
+      knex = jest.fn(() => {
+        throw new Error('Consulta fora da transação.');
+      });
+      service = new CondominiosService(
+        knex as unknown as Knex,
+        escopoCondominio,
+      );
+    }
+
+    const criar = (dto: Record<string, unknown>) =>
+      service.criar(
+        { nome: 'Condomínio Novo', cnpj: CNPJ_LIVRE, ...dto },
+        superUser,
+        trx as unknown as Knex.Transaction,
+      );
+
+    const inseriu = () => chamadas.some((c) => c.metodo === 'insert');
+
+    afterEach(() => {
+      expect(knex).not.toHaveBeenCalled();
+    });
+
+    it('Super cria um condomínio: insere ativo, com o CNPJ e a autoria do super, e devolve a linha completa', async () => {
+      montarParaCriar();
+
+      const criado = await criar({ cidade: 'Rio Branco', uf: 'AC' });
+
+      const gravado = tabela.find((linha) => linha.cnpj === CNPJ_LIVRE);
+      expect(gravado).toBeDefined();
+      expect(criado).toEqual(gravado);
+      expect(criado).toMatchObject({
+        nome: 'Condomínio Novo',
+        cnpj: CNPJ_LIVRE,
+        cidade: 'Rio Branco',
+        uf: 'AC',
+        status: 'ativo',
+        motivo_suspensao: null,
+        created_by: superUser.email,
+        updated_by: superUser.email,
+        deleted_at: null,
+      });
+      expect(String(criado.uuid)).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    });
+
+    it('grava nulo nos campos cadastrais que não vieram', async () => {
+      montarParaCriar();
+
+      await criar({});
+
+      const [{ args }] = chamadas.filter((c) => c.metodo === 'insert');
+      expect(args[0]).toMatchObject({
+        cep: null,
+        endereco: null,
+        bairro: null,
+        cidade: null,
+        uf: null,
+        telefone: null,
+        email: null,
+      });
+    });
+
+    it('CNPJ de condomínio existente: 409 sem INSERT', async () => {
+      montarParaCriar();
+      const antes = tabela.length;
+
+      const erro = await erroDe(criar({ cnpj: CNPJ_A }));
+
+      expect(erro).toBeInstanceOf(ConflictException);
+      expect(erro.message).toBe(MENSAGEM_409_CNPJ);
+      expect(inseriu()).toBe(false);
+      expect(tabela).toHaveLength(antes);
+    });
+
+    it('CNPJ de condomínio excluído: 409 com a mensagem que orienta a restauração pelo suporte, sem INSERT', async () => {
+      montarParaCriar();
+
+      const erro = await erroDe(criar({ cnpj: CNPJ_EXCLUIDO }));
+
+      expect(erro).toBeInstanceOf(ConflictException);
+      expect(erro.message).toBe(MENSAGEM_409_CNPJ_EXCLUIDO);
+      expect(inseriu()).toBe(false);
+    });
+
+    it('Dois condomínios com o mesmo contato: e-mail e telefone de outro condomínio não são consultados nem recusados', async () => {
+      montarParaCriar();
+      Object.assign(tabela[1], {
+        email: 'contato@administradora.com',
+        telefone: '68900000009',
+      });
+
+      await expect(
+        criar({ email: 'contato@administradora.com', telefone: '68900000009' }),
+      ).resolves.toMatchObject({
+        email: 'contato@administradora.com',
+        telefone: '68900000009',
+      });
+      expect(
+        chamadas.some(
+          ({ metodo, args: [criterio] }) =>
+            metodo === 'where' &&
+            typeof criterio === 'object' &&
+            criterio !== null &&
+            ('email' in criterio || 'telefone' in criterio),
+        ),
+      ).toBe(false);
+    });
+
+    it('corrida: ER_DUP_ENTRY do índice único de CNPJ no INSERT vira 409', async () => {
+      montarParaCriar();
+      falhaNaEscrita = Object.assign(
+        new Error(
+          "insert into `condominios` (`cnpj`, ...) - Duplicate entry '12345678000195' for key 'condominios_cnpj_unique'",
+        ),
+        {
+          code: 'ER_DUP_ENTRY',
+          errno: 1062,
+          sqlMessage:
+            "Duplicate entry '12345678000195' for key 'condominios_cnpj_unique'",
+        },
+      );
+
+      const erro = await erroDe(criar({}));
+
+      expect(erro).toBeInstanceOf(ConflictException);
+      expect(erro.message).toBe(MENSAGEM_409_CNPJ);
+    });
+
+    it('ER_DUP_ENTRY em outra chave (o SQL cita `cnpj`, mas o driver aponta PRIMARY) não vira 409 de CNPJ', async () => {
+      montarParaCriar();
+      const falha = Object.assign(
+        new Error(
+          "insert into `condominios` (`cnpj`, `uuid`) - Duplicate entry 'x' for key 'PRIMARY'",
+        ),
+        {
+          code: 'ER_DUP_ENTRY',
+          errno: 1062,
+          sqlMessage: "Duplicate entry 'x' for key 'PRIMARY'",
+        },
+      );
+      falhaNaEscrita = falha;
+
+      await expect(criar({})).rejects.toBe(falha);
+    });
+  });
+
+  describe('status e exclusão (só super, na transação da auditoria)', () => {
+    let trx: jest.Mock;
+    const superUser = chamador(Perfil.SUPER);
+    const SUSPENSO_EM = new Date('2026-10-01T12:00:00Z');
+
+    /**
+     * A ativo, B suspenso por "Inadimplência" e um excluído (suspenso), tudo
+     * no `trx`; a conexão fora dele é proibida.
+     */
+    function montarStatus(): void {
+      montar(null);
+      Object.assign(tabela[1], {
+        status: 'suspenso',
+        motivo_suspensao: 'Inadimplência',
+        status_alterado_em: SUSPENSO_EM,
+        status_alterado_por: 'outro.super@teste.com',
+      });
+      tabela[2].status = 'suspenso';
+      trx = bancoEmMemoria();
+      knex = jest.fn(() => {
+        throw new Error('Consulta fora da transação.');
+      });
+      service = new CondominiosService(
+        knex as unknown as Knex,
+        escopoCondominio,
+      );
+    }
+
+    const trxDoTeste = () => trx as unknown as Knex.Transaction;
+
+    const alterarStatus = (uuid: string, dto: Record<string, unknown>) =>
+      service.alterarStatus(uuid, dto as never, superUser, trxDoTeste());
+
+    const excluir = (uuid: string) =>
+      service.excluir(uuid, superUser, trxDoTeste());
+
+    const updates = () =>
+      chamadas
+        .filter((c) => c.metodo === 'update')
+        .map(({ args: [payload] }) => payload as Linha);
+
+    /** A leitura do alvo usou `forUpdate()` antes de qualquer UPDATE? */
+    const travouAntesDeEscrever = () => {
+      const trava = chamadas.findIndex((c) => c.metodo === 'forUpdate');
+      const escrita = chamadas.findIndex((c) => c.metodo === 'update');
+      return trava >= 0 && (escrita === -1 || trava < escrita);
+    };
+
+    afterEach(() => {
+      expect(knex).not.toHaveBeenCalled();
+    });
+
+    describe('alterarStatus(uuid, dto, user, trx)', () => {
+      it('Super suspende: grava suspenso, o motivo, quem e quando, lê com forUpdate e devolve mudou: true', async () => {
+        montarStatus();
+        const antes = Date.now();
+
+        const { condominio, mudou } = await alterarStatus(CONDOMINIO_A, {
+          status: 'suspenso',
+          motivo: 'Inadimplência',
+        });
+
+        expect(mudou).toBe(true);
+        expect(travouAntesDeEscrever()).toBe(true);
+        expect(updates()).toHaveLength(1);
+        expect(Object.keys(updates()[0]).sort()).toEqual([
+          'motivo_suspensao',
+          'status',
+          'status_alterado_em',
+          'status_alterado_por',
+        ]);
+        expect(condominio).toEqual(tabela[0]);
+        expect(condominio).toMatchObject({
+          status: 'suspenso',
+          motivo_suspensao: 'Inadimplência',
+          status_alterado_por: superUser.email,
+          updated_by: 'seed',
+        });
+        expect(
+          (condominio.status_alterado_em as Date).getTime(),
+        ).toBeGreaterThanOrEqual(antes);
+      });
+
+      it('Repetir o status atual: suspender o B já suspenso devolve mudou: false, sem UPDATE e com o motivo original', async () => {
+        montarStatus();
+        const antes = { ...tabela[1] };
+
+        const { condominio, mudou } = await alterarStatus(CONDOMINIO_B, {
+          status: 'suspenso',
+          motivo: 'Outro motivo',
+        });
+
+        expect(mudou).toBe(false);
+        expect(updates()).toEqual([]);
+        expect(condominio).toEqual(antes);
+        expect(tabela[1]).toEqual(antes);
+        expect(condominio.motivo_suspensao).toBe('Inadimplência');
+      });
+
+      it('Repetir o status atual: ativar o A já ativo devolve mudou: false, sem UPDATE', async () => {
+        montarStatus();
+        const antes = { ...tabela[0] };
+
+        const { condominio, mudou } = await alterarStatus(CONDOMINIO_A, {
+          status: 'ativo',
+        });
+
+        expect(mudou).toBe(false);
+        expect(updates()).toEqual([]);
+        expect(condominio).toEqual(antes);
+      });
+
+      it('Super reativa: o B volta a ativo, o motivo é limpo, quem e quando são atualizados, e mudou: true', async () => {
+        montarStatus();
+
+        const { condominio, mudou } = await alterarStatus(CONDOMINIO_B, {
+          status: 'ativo',
+          motivo: 'Pagamento confirmado',
+        });
+
+        expect(mudou).toBe(true);
+        expect(travouAntesDeEscrever()).toBe(true);
+        expect(condominio).toMatchObject({
+          status: 'ativo',
+          motivo_suspensao: null,
+          status_alterado_por: superUser.email,
+        });
+        expect(condominio.status_alterado_em).not.toEqual(SUSPENSO_EM);
+        expect(updates()[0]).toMatchObject({
+          status: 'ativo',
+          motivo_suspensao: null,
+        });
+      });
+
+      it.each<[string, string]>([
+        ['inexistente', 'condo-inexistente'],
+        ['excluído', CONDOMINIO_EXCLUIDO],
+      ])(
+        'Condomínio inexistente ou excluído (%s): 404 sem UPDATE',
+        async (_rotulo, uuid) => {
+          montarStatus();
+
+          const erro = await erroDe(alterarStatus(uuid, { status: 'ativo' }));
+
+          expect(erro).toBeInstanceOf(NotFoundException);
+          expect(erro.message).toBe(
+            `Condomínio com uuid ${uuid} não encontrado.`,
+          );
+          expect(updates()).toEqual([]);
+        },
+      );
+    });
+
+    describe('excluir(uuid, user, trx)', () => {
+      it('Super exclui condomínio suspenso: grava só deleted_at e deleted_by, com forUpdate antes', async () => {
+        montarStatus();
+        const antes = { ...tabela[1] };
+
+        await excluir(CONDOMINIO_B);
+
+        expect(travouAntesDeEscrever()).toBe(true);
+        expect(updates()).toHaveLength(1);
+        expect(Object.keys(updates()[0]).sort()).toEqual([
+          'deleted_at',
+          'deleted_by',
+        ]);
+        expect(tabela[1]).toEqual({
+          ...antes,
+          deleted_at: expect.any(Date),
+          deleted_by: superUser.email,
+        });
+      });
+
+      it('Exclusão retém os dados do condomínio: nenhuma outra tabela é consultada nem alterada', async () => {
+        montarStatus();
+
+        await excluir(CONDOMINIO_B);
+
+        expect(
+          new Set(trx.mock.calls.map(([nomeTabela]) => nomeTabela as string)),
+        ).toEqual(new Set(['condominios']));
+      });
+
+      it('Excluir condomínio ativo: 409 pedindo a suspensão antes, sem UPDATE', async () => {
+        montarStatus();
+        const antes = { ...tabela[0] };
+
+        const erro = await erroDe(excluir(CONDOMINIO_A));
+
+        expect(erro).toBeInstanceOf(ConflictException);
+        expect(erro.message).toBe('Suspenda o condomínio antes de excluí-lo.');
+        expect(updates()).toEqual([]);
+        expect(tabela[0]).toEqual(antes);
+      });
+
+      it.each<[string, string]>([
+        ['Excluir de novo (já excluído)', CONDOMINIO_EXCLUIDO],
+        ['inexistente', 'condo-inexistente'],
+      ])('%s: 404 sem UPDATE', async (_rotulo, uuid) => {
+        montarStatus();
+
+        const erro = await erroDe(excluir(uuid));
+
+        expect(erro).toBeInstanceOf(NotFoundException);
+        expect(updates()).toEqual([]);
+      });
+    });
   });
 });

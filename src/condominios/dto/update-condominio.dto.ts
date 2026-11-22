@@ -1,91 +1,28 @@
 import { Transform } from 'class-transformer';
-import {
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { IsCnpj, normalizarCnpj } from '../../common/validators/cnpj';
+import { DadosCadastraisCondominioDto } from './dados-cadastrais-condominio.dto';
 
-const UFS_BRASIL = [
-  'AC',
-  'AL',
-  'AP',
-  'AM',
-  'BA',
-  'CE',
-  'DF',
-  'ES',
-  'GO',
-  'MA',
-  'MT',
-  'MS',
-  'MG',
-  'PA',
-  'PB',
-  'PR',
-  'PE',
-  'PI',
-  'RJ',
-  'RN',
-  'RS',
-  'RO',
-  'RR',
-  'SC',
-  'SP',
-  'SE',
-  'TO',
-] as const;
-
-export class UpdateCondominioDto {
+/**
+ * Corpo de `PATCH /condominios/:id`. Todos os campos de antes do card #192
+ * continuam aceitos com as mesmas regras (os de endereço e contato vêm de
+ * `DadosCadastraisCondominioDto`).
+ */
+export class UpdateCondominioDto extends DadosCadastraisCondominioDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
   nome?: string;
 
-  @IsOptional()
-  @Matches(/^\d{8}$/, {
-    message: 'O CEP deve conter exatamente 8 dígitos numéricos.',
-  })
-  cep?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255, {
-    message: 'O endereço deve conter no máximo 255 caracteres.',
-  })
-  endereco?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  bairro?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  cidade?: string;
-
-  @IsOptional()
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().toUpperCase() : value,
-  )
-  @Matches(/^[A-Za-z]{2}$/, {
-    message: 'A UF deve conter exatamente 2 letras.',
-  })
-  @IsIn(UFS_BRASIL, {
-    message: 'A UF deve ser uma unidade federativa válida do Brasil.',
-  })
-  uf?: string;
-
-  @IsOptional()
-  @Matches(/^\d{11}$/, {
-    message: 'O telefone deve conter exatamente 11 dígitos numéricos.',
-  })
-  telefone?: string;
-
-  @IsOptional()
-  @IsEmail({}, { message: 'Informe um e-mail válido.' })
-  email?: string;
+  /**
+   * Opcional, mas não volta a ficar vazio: `null` ou `""` dão 400. Por isso
+   * `@ValidateIf` e não `@IsOptional`, que deixaria o `null` passar. Numérico
+   * ou alfanumérico, aceito com pontuação e em minúsculas, e gravado sem
+   * pontuação e em maiúsculas. Só o `super` altera (403 para os demais, no
+   * service).
+   */
+  @Transform(({ value }) => normalizarCnpj(value))
+  @ValidateIf((dto: UpdateCondominioDto) => dto.cnpj !== undefined)
+  @IsCnpj()
+  cnpj?: string;
 }

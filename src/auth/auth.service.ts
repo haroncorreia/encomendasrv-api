@@ -16,6 +16,11 @@ import { Knex } from 'knex';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuditoriaContext } from '../auditoria/interfaces/auditoria-context.interface';
 import { requireJwtSecret } from '../common/auth/require-jwt-secret.util';
+import {
+  AcessoCondominioService,
+  CondominioInativoException,
+  condominioSujeitoAoBloqueio,
+} from '../common/tenant/acesso-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EmailService } from '../email/email.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -60,6 +65,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly acessoCondominio: AcessoCondominioService,
   ) {
     requireJwtSecret(configService.get<string>('JWT_SECRET'), 'JWT_SECRET');
     requireJwtSecret(
@@ -254,6 +260,21 @@ export class AuthService {
       );
     }
 
+    // Depois da senha e da aprovação, para a senha errada nunca revelar que o
+    // condomínio está suspenso (spec `bloqueio-condominio-inativo`, #192).
+    if (
+      await this.acessoCondominio.estaBloqueado(
+        condominioSujeitoAoBloqueio(usuario),
+      )
+    ) {
+      await this.auditoriaService.registrar({
+        ctx,
+        user_mail: usuario.email,
+        description: 'Tentativa de login de usuário de condomínio inativo.',
+      });
+      throw new CondominioInativoException();
+    }
+
     await this.auditoriaService.registrar({
       ctx,
       user_mail: usuario.email,
@@ -284,6 +305,14 @@ export class AuthService {
         throw new UnauthorizedException(
           'Sessão inválida: acesso revogado ou conta removida.',
         );
+      }
+      // Também cobre a entrada por biometria, que usa a renovação (#192).
+      if (
+        await this.acessoCondominio.estaBloqueado(
+          condominioSujeitoAoBloqueio(usuario),
+        )
+      ) {
+        throw new CondominioInativoException();
       }
       if (usuario.perfil === Perfil.PORTARIA) {
         throw new UnauthorizedException(

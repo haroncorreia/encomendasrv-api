@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import {
   EscopoCondominio,
@@ -103,6 +108,19 @@ export class ModulosService {
    * `created_by`. Desligar grava `ativo = false`, sem apagar a linha.
    * `encomendas` nunca é gravado: desligá-lo é 400, e ligá-lo, aceito sem
    * escrita.
+   *
+   * `mudou` diz se o estado efetivo mudou (sem linha = desligado), para o
+   * controller auditar só as mudanças reais (#188). Sem mudança, nada é
+   * gravado: `updated_at` e `updated_by` continuam os da última mudança de
+   * fato. `encomendas` sempre devolve `false`.
+   *
+   * Concorrência: a trava (`forUpdate()`) é na linha do condomínio, que existe
+   * (o controller já respondeu 404 antes), e não na do módulo, que pode não
+   * existir. `FOR UPDATE` numa linha inexistente pega gap lock no InnoDB, e
+   * duas primeiras ativações simultâneas no mesmo condomínio davam
+   * `ER_LOCK_DEADLOCK` (500). Com a trava no condomínio, as alterações de
+   * módulo dele são serializadas, e a leitura do estado atual, sem trava, é a
+   * primeira leitura consistente da transação: já vê o que a anterior gravou.
    */
   async definir(
     uuidCondominio: string,
@@ -110,17 +128,44 @@ export class ModulosService {
     ativo: boolean,
     atorEmail: string,
     trx: Knex.Transaction,
-  ): Promise<ModuloDoCondominio> {
-    const item = moduloDoCatalogo(modulo);
+  ): Promise<{ item: ModuloDoCondominio; mudou: boolean }> {
+    const catalogo = moduloDoCatalogo(modulo);
 
-    if (item.sempre_ativo) {
+    if (catalogo.sempre_ativo) {
       if (!ativo) {
         throw new BadRequestException(
-          `O módulo ${item.rotulo} é sempre ativo e não pode ser desligado.`,
+          `O módulo ${catalogo.rotulo} é sempre ativo e não pode ser desligado.`,
         );
       }
 
-      return { modulo, ativo: true, sempre_ativo: true };
+      return {
+        item: { modulo, ativo: true, sempre_ativo: true },
+        mudou: false,
+      };
+    }
+
+    // Fecha a janela entre o `findOne` do controller (fora da transação) e a
+    // escrita: se um DELETE confirmou nesse meio-tempo, o mesmo 404, sem
+    // gravar módulo nem auditar.
+    const condominio = await trx('condominios')
+      .where({ uuid: uuidCondominio })
+      .whereNull('deleted_at')
+      .forUpdate()
+      .first('uuid');
+
+    if (!condominio) {
+      throw new NotFoundException(
+        `Condomínio com uuid ${uuidCondominio} não encontrado.`,
+      );
+    }
+
+    const atual = await trx<LinhaCondominioModulo>(TABLE)
+      .where({ uuid_condominio: uuidCondominio, modulo })
+      .first<Pick<LinhaCondominioModulo, 'ativo'> | undefined>('ativo');
+    const item: ModuloDoCondominio = { modulo, ativo, sempre_ativo: false };
+
+    if (Boolean(atual?.ativo) === ativo) {
+      return { item, mudou: false };
     }
 
     const agora = new Date();
@@ -138,7 +183,7 @@ export class ModulosService {
       .onConflict(['uuid_condominio', 'modulo'])
       .merge(['ativo', 'updated_at', 'updated_by']);
 
-    return { modulo, ativo, sempre_ativo: false };
+    return { item, mudou: true };
   }
 
   private listarCom(

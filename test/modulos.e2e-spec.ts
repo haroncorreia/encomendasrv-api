@@ -157,6 +157,12 @@ describe('ModulosModule (e2e)', () => {
       .orderBy('modulo')
       .select('modulo', 'ativo', 'created_by', 'updated_by');
 
+  /** A linha inteira de um módulo, inclusive `created_at` e `updated_at`. */
+  const linhaCompleta = (uuidCondominio: string, modulo: string) =>
+    knex('condominio_modulos')
+      .where({ uuid_condominio: uuidCondominio, modulo })
+      .first();
+
   /**
    * Lista esperada nas respostas: os quatro módulos, na ordem do catálogo,
    * com `encomendas` sempre ativo e os `ligados` ativos.
@@ -387,7 +393,7 @@ describe('ModulosModule (e2e)', () => {
   });
 
   describe('GET /condominios/:id/modulos (super)', () => {
-    it('lista os quatro módulos com o estado de cada condomínio', async () => {
+    it('Super lista os módulos de um condomínio: os quatro módulos com o estado de cada condomínio', async () => {
       await gravarNoBanco(condominioA, 'reservas', true);
       await gravarNoBanco(condominioB, 'dqs', true);
       await gravarNoBanco(condominioB, 'rotas-entrega', false);
@@ -420,9 +426,9 @@ describe('ModulosModule (e2e)', () => {
     });
 
     it.each<[string, () => string]>([
-      ['inexistente', () => randomUUID()],
-      ['excluído', () => condominioExcluido],
-    ])('condomínio %s: 404', async (_rotulo, uuid) => {
+      ['Condomínio inexistente', () => randomUUID()],
+      ['Condomínio excluído', () => condominioExcluido],
+    ])('%s: 404', async (_rotulo, uuid) => {
       const alvo = uuid();
 
       const res = await getModulosDoCondominio(superToken, alvo).expect(404);
@@ -432,13 +438,16 @@ describe('ModulosModule (e2e)', () => {
       );
     });
 
-    it.each(naoSuper())('%s: 403', async (_rotulo, token) => {
-      const res = await getModulosDoCondominio(token(), condominioA).expect(
-        403,
-      );
+    it.each(naoSuper())(
+      'Admin tenta alterar módulos (GET, %s): 403',
+      async (_rotulo, token) => {
+        const res = await getModulosDoCondominio(token(), condominioA).expect(
+          403,
+        );
 
-      expect(res.body.message).toBe(MENSAGEM_403_PERFIL);
-    });
+        expect(res.body.message).toBe(MENSAGEM_403_PERFIL);
+      },
+    );
 
     it('sem token: 401', async () => {
       await http().get(rotaDosModulos(condominioA)).expect(401);
@@ -446,7 +455,7 @@ describe('ModulosModule (e2e)', () => {
   });
 
   describe('PUT /condominios/:id/modulos/:modulo (super)', () => {
-    it('liga reservas no A: 200 com o item, linha com o e-mail do super, o A passa a ver reservas ativo e a auditoria registra', async () => {
+    it('Super liga um módulo: liga reservas no A, 200 com o item, linha com o e-mail do super, o A passa a ver reservas ativo e a auditoria registra', async () => {
       const antes = await auditoriasDoPut(condominioA, 'reservas');
 
       const res = await putModulo(superToken, condominioA, 'reservas', {
@@ -481,7 +490,7 @@ describe('ModulosModule (e2e)', () => {
       ]);
     });
 
-    it('desliga reservas no A: 200, a linha fica com ativo = false, o A volta a ver reservas inativo e a auditoria registra', async () => {
+    it('Super desliga um módulo: desliga reservas no A, 200, a linha fica com ativo = false, o A volta a ver reservas inativo e a auditoria registra', async () => {
       await putModulo(superToken, condominioA, 'reservas', {
         ativo: true,
       }).expect(200);
@@ -516,32 +525,224 @@ describe('ModulosModule (e2e)', () => {
       ]);
     });
 
-    it('repetir a mesma alteração: as duas respostas 200, uma linha só, ativa, e cada PUT auditado', async () => {
+    it('Repetir a mesma alteração: as duas respostas 200, uma linha só, ativa, sem regravar quem mudou, e a auditoria com uma linha só (a da mudança)', async () => {
       const antes = await auditoriasDoPut(condominioA, 'reservas');
 
-      for (const token of [superToken, outroSuperToken]) {
-        const res = await putModulo(token, condominioA, 'reservas', {
+      await putModulo(superToken, condominioA, 'reservas', {
+        ativo: true,
+      }).expect(200);
+      const depoisDaMudanca = await linhaCompleta(condominioA, 'reservas');
+      const repetida = await putModulo(
+        outroSuperToken,
+        condominioA,
+        'reservas',
+        {
           ativo: true,
-        }).expect(200);
+        },
+      ).expect(200);
 
-        expect(res.body).toEqual({
-          modulo: 'reservas',
-          ativo: true,
-          sempre_ativo: false,
-        });
-      }
-
+      expect(repetida.body).toEqual({
+        modulo: 'reservas',
+        ativo: true,
+        sempre_ativo: false,
+      });
+      // A repetição não regrava a linha: `updated_by` e `updated_at` são os
+      // da mudança de fato, coerentes com a auditoria.
+      expect(await linhaCompleta(condominioA, 'reservas')).toEqual(
+        depoisDaMudanca,
+      );
       expect(await linhasNoBanco(condominioA)).toEqual([
         {
           modulo: 'reservas',
           ativo: 1,
           created_by: superUsuario.email,
-          updated_by: outroSuperEmail,
+          updated_by: superUsuario.email,
         },
       ]);
+      expect(await auditoriasNovas(condominioA, 'reservas', antes)).toEqual([
+        {
+          user_mail: superUsuario.email,
+          description: `Módulo Reservas ligado no condomínio. (uuid: ${condominioA})`,
+        },
+      ]);
+    });
+
+    it('Repetir a mesma alteração ao desligar: desligar duas vezes audita só a primeira', async () => {
+      await putModulo(superToken, condominioA, 'reservas', {
+        ativo: true,
+      }).expect(200);
+      const antes = await auditoriasDoPut(condominioA, 'reservas');
+
+      await putModulo(superToken, condominioA, 'reservas', {
+        ativo: false,
+      }).expect(200);
+      const depoisDaMudanca = await linhaCompleta(condominioA, 'reservas');
+      await putModulo(outroSuperToken, condominioA, 'reservas', {
+        ativo: false,
+      }).expect(200);
+
+      expect(await auditoriasNovas(condominioA, 'reservas', antes)).toEqual([
+        {
+          user_mail: superUsuario.email,
+          description: `Módulo Reservas desligado no condomínio. (uuid: ${condominioA})`,
+        },
+      ]);
+      expect(await linhaCompleta(condominioA, 'reservas')).toEqual(
+        depoisDaMudanca,
+      );
+    });
+
+    it('Desligar módulo que nunca foi ligado: 200 com dqs inativo e nenhuma linha na auditoria', async () => {
+      const antes = await auditoriasDoPut(condominioA, 'dqs');
+
+      const res = await putModulo(superToken, condominioA, 'dqs', {
+        ativo: false,
+      }).expect(200);
+
+      expect(res.body).toEqual({
+        modulo: 'dqs',
+        ativo: false,
+        sempre_ativo: false,
+      });
+      expect(await auditoriasNovas(condominioA, 'dqs', antes)).toEqual([]);
+      // Sem linha = desligado: nada é gravado.
+      expect(await linhasNoBanco(condominioA)).toEqual([]);
       expect(
-        await auditoriasNovas(condominioA, 'reservas', antes),
-      ).toHaveLength(2);
+        (await getModulosDoCondominio(superToken, condominioA).expect(200))
+          .body,
+      ).toEqual(estadoEsperado());
+    });
+
+    it('duas primeiras ativações simultâneas no mesmo condomínio (reservas e dqs ao mesmo tempo): as duas respondem 200, sem deadlock, e as duas são gravadas e auditadas', async () => {
+      const uuid = randomUUID();
+      await knex('condominios').insert({
+        uuid,
+        nome: 'Condomínio concorrência (e2e módulos)',
+        created_by: 'e2e-fixture',
+        updated_by: 'e2e-fixture',
+      });
+
+      try {
+        const respostas = await Promise.all(
+          ['reservas', 'dqs'].map((modulo) =>
+            putModulo(superToken, uuid, modulo, { ativo: true }),
+          ),
+        );
+
+        expect(respostas.map((res) => res.status)).toEqual([200, 200]);
+        expect(
+          (await linhasNoBanco(uuid)).map(
+            (linha: { modulo: string; ativo: number }) => [
+              linha.modulo,
+              linha.ativo,
+            ],
+          ),
+        ).toEqual([
+          ['dqs', 1],
+          ['reservas', 1],
+        ]);
+        expect(
+          await knex('auditoria')
+            .whereIn('route', [
+              rotaDosModulos(uuid, 'reservas'),
+              rotaDosModulos(uuid, 'dqs'),
+            ])
+            .count({ total: '*' }),
+        ).toEqual([{ total: 2 }]);
+      } finally {
+        await knex('condominio_modulos').where({ uuid_condominio: uuid }).del();
+        await knex('condominios').where({ uuid }).del();
+      }
+    });
+
+    it('Repetir a mesma alteração ao mesmo tempo: duas ativações simultâneas de reservas respondem 200, com uma linha só e uma auditoria só', async () => {
+      const uuid = randomUUID();
+      await knex('condominios').insert({
+        uuid,
+        nome: 'Condomínio concorrência 2 (e2e módulos)',
+        created_by: 'e2e-fixture',
+        updated_by: 'e2e-fixture',
+      });
+
+      try {
+        const respostas = await Promise.all(
+          [superToken, outroSuperToken].map((token) =>
+            putModulo(token, uuid, 'reservas', { ativo: true }),
+          ),
+        );
+
+        expect(respostas.map((res) => res.status)).toEqual([200, 200]);
+        expect(
+          (await linhasNoBanco(uuid)).map(
+            (linha: { modulo: string; ativo: number }) => [
+              linha.modulo,
+              linha.ativo,
+            ],
+          ),
+        ).toEqual([['reservas', 1]]);
+        // A segunda vê o que a primeira gravou: só uma mudança auditada.
+        expect(await auditoriasDoPut(uuid, 'reservas')).toHaveLength(1);
+      } finally {
+        await knex('condominio_modulos').where({ uuid_condominio: uuid }).del();
+        await knex('condominios').where({ uuid }).del();
+      }
+    });
+
+    it('Ligar Encomendas: 200 com encomendas ativo e nenhuma linha na auditoria', async () => {
+      const antes = await auditoriasDoPut(condominioA, 'encomendas');
+
+      const res = await putModulo(superToken, condominioA, 'encomendas', {
+        ativo: true,
+      }).expect(200);
+
+      expect(res.body).toEqual({
+        modulo: 'encomendas',
+        ativo: true,
+        sempre_ativo: true,
+      });
+      expect(await auditoriasNovas(condominioA, 'encomendas', antes)).toEqual(
+        [],
+      );
+    });
+
+    it('Condomínio excluído: depois de o super excluir o condomínio pela API, GET e PUT dos módulos respondem 404', async () => {
+      const uuid = randomUUID();
+      await knex('condominios').insert({
+        uuid,
+        nome: 'Condomínio a excluir (e2e módulos)',
+        created_by: 'e2e-fixture',
+        updated_by: 'e2e-fixture',
+      });
+
+      try {
+        await comToken(
+          superToken,
+          http()
+            .patch(`/condominios/${uuid}/status`)
+            .send({ status: 'suspenso', motivo: 'Fim do contrato' }),
+        ).expect(200);
+        await comToken(
+          superToken,
+          http().delete(`/condominios/${uuid}`),
+        ).expect(204);
+
+        const lista = await getModulosDoCondominio(superToken, uuid).expect(
+          404,
+        );
+        const alteracao = await putModulo(superToken, uuid, 'reservas', {
+          ativo: true,
+        }).expect(404);
+
+        for (const res of [lista, alteracao]) {
+          expect(res.body.message).toBe(
+            `Condomínio com uuid ${uuid} não encontrado.`,
+          );
+        }
+        expect(await linhasNoBanco(uuid)).toEqual([]);
+      } finally {
+        await knex('condominio_modulos').where({ uuid_condominio: uuid }).del();
+        await knex('condominios').where({ uuid }).del();
+      }
     });
 
     it('ligar no A não altera o mesmo módulo no B', async () => {
@@ -641,9 +842,9 @@ describe('ModulosModule (e2e)', () => {
     );
 
     it.each<[string, () => string]>([
-      ['inexistente', () => randomUUID()],
-      ['excluído', () => condominioExcluido],
-    ])('condomínio %s: 404 sem gravar nada', async (_rotulo, uuid) => {
+      ['Condomínio inexistente', () => randomUUID()],
+      ['Condomínio excluído', () => condominioExcluido],
+    ])('%s: 404 sem gravar nada', async (_rotulo, uuid) => {
       const alvo = uuid();
 
       const res = await putModulo(superToken, alvo, 'reservas', {
@@ -656,17 +857,22 @@ describe('ModulosModule (e2e)', () => {
       expect(await linhasNoBanco(alvo)).toEqual([]);
     });
 
-    it.each(naoSuper())('%s: 403 sem gravar nada', async (_rotulo, token) => {
-      const antes = await auditoriasDoPut(condominioA, 'reservas');
+    it.each(naoSuper())(
+      'Admin tenta alterar módulos (%s): 403 sem gravar nada',
+      async (_rotulo, token) => {
+        const antes = await auditoriasDoPut(condominioA, 'reservas');
 
-      const res = await putModulo(token(), condominioA, 'reservas', {
-        ativo: true,
-      }).expect(403);
+        const res = await putModulo(token(), condominioA, 'reservas', {
+          ativo: true,
+        }).expect(403);
 
-      expect(res.body.message).toBe(MENSAGEM_403_PERFIL);
-      expect(await linhasNoBanco(condominioA)).toEqual([]);
-      expect(await auditoriasNovas(condominioA, 'reservas', antes)).toEqual([]);
-    });
+        expect(res.body.message).toBe(MENSAGEM_403_PERFIL);
+        expect(await linhasNoBanco(condominioA)).toEqual([]);
+        expect(await auditoriasNovas(condominioA, 'reservas', antes)).toEqual(
+          [],
+        );
+      },
+    );
 
     it('sem token: 401 sem gravar nada', async () => {
       await http()

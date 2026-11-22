@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { AcessoCondominioService } from '../common/tenant/acesso-condominio.service';
 import { Perfil } from './enums/perfil.enum';
 import { SEM_CONDOMINIO, UsuariosService } from './usuarios.service';
 
@@ -49,7 +50,10 @@ describe('UsuariosService: escopo de condomínio do chamador', () => {
   function montarService(linha: LinhaChamador): void {
     builder = novoBuilder(linha);
     knex = jest.fn().mockReturnValue(builder);
-    service = new UsuariosService(knex as unknown as Knex);
+    service = new UsuariosService(
+      knex as unknown as Knex,
+      new AcessoCondominioService(knex as unknown as Knex),
+    );
   }
 
   function novaTransacao(linha: LinhaChamador): jest.Mock {
@@ -189,8 +193,13 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
 
   const CONDOMINIO_A = 'condo-a';
   const CONDOMINIO_B = 'condo-b';
-  const condominio = (uuid: string, excluido = false): Linha => ({
+  const condominio = (
+    uuid: string,
+    excluido = false,
+    status: 'ativo' | 'suspenso' = 'ativo',
+  ): Linha => ({
     uuid,
+    status,
     deleted_at: excluido ? new Date() : null,
   });
 
@@ -278,7 +287,10 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     knexForaDaTrx = jest.fn(() => {
       throw new Error('Consulta fora da transação.');
     });
-    service = new UsuariosService(knexForaDaTrx as unknown as Knex);
+    service = new UsuariosService(
+      knexForaDaTrx as unknown as Knex,
+      new AcessoCondominioService(knexForaDaTrx as unknown as Knex),
+    );
   }
 
   const dto = (extra: {
@@ -555,6 +567,51 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     expect(vinculoInserido()).toEqual({
       uuid_condominio: CONDOMINIO_B,
       uuid_unidade: 'unidade-b',
+    });
+  });
+
+  describe('auto-cadastro em condomínio inativo (spec bloqueio-condominio-inativo, #192)', () => {
+    const autoCadastro = (unidade: string) =>
+      service.create(
+        dto({ unidade }),
+        'SignUp',
+        trx as unknown as Knex.Transaction,
+      );
+
+    it.each<[string, () => Linha]>([
+      ['suspenso', () => condominio(CONDOMINIO_B, false, 'suspenso')],
+      ['excluído', () => condominio(CONDOMINIO_B, true)],
+      ['excluído e suspenso', () => condominio(CONDOMINIO_B, true, 'suspenso')],
+    ])(
+      'auto-cadastro em unidade de condomínio %s (cenário "Cadastro em unidade de condomínio suspenso"): 400 com a mesma mensagem de unidade inexistente e nada é inserido',
+      async (_rotulo, condominioB) => {
+        montar([condominio(CONDOMINIO_A), condominioB()]);
+
+        const erro = await erroDe(autoCadastro('B101'));
+        const inexistente = await erroDe(autoCadastro('Z999'));
+
+        expect(erro).toBeInstanceOf(BadRequestException);
+        expect(erro.message).toBe("Unidade 'B101' não encontrada.");
+        expect(inexistente.message).toBe("Unidade 'Z999' não encontrada.");
+        expect(inserido()).toBeUndefined();
+      },
+    );
+
+    it('cadastro administrativo não muda: o super cria funcionário no condomínio suspenso', async () => {
+      montar([
+        condominio(CONDOMINIO_A),
+        condominio(CONDOMINIO_B, false, 'suspenso'),
+      ]);
+
+      await criar(superAtor, {
+        uuid_condominio: CONDOMINIO_B,
+        unidade: 'B101',
+      });
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: CONDOMINIO_B,
+        uuid_unidade: 'unidade-b',
+      });
     });
   });
 });

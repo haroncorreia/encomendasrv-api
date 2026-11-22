@@ -11,6 +11,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import twilio, { Twilio } from 'twilio';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { AcessoCondominioService } from '../common/tenant/acesso-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendaStatus } from '../encomendas/enums/encomenda-status.enum';
 import { PushService } from '../push/push.service';
@@ -43,6 +44,7 @@ export class NotificacoesService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
     private readonly pushService: PushService,
+    private readonly acessoCondominio: AcessoCondominioService,
   ) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
@@ -522,15 +524,25 @@ export class NotificacoesService {
     );
   }
 
+  /**
+   * Lembrete diário das encomendas aguardando retirada. Só de condomínio
+   * ativo e não excluído (spec `bloqueio-condominio-inativo`, card #192):
+   * condomínio suspenso ou excluído não recebe notificação nem push. As
+   * encomendas sem condomínio continuam incluídas, como antes (#169).
+   */
   @Cron('0 0 * * *')
   async criarLembretesDiariosPendenciasRetirada(): Promise<void> {
     const encomendasPendentes = await this.knex.transaction(async (trx) => {
-      const pendentes = await trx('encomendas')
-        .where({ status: EncomendaStatus.AGUARDANDO_RETIRADA })
-        .whereNull('deleted_at')
+      const pendentes = await this.acessoCondominio
+        .restringirACondominiosLiberados(
+          trx('encomendas as e')
+            .where('e.status', EncomendaStatus.AGUARDANDO_RETIRADA)
+            .whereNull('e.deleted_at'),
+          'e.uuid_condominio',
+        )
         .select<
           { uuid: string; uuid_usuario: string }[]
-        >('uuid', 'uuid_usuario');
+        >('e.uuid', 'e.uuid_usuario');
 
       await this.insertManyInTrx(
         pendentes.map((encomenda) => ({
