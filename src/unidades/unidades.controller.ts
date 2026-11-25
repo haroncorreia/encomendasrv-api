@@ -42,14 +42,20 @@ export class UnidadesController {
 
   @Get()
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
-  findAll(@Query() pagination: PaginationUnidadesDto) {
-    return this.unidadesService.findAll(pagination);
+  findAll(
+    @Query() pagination: PaginationUnidadesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.unidadesService.findAll(pagination, user);
   }
 
   @Get('filter')
   @Roles(Perfil.SUPER, Perfil.ADMIN, Perfil.PORTARIA)
-  findByFilters(@Query() filters: FilterUnidadesDto) {
-    return this.unidadesService.findByFilters(filters);
+  findByFilters(
+    @Query() filters: FilterUnidadesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.unidadesService.findByFilters(filters, user);
   }
 
   @Get(':id')
@@ -69,7 +75,7 @@ export class UnidadesController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      await this.unidadesService.remove(id, user.email, trx);
+      await this.unidadesService.remove(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
@@ -89,7 +95,7 @@ export class UnidadesController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const unidade = await this.unidadesService.restore(id, user.email, trx);
+      const unidade = await this.unidadesService.restore(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,

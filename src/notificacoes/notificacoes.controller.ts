@@ -159,11 +159,8 @@ export class NotificacoesController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const notificacao = await this.notificacoesService.restore(
-        id,
-        user.email,
-        trx,
-      );
+      // O admin só restaura notificação de usuário do próprio condomínio.
+      const notificacao = await this.notificacoesService.restore(id, user, trx);
 
       await this.auditoriaService.registrarEmTrx(
         {

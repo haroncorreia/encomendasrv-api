@@ -193,6 +193,7 @@ export class AuthService {
           {
             uuid_usuario_novo: usuario.uuid,
             nome_usuario_novo: usuario.nome,
+            uuid_condominio: usuario.uuid_condominio,
             actorEmail: usuario.email,
           },
           trx,

@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { Knex } from 'knex';
 import { join } from 'path';
+import { EscopoCondominioService } from '../common/tenant/escopo-condominio.service';
 import { TAMANHO_MAXIMO_DESCRICAO_AUDITORIA } from './auditoria.constants';
 import { AuditoriaService, RegistrarAuditoriaDto } from './auditoria.service';
 import { AuditoriaContext } from './interfaces/auditoria-context.interface';
@@ -13,7 +14,7 @@ describe('AuditoriaService — omissão de valores grandes/sensíveis no body', 
     insert = jest.fn().mockResolvedValue([1]);
     // this.knex('auditoria').insert(...) -> mock funcional do query builder
     const knex = jest.fn().mockReturnValue({ insert }) as unknown as Knex;
-    service = new AuditoriaService(knex);
+    service = new AuditoriaService(knex, new EscopoCondominioService(knex));
   });
 
   function ctxComBody(body: Record<string, unknown>): AuditoriaContext {
@@ -81,6 +82,179 @@ describe('AuditoriaService — omissão de valores grandes/sensíveis no body', 
   });
 });
 
+/**
+ * Condomínio de quem agiu (spec `isolamento-multitenant-auditoria`, change
+ * `isolar-notificacoes-painel-auditoria-unidades`, card #208): resolvido pelo
+ * `user_mail`, numa leitura de `usuarios` por e-mail (na transação, quando
+ * houver), e gravado em `uuid_condominio`. O banco é simulado.
+ */
+describe('AuditoriaService — condomínio de quem agiu', () => {
+  type LinhaUsuario =
+    | { perfil: string; uuid_condominio: string | null }
+    | undefined;
+
+  interface ConexaoMock {
+    conexao: jest.Mock;
+    buscaUsuario: { where: jest.Mock; first: jest.Mock };
+    insert: jest.Mock;
+  }
+
+  const ctx: AuditoriaContext = {
+    user_ip: '203.0.113.10',
+    method: 'PATCH',
+    route: '/notificacoes/mark-all-as-read',
+    params: {},
+    body: {},
+    query: {},
+  };
+
+  /** Conexão (ou transação) cujo `usuarios` devolve `linha` (ou rejeita). */
+  function novaConexao(linha: LinhaUsuario | Error): ConexaoMock {
+    const buscaUsuario = {
+      where: jest.fn(),
+      first:
+        linha instanceof Error
+          ? jest.fn().mockRejectedValue(linha)
+          : jest.fn().mockResolvedValue(linha),
+    };
+    buscaUsuario.where.mockReturnValue(buscaUsuario);
+    const insert = jest.fn().mockResolvedValue([1]);
+    const conexao = jest.fn((tabela: string) =>
+      tabela === 'usuarios' ? buscaUsuario : { insert },
+    );
+
+    return { conexao, buscaUsuario, insert };
+  }
+
+  function condominioGravado(insert: jest.Mock): string | null | undefined {
+    expect(insert).toHaveBeenCalledTimes(1);
+    return (insert.mock.calls[0][0] as { uuid_condominio?: string | null })
+      .uuid_condominio;
+  }
+
+  const servicePara = (knex: ConexaoMock) =>
+    new AuditoriaService(
+      knex.conexao as unknown as Knex,
+      new EscopoCondominioService(knex.conexao as unknown as Knex),
+    );
+
+  describe('Ação de admin fica com o condomínio dele', () => {
+    it('registrar: grava o condomínio do usuário do user_mail', async () => {
+      const knex = novaConexao({ perfil: 'admin', uuid_condominio: 'condo-a' });
+
+      await servicePara(knex).registrar({
+        ctx,
+        user_mail: 'admin.a@teste.com',
+        description: 'Ação de admin',
+      });
+
+      expect(condominioGravado(knex.insert)).toBe('condo-a');
+      expect(knex.conexao).toHaveBeenCalledWith('usuarios');
+      expect(knex.buscaUsuario.where).toHaveBeenCalledWith({
+        email: 'admin.a@teste.com',
+      });
+    });
+
+    it('registrarEmTrx: lê o usuário na mesma transação da escrita', async () => {
+      const knex = novaConexao(undefined);
+      const trx = novaConexao({ perfil: 'admin', uuid_condominio: 'condo-a' });
+
+      await servicePara(knex).registrarEmTrx(
+        { ctx, user_mail: 'admin.a@teste.com', description: 'Ação de admin' },
+        trx.conexao as unknown as Knex.Transaction,
+      );
+
+      expect(condominioGravado(trx.insert)).toBe('condo-a');
+      expect(knex.conexao).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Ação do super fica sem condomínio', () => {
+    it.each([
+      ['com condomínio vinculado', 'condo-a'],
+      ['sem condomínio', null],
+    ])('super %s: grava sem condomínio', async (_caso, uuidCondominio) => {
+      const knex = novaConexao({
+        perfil: 'super',
+        uuid_condominio: uuidCondominio,
+      });
+
+      await servicePara(knex).registrar({
+        ctx,
+        user_mail: 'super@teste.com',
+        description: 'Ação do super',
+      });
+
+      expect(condominioGravado(knex.insert)).toBeNull();
+    });
+  });
+
+  describe('Ação sem usuário fica sem condomínio', () => {
+    it('sem user_mail: grava sem condomínio e não consulta usuarios', async () => {
+      const knex = novaConexao({ perfil: 'admin', uuid_condominio: 'condo-a' });
+
+      await servicePara(knex).registrar({ ctx, description: 'Rota pública' });
+
+      expect(condominioGravado(knex.insert)).toBeNull();
+      expect(knex.conexao).not.toHaveBeenCalledWith('usuarios');
+    });
+
+    it('user_mail que não é de nenhum usuário: grava sem condomínio', async () => {
+      const knex = novaConexao(undefined);
+
+      await servicePara(knex).registrar({
+        ctx,
+        user_mail: 'login.inexistente@teste.com',
+        description: 'Tentativa de login com e-mail não cadastrado.',
+      });
+
+      expect(condominioGravado(knex.insert)).toBeNull();
+    });
+  });
+
+  it('usuário sem condomínio: grava sem condomínio', async () => {
+    const knex = novaConexao({ perfil: 'morador', uuid_condominio: null });
+
+    await servicePara(knex).registrar({
+      ctx,
+      user_mail: 'morador.sem@teste.com',
+      description: 'Ação de morador sem condomínio',
+    });
+
+    expect(condominioGravado(knex.insert)).toBeNull();
+  });
+
+  describe('falha na resolução do condomínio: grava o registro sem condomínio e não lança', () => {
+    it('registrar', async () => {
+      const knex = novaConexao(new Error('falha simulada na leitura'));
+
+      await expect(
+        servicePara(knex).registrar({
+          ctx,
+          user_mail: 'admin.a@teste.com',
+          description: 'Ação de admin',
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(condominioGravado(knex.insert)).toBeNull();
+    });
+
+    it('registrarEmTrx', async () => {
+      const knex = novaConexao(undefined);
+      const trx = novaConexao(new Error('falha simulada na leitura'));
+
+      await expect(
+        servicePara(knex).registrarEmTrx(
+          { ctx, user_mail: 'admin.a@teste.com', description: 'Ação de admin' },
+          trx.conexao as unknown as Knex.Transaction,
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(condominioGravado(trx.insert)).toBeNull();
+    });
+  });
+});
+
 describe('AuditoriaService — limite de tamanho da description (VARCHAR(500))', () => {
   let insert: jest.Mock;
   let service: AuditoriaService;
@@ -100,7 +274,7 @@ describe('AuditoriaService — limite de tamanho da description (VARCHAR(500))',
     // this.knex('auditoria').insert(...) e trx('auditoria').insert(...)
     const knex = jest.fn().mockReturnValue({ insert }) as unknown as Knex;
     trx = jest.fn().mockReturnValue({ insert }) as unknown as Knex.Transaction;
-    service = new AuditoriaService(knex);
+    service = new AuditoriaService(knex, new EscopoCondominioService(knex));
   });
 
   function descricaoGravada(): string {

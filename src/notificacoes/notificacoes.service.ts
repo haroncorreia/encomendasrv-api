@@ -12,6 +12,7 @@ import { Knex } from 'knex';
 import twilio, { Twilio } from 'twilio';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { AcessoCondominioService } from '../common/tenant/acesso-condominio.service';
+import { EscopoCondominioService } from '../common/tenant/escopo-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendaStatus } from '../encomendas/enums/encomenda-status.enum';
 import { PushService } from '../push/push.service';
@@ -24,6 +25,9 @@ import { Notificacao } from './interfaces/notificacao.interface';
 const TABLE = 'notificacoes';
 const DEFAULT_LIMIT = 50;
 const DEFAULT_PAGE = 1;
+
+const MENSAGEM_ALTERACAO_NOTIFICACAO =
+  'Seu perfil não possui permissão para modificar esta notificação.';
 
 interface NotificationInsertInput {
   uuid_usuario: string;
@@ -45,6 +49,7 @@ export class NotificacoesService {
     private readonly configService: ConfigService,
     private readonly pushService: PushService,
     private readonly acessoCondominio: AcessoCondominioService,
+    private readonly escopoCondominio: EscopoCondominioService,
   ) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
@@ -220,10 +225,36 @@ export class NotificacoesService {
         user.perfil === Perfil.MORADOR) &&
       notificacao.uuid_usuario !== user.sub
     ) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para modificar esta notificação.',
-      );
+      throw new ForbiddenException(MENSAGEM_ALTERACAO_NOTIFICACAO);
     }
+  }
+
+  /**
+   * Restauração (spec `isolamento-multitenant-notificacoes`, card #208): o
+   * admin só restaura notificação de usuário do próprio condomínio, e o admin
+   * sem condomínio, nenhuma. O `super` restaura qualquer uma. Notificação cujo
+   * dono não existe mais só o `super` restaura.
+   */
+  private async assertPodeRestaurar(
+    notificacao: Notificacao,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    const escopo = await this.escopoCondominio.resolver(user, trx);
+
+    if (escopo === null) {
+      return;
+    }
+
+    const dono = await (trx ?? this.knex)('usuarios')
+      .where({ uuid: notificacao.uuid_usuario })
+      .first<{ uuid_condominio: string | null } | undefined>('uuid_condominio');
+
+    this.escopoCondominio.assertMesmoCondominio(
+      escopo,
+      dono?.uuid_condominio ?? null,
+      MENSAGEM_ALTERACAO_NOTIFICACAO,
+    );
   }
 
   private async findActiveByUuid(
@@ -294,6 +325,30 @@ export class NotificacoesService {
     }
   }
 
+  /**
+   * Destinatários dos avisos automáticos (spec
+   * `isolamento-multitenant-notificacoes`, card #208): usuários do perfil com
+   * acesso ativo (não excluídos e aprovados) do condomínio do fato. Sem
+   * condomínio, ninguém recebe (falha fechada).
+   */
+  private async funcionariosAtivosDoCondominio(
+    perfil: Perfil.ADMIN | Perfil.PORTARIA,
+    uuidCondominio: string | null | undefined,
+    trx: Knex.Transaction,
+  ): Promise<string[]> {
+    if (!uuidCondominio) {
+      return [];
+    }
+
+    const funcionarios = await trx('usuarios')
+      .where({ perfil, uuid_condominio: uuidCondominio })
+      .whereNull('deleted_at')
+      .whereNotNull('aproved_at')
+      .select<{ uuid: string }[]>('uuid');
+
+    return funcionarios.map((funcionario) => funcionario.uuid);
+  }
+
   private async insertManyInTrx(
     rows: NotificationInsertInput[],
     actorEmail: string,
@@ -343,14 +398,22 @@ export class NotificacoesService {
       params.status === EncomendaStatus.PREVISTA &&
       [Perfil.SUPER, Perfil.ADMIN, Perfil.MORADOR].includes(params.actorPerfil)
     ) {
-      const portarias = await trx('usuarios')
-        .where({ perfil: Perfil.PORTARIA })
-        .whereNull('deleted_at')
-        .select('uuid');
+      // Só as portarias do condomínio da encomenda (#66), lido da própria
+      // encomenda, que acabou de ser gravada nesta transação.
+      const encomenda = await trx('encomendas')
+        .where({ uuid: params.uuid_encomenda })
+        .first<
+          { uuid_condominio: string | null } | undefined
+        >('uuid_condominio');
+      const portarias = await this.funcionariosAtivosDoCondominio(
+        Perfil.PORTARIA,
+        encomenda?.uuid_condominio,
+        trx,
+      );
 
       await this.insertManyInTrx(
-        portarias.map((portaria: { uuid: string }) => ({
-          uuid_usuario: portaria.uuid,
+        portarias.map((uuidPortaria) => ({
+          uuid_usuario: uuidPortaria,
           uuid_encomenda: params.uuid_encomenda,
           tipo: TipoNotificacao.ALERTA_SISTEMA,
           titulo: 'Nova encomenda prevista',
@@ -496,22 +559,29 @@ export class NotificacoesService {
     }
   }
 
+  /**
+   * Aviso de novo morador aguardando liberação, só para os admins ativos do
+   * condomínio dele (#164). O `super` não recebe, como antes.
+   */
   async registrarNotificacoesNovoMoradorEmTrx(
     params: {
       uuid_usuario_novo: string;
       nome_usuario_novo: string;
+      /** Condomínio do novo morador, como gravado no cadastro. */
+      uuid_condominio: string | null;
       actorEmail: string;
     },
     trx: Knex.Transaction,
   ): Promise<void> {
-    const admins = await trx('usuarios')
-      .where({ perfil: Perfil.ADMIN })
-      .whereNull('deleted_at')
-      .select('uuid');
+    const admins = await this.funcionariosAtivosDoCondominio(
+      Perfil.ADMIN,
+      params.uuid_condominio,
+      trx,
+    );
 
     await this.insertManyInTrx(
-      admins.map((admin: { uuid: string }) => ({
-        uuid_usuario: admin.uuid,
+      admins.map((uuidAdmin) => ({
+        uuid_usuario: uuidAdmin,
         uuid_encomenda: null,
         tipo: TipoNotificacao.ALERTA_SISTEMA,
         titulo: 'Novo morador aguardando liberação',
@@ -702,7 +772,7 @@ export class NotificacoesService {
 
   async restore(
     uuid: string,
-    actorEmail: string,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<Notificacao> {
     const qb = trx ?? this.knex;
@@ -718,11 +788,13 @@ export class NotificacoesService {
       );
     }
 
+    await this.assertPodeRestaurar(removida, user, trx);
+
     await qb<Notificacao>(TABLE).where({ uuid }).update({
       deleted_at: null,
       deleted_by: null,
       updated_at: new Date(),
-      updated_by: actorEmail,
+      updated_by: user.email,
     });
 
     return this.findActiveByUuid(uuid, trx);

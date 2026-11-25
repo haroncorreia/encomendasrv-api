@@ -59,6 +59,29 @@ export class EscopoCondominioService {
   }
 
   /**
+   * Restringe uma consulta (lista ou agregação) ao escopo, pela coluna de
+   * condomínio informada (ex.: `e.uuid_condominio`): escopo global não filtra,
+   * um uuid filtra por ele, e `SEM_CONDOMINIO` não devolve nada (`1 = 0`).
+   * Nunca repassa `null` ao `where`, que viraria `IS NULL`.
+   */
+  restringirConsulta(
+    qb: Knex.QueryBuilder,
+    colunaUuidCondominio: string,
+    escopo: EscopoCondominio,
+  ): void {
+    if (escopo === null) {
+      return;
+    }
+
+    if (escopo === SEM_CONDOMINIO) {
+      qb.whereRaw('1 = 0');
+      return;
+    }
+
+    qb.where(colunaUuidCondominio, escopo);
+  }
+
+  /**
    * Lança 403 quando `uuidCondominio` está fora do escopo. Escopo global passa
    * sempre; `SEM_CONDOMINIO` nunca passa, nem para alvo também sem condomínio.
    * Chame logo depois de carregar o alvo e antes de qualquer escrita, com o

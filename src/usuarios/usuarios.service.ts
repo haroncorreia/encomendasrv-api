@@ -68,6 +68,9 @@ export const SEM_CONDOMINIO = Symbol('sem-condominio');
  */
 export type EscopoCondominio = string | null | typeof SEM_CONDOMINIO;
 
+const MENSAGEM_ACESSO_USUARIO =
+  'Seu perfil não possui permissão para acessar este usuário.';
+
 @Injectable()
 export class UsuariosService {
   constructor(
@@ -119,8 +122,39 @@ export class UsuariosService {
     this.assertDentroDoEscopo(
       await this.resolverEscopoCondominio(user, trx),
       alvo.uuid_condominio,
-      'Seu perfil não possui permissão para acessar este usuário.',
+      MENSAGEM_ACESSO_USUARIO,
     );
+  }
+
+  /**
+   * Alvo de uma escrita, lido na transação dela, com a guarda de condomínio
+   * (Issue #163): 404 se não existe e 403 (mesma mensagem do
+   * `assertMesmoCondominio`) se está fora do escopo de quem chama, antes de
+   * qualquer escrita. Fica no service, e não só no controller, para valer para
+   * qualquer chamador. Devolve também o escopo, já resolvido.
+   */
+  private async alvoDaEscritaNoEscopo(
+    uuid: string,
+    ator: JwtPayload,
+    trx: Knex.Transaction | undefined,
+    opcoes: { incluirExcluidos?: boolean } = {},
+  ): Promise<{ alvo: Usuario; escopo: EscopoCondominio }> {
+    const alvo = opcoes.incluirExcluidos
+      ? await this.findByIdInternoIncluindoExcluidos(uuid, trx)
+      : await this.findByIdInterno(uuid, trx);
+
+    if (!alvo) {
+      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+    }
+
+    const escopo = await this.resolverEscopoCondominio(ator, trx);
+    this.assertDentroDoEscopo(
+      escopo,
+      alvo.uuid_condominio,
+      MENSAGEM_ACESSO_USUARIO,
+    );
+
+    return { alvo, escopo };
   }
 
   /** Lança 403 quando `uuidCondominio` está fora do escopo do chamador. */
@@ -762,19 +796,17 @@ export class UsuariosService {
   async updateRole(
     uuid: string,
     perfil: Perfil,
-    editadoPor?: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
-    await this.findOne(uuid);
+    await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
 
     const qb = trx ?? this.knex;
-    await qb<Usuario>(TABLE)
-      .where({ uuid })
-      .update({
-        perfil,
-        updated_at: new Date(),
-        updated_by: editadoPor ?? 'system',
-      });
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      perfil,
+      updated_at: new Date(),
+      updated_by: ator.email,
+    });
 
     const atualizado = await qb<Usuario>(TABLE)
       .where({ uuid })
@@ -825,7 +857,8 @@ export class UsuariosService {
     ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
-    await this.findOne(uuid);
+    // O escopo, resolvido uma vez, vale para o alvo e para a unidade nova.
+    const { escopo } = await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
 
     const qb = trx ?? this.knex;
 
@@ -839,7 +872,7 @@ export class UsuariosService {
     }
 
     this.assertDentroDoEscopo(
-      await this.resolverEscopoCondominio(ator, trx),
+      escopo,
       unidadeRow.uuid_condominio,
       'Seu perfil não possui permissão para atribuir unidade de outro condomínio.',
     );
@@ -890,19 +923,25 @@ export class UsuariosService {
 
   async remove(
     uuid: string,
-    excluidoPor?: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    await this.findOne(uuid);
+    // O próprio usuário sempre pode se excluir, com ou sem condomínio.
+    if (ator.sub === uuid) {
+      if (!(await this.findByIdInterno(uuid, trx))) {
+        throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
+      }
+    } else {
+      await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
+    }
+
     const qb = trx ?? this.knex;
-    await qb<Usuario>(TABLE)
-      .where({ uuid })
-      .update({
-        deleted_at: new Date(),
-        deleted_by: excluidoPor ?? null,
-        updated_at: new Date(),
-        updated_by: excluidoPor ?? 'system',
-      });
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      deleted_at: new Date(),
+      deleted_by: ator.email,
+      updated_at: new Date(),
+      updated_by: ator.email,
+    });
   }
 
   async hardRemove(
@@ -920,39 +959,36 @@ export class UsuariosService {
 
   async restore(
     uuid: string,
-    restauradoPor?: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<void> {
     const qb = trx ?? this.knex;
-    const usuario = await qb<Usuario>(TABLE).where({ uuid }).first();
-
-    if (!usuario) {
-      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
-    }
+    const { alvo: usuario } = await this.alvoDaEscritaNoEscopo(
+      uuid,
+      ator,
+      trx,
+      { incluirExcluidos: true },
+    );
 
     if (!usuario.deleted_at) {
       throw new BadRequestException('Usuário informado não está removido.');
     }
 
-    await qb<Usuario>(TABLE)
-      .where({ uuid })
-      .update({
-        deleted_at: null,
-        deleted_by: null,
-        updated_at: new Date(),
-        updated_by: restauradoPor ?? 'system',
-      });
+    await qb<Usuario>(TABLE).where({ uuid }).update({
+      deleted_at: null,
+      deleted_by: null,
+      updated_at: new Date(),
+      updated_by: ator.email,
+    });
   }
 
   async aprovarUsuario(
     uuid: string,
-    aprovadoPorUuid: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
-    const usuario = await this.query.where({ uuid }).first();
-    if (!usuario) {
-      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
-    }
+    await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
+    const aprovadoPorUuid = ator.sub;
 
     const qb = trx ?? this.knex;
     await qb<Usuario>(TABLE).where({ uuid }).update({
@@ -999,20 +1035,17 @@ export class UsuariosService {
 
   async revogarUsuario(
     uuid: string,
-    revogadoPorUuid: string,
+    ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
-    const usuario = await this.query.where({ uuid }).first();
-    if (!usuario) {
-      throw new NotFoundException(`Usuário com uuid ${uuid} não encontrado.`);
-    }
+    await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
 
     const qb = trx ?? this.knex;
     await qb<Usuario>(TABLE).where({ uuid }).update({
       aproved_at: null,
       aproved_by_uuid_usuario: null,
       updated_at: new Date(),
-      updated_by: revogadoPorUuid,
+      updated_by: ator.sub,
     });
 
     const atualizado = await qb<Usuario>(TABLE)
@@ -1079,9 +1112,15 @@ export class UsuariosService {
     return usuario?.activation_code_hash === codigoHash;
   }
 
-  /** Retorna o registro completo (incluindo campos de ativação). Uso interno. */
-  async findByIdInterno(uuid: string): Promise<Usuario | undefined> {
-    return this.knex<Usuario>(TABLE)
+  /**
+   * Retorna o registro completo (incluindo campos de ativação). Uso interno.
+   * Recebe a transação da escrita, quando houver (#163).
+   */
+  async findByIdInterno(
+    uuid: string,
+    trx?: Knex.Transaction,
+  ): Promise<Usuario | undefined> {
+    return (trx ?? this.knex)<Usuario>(TABLE)
       .where({ uuid })
       .whereNull('deleted_at')
       .first();

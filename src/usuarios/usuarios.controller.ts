@@ -180,7 +180,7 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id, trx);
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
@@ -199,11 +199,7 @@ export class UsuariosController {
         );
       }
 
-      const usuario = await this.usuariosService.aprovarUsuario(
-        id,
-        user.sub,
-        trx,
-      );
+      const usuario = await this.usuariosService.aprovarUsuario(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
@@ -224,7 +220,7 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id, trx);
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
@@ -243,11 +239,7 @@ export class UsuariosController {
         );
       }
 
-      const usuario = await this.usuariosService.revogarUsuario(
-        id,
-        user.sub,
-        trx,
-      );
+      const usuario = await this.usuariosService.revogarUsuario(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
@@ -269,7 +261,7 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id, trx);
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
@@ -313,7 +305,7 @@ export class UsuariosController {
       const usuario = await this.usuariosService.updateRole(
         id,
         novoPerfil,
-        user.email,
+        user,
         trx,
       );
 
@@ -339,7 +331,7 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id, trx);
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
@@ -400,7 +392,7 @@ export class UsuariosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const usuarioAlvo = await this.usuariosService.findByIdInterno(id);
+      const usuarioAlvo = await this.usuariosService.findByIdInterno(id, trx);
       if (!usuarioAlvo) {
         throw new NotFoundException(`Usuário com uuid ${id} não encontrado.`);
       }
@@ -432,7 +424,7 @@ export class UsuariosController {
         );
       }
 
-      await this.usuariosService.remove(id, user.email, trx);
+      await this.usuariosService.remove(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,
@@ -489,7 +481,7 @@ export class UsuariosController {
 
       await this.usuariosService.assertMesmoCondominio(user, usuarioAlvo, trx);
 
-      await this.usuariosService.restore(id, user.email, trx);
+      await this.usuariosService.restore(id, user, trx);
       await this.auditoriaService.registrarEmTrx(
         {
           ctx,

@@ -615,3 +615,216 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     });
   });
 });
+
+/**
+ * Guarda de condomínio nas escritas do próprio service (Issue #163, decisão 6
+ * do design da change `isolar-notificacoes-painel-auditoria-unidades`): cada
+ * método lê o alvo na transação da escrita e recusa (403) o alvo fora do
+ * escopo de quem chama antes de gravar, além da checagem do controller. O
+ * banco é simulado em memória; a conexão de fora da transação registra o uso.
+ */
+describe('UsuariosService: guarda de condomínio nas escritas (#163)', () => {
+  type Linha = Record<string, unknown>;
+  type Tabela = 'usuarios' | 'unidades' | 'condominios';
+
+  const MENSAGEM = 'Seu perfil não possui permissão para acessar este usuário.';
+
+  const ator = (perfil: Perfil, sub: string): JwtPayload => ({
+    sub,
+    nome: 'Ator Teste',
+    email: `${sub}@teste.com`,
+    perfil,
+  });
+  const adminA = ator(Perfil.ADMIN, 'admin-a');
+  const adminB = ator(Perfil.ADMIN, 'admin-b');
+  const superGlobal = ator(Perfil.SUPER, 'super-1');
+  const adminSemCondominio = ator(Perfil.ADMIN, 'admin-sem-condominio');
+
+  /** Unidade nova do `updateUnidade`: a do condomínio de quem chama. */
+  const unidadeDoAtor: Record<string, string> = {
+    'admin-a': 'A101',
+    'admin-b': 'B101',
+    'super-1': 'B101',
+    'admin-sem-condominio': 'A101',
+  };
+
+  let tabelas: Record<Tabela, Linha[]>;
+  let gravacoes: { tabela: Tabela; dados: Linha }[];
+  let trx: jest.Mock;
+  let knexForaDaTrx: jest.Mock;
+  let service: UsuariosService;
+
+  /** Conexão em memória com o subconjunto do query builder usado aqui. */
+  function novaConexao(): jest.Mock {
+    return jest.fn((tabela: Tabela) => {
+      let resultado = [...tabelas[tabela]];
+      const builder = {
+        where: (criterio: Linha) => {
+          resultado = resultado.filter((linha) =>
+            Object.entries(criterio).every(
+              ([coluna, valor]) => linha[coluna] === valor,
+            ),
+          );
+          return builder;
+        },
+        whereNull: (coluna: string) => {
+          resultado = resultado.filter((linha) => linha[coluna] == null);
+          return builder;
+        },
+        first: (..._colunas: string[]) => Promise.resolve(resultado[0]),
+        update: (dados: Linha) => {
+          gravacoes.push({ tabela, dados });
+          resultado.forEach((linha) => Object.assign(linha, dados));
+          return Promise.resolve(resultado.length);
+        },
+      };
+      return builder;
+    });
+  }
+
+  beforeEach(() => {
+    const usuario = (
+      uuid: string,
+      perfil: Perfil,
+      uuidCondominio: string | null,
+      extra: Linha = {},
+    ): Linha => ({
+      uuid,
+      perfil,
+      uuid_condominio: uuidCondominio,
+      uuid_unidade: null,
+      aproved_at: new Date(),
+      aproved_by_uuid_usuario: null,
+      deleted_at: null,
+      ...extra,
+    });
+
+    tabelas = {
+      condominios: [
+        { uuid: 'condo-a', deleted_at: null },
+        { uuid: 'condo-b', deleted_at: null },
+      ],
+      unidades: [
+        {
+          uuid: 'unidade-a',
+          unidade: 'A101',
+          uuid_condominio: 'condo-a',
+          deleted_at: null,
+        },
+        {
+          uuid: 'unidade-b',
+          unidade: 'B101',
+          uuid_condominio: 'condo-b',
+          deleted_at: null,
+        },
+      ],
+      usuarios: [
+        usuario('admin-a', Perfil.ADMIN, 'condo-a'),
+        usuario('admin-b', Perfil.ADMIN, 'condo-b'),
+        usuario('super-1', Perfil.SUPER, null),
+        usuario('admin-sem-condominio', Perfil.ADMIN, null),
+        usuario('morador-b', Perfil.MORADOR, 'condo-b', {
+          uuid_unidade: 'unidade-b',
+          aproved_at: null,
+        }),
+        usuario('morador-b-excluido', Perfil.MORADOR, 'condo-b', {
+          uuid_unidade: 'unidade-b',
+          deleted_at: new Date(),
+        }),
+      ],
+    };
+    gravacoes = [];
+    trx = novaConexao();
+    knexForaDaTrx = novaConexao();
+    service = new UsuariosService(
+      knexForaDaTrx as unknown as Knex,
+      new AcessoCondominioService(knexForaDaTrx as unknown as Knex),
+    );
+  });
+
+  const naTrx = () => trx as unknown as Knex.Transaction;
+
+  /** As seis escritas, sobre um morador do condomínio B. */
+  const operacoes: [string, (quem: JwtPayload) => Promise<unknown>][] = [
+    ['aprovar', (quem) => service.aprovarUsuario('morador-b', quem, naTrx())],
+    ['revogar', (quem) => service.revogarUsuario('morador-b', quem, naTrx())],
+    [
+      'alterar perfil',
+      (quem) => service.updateRole('morador-b', Perfil.PORTARIA, quem, naTrx()),
+    ],
+    [
+      'alterar unidade',
+      (quem) =>
+        service.updateUnidade(
+          'morador-b',
+          unidadeDoAtor[quem.sub],
+          quem,
+          naTrx(),
+        ),
+    ],
+    ['excluir', (quem) => service.remove('morador-b', quem, naTrx())],
+    [
+      'restaurar',
+      (quem) => service.restore('morador-b-excluido', quem, naTrx()),
+    ],
+  ];
+
+  /** Mensagem do 403, ou o que aconteceu no lugar dele. */
+  const recusa = (promessa: Promise<unknown>) =>
+    promessa.then(
+      () => 'gravou sem recusar',
+      (erro: Error) =>
+        erro instanceof ForbiddenException
+          ? erro.message
+          : `${erro.constructor.name}: ${erro.message}`,
+    );
+
+  it.each(operacoes)(
+    '%s: admin de outro condomínio recebe 403 e nada é gravado',
+    async (_nome, operacao) => {
+      expect({
+        recusa: await recusa(operacao(adminA)),
+        gravacoes,
+      }).toEqual({ recusa: MENSAGEM, gravacoes: [] });
+    },
+  );
+
+  it.each(operacoes)(
+    '%s: admin sem condomínio recebe 403 e nada é gravado',
+    async (_nome, operacao) => {
+      expect({
+        recusa: await recusa(operacao(adminSemCondominio)),
+        gravacoes,
+      }).toEqual({ recusa: MENSAGEM, gravacoes: [] });
+    },
+  );
+
+  it.each(operacoes)(
+    '%s: admin do mesmo condomínio grava, lendo o alvo só na transação',
+    async (_nome, operacao) => {
+      await operacao(adminB);
+
+      expect({
+        gravou: gravacoes.some((g) => g.tabela === 'usuarios'),
+        consultasForaDaTrx: knexForaDaTrx.mock.calls.length,
+      }).toEqual({ gravou: true, consultasForaDaTrx: 0 });
+    },
+  );
+
+  it.each(operacoes)(
+    '%s: super grava em qualquer condomínio',
+    async (_nome, operacao) => {
+      await operacao(superGlobal);
+
+      expect(gravacoes.some((g) => g.tabela === 'usuarios')).toBe(true);
+    },
+  );
+
+  it('excluir: o próprio usuário se exclui mesmo sem condomínio', async () => {
+    await service.remove(adminSemCondominio.sub, adminSemCondominio, naTrx());
+
+    expect(gravacoes.map((g) => g.dados.deleted_by)).toEqual([
+      adminSemCondominio.email,
+    ]);
+  });
+});

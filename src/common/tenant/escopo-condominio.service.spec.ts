@@ -187,4 +187,63 @@ describe('EscopoCondominioService', () => {
       expect(knex).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * Restrição de listas e agregações ao escopo (card #208): painel, auditoria
+   * e unidades usam a mesma regra, pela coluna de condomínio de cada consulta.
+   */
+  describe('restringirConsulta', () => {
+    interface ConsultaMock {
+      where: jest.Mock;
+      whereRaw: jest.Mock;
+    }
+
+    let consulta: ConsultaMock;
+
+    beforeEach(() => {
+      montar([]);
+      consulta = { where: jest.fn(), whereRaw: jest.fn() };
+      consulta.where.mockReturnValue(consulta);
+      consulta.whereRaw.mockReturnValue(consulta);
+    });
+
+    const restringir = (
+      escopo: Parameters<typeof service.assertMesmoCondominio>[0],
+    ) =>
+      service.restringirConsulta(
+        consulta as unknown as Knex.QueryBuilder,
+        'e.uuid_condominio',
+        escopo,
+      );
+
+    it('escopo global (null): não filtra', () => {
+      restringir(null);
+
+      expect(consulta.where).not.toHaveBeenCalled();
+      expect(consulta.whereRaw).not.toHaveBeenCalled();
+    });
+
+    it('condomínio: filtra pela coluna informada', () => {
+      restringir('condo-a');
+
+      expect(consulta.where).toHaveBeenCalledWith(
+        'e.uuid_condominio',
+        'condo-a',
+      );
+      expect(consulta.whereRaw).not.toHaveBeenCalled();
+    });
+
+    it('SEM_CONDOMINIO: não devolve nada (1 = 0), nunca IS NULL', () => {
+      restringir(SEM_CONDOMINIO);
+
+      expect(consulta.whereRaw).toHaveBeenCalledWith('1 = 0');
+      expect(consulta.where).not.toHaveBeenCalled();
+    });
+
+    it('não consulta o banco', () => {
+      restringir('condo-a');
+
+      expect(knex).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { EscopoCondominioService } from '../common/tenant/escopo-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
+import { Perfil } from '../usuarios/enums/perfil.enum';
 import { TAMANHO_MAXIMO_DESCRICAO_AUDITORIA } from './auditoria.constants';
 import type { Auditoria } from './interfaces/auditoria.interface';
 import { PaginationAuditoriaDto } from './dto/pagination-auditoria.dto';
@@ -36,6 +39,7 @@ interface AuditInsert {
   user_ip: string | null;
   user_mail: string | null;
   description: string;
+  uuid_condominio: string | null;
 }
 
 interface AuditRow {
@@ -55,7 +59,10 @@ interface AuditRow {
 export class AuditoriaService {
   private readonly logger = new Logger(AuditoriaService.name);
 
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly escopoCondominio: EscopoCondominioService,
+  ) {}
 
   private resolvePagination(pagination: PaginationAuditoriaDto): {
     limit: number;
@@ -91,14 +98,29 @@ export class AuditoriaService {
     return null;
   }
 
+  /**
+   * Lista paginada da auditoria no escopo de quem chama (spec
+   * `isolamento-multitenant-auditoria`, card #208): o `super` lê tudo, o admin
+   * só o próprio condomínio, e o admin sem condomínio recebe lista vazia. O
+   * formato não muda: `uuid_condominio` não entra na resposta.
+   */
   async findAllPaginated(
     pagination: PaginationAuditoriaDto,
+    user: JwtPayload,
   ): Promise<Auditoria[]> {
     const { offset, limit } = this.resolvePagination(pagination);
+    const escopo = await this.escopoCondominio.resolver(user);
 
-    const rows = await this.knex<AuditRow>('auditoria')
-      .select('*')
+    const query = this.knex<AuditRow>('auditoria').select('*');
+    this.escopoCondominio.restringirConsulta(query, 'uuid_condominio', escopo);
+
+    // `created_at` não tem fração de segundo: o desempate por `uuid` evita
+    // repetir ou omitir registros entre páginas (#201, #204). Os dois no mesmo
+    // sentido deixam o índice `(uuid_condominio, created_at)`, que carrega a
+    // chave primária, ser lido de trás para frente, sem filesort.
+    const rows = await query
       .orderBy('created_at', 'desc')
+      .orderBy('uuid', 'desc')
       .offset(offset)
       .limit(limit);
 
@@ -122,7 +144,13 @@ export class AuditoriaService {
    */
   async registrar(dto: RegistrarAuditoriaDto): Promise<void> {
     try {
-      await this.knex<AuditInsert>('auditoria').insert(this.buildInsert(dto));
+      const uuidCondominio = await this.condominioDeQuemAgiu(
+        dto.user_mail,
+        this.knex,
+      );
+      await this.knex<AuditInsert>('auditoria').insert(
+        this.buildInsert(dto, uuidCondominio),
+      );
     } catch (err) {
       this.logger.error('Falha ao registrar evento de auditoria', err);
     }
@@ -132,10 +160,55 @@ export class AuditoriaService {
     dto: RegistrarAuditoriaDto,
     trx: Knex.Transaction,
   ): Promise<void> {
-    await trx<AuditInsert>('auditoria').insert(this.buildInsert(dto));
+    const uuidCondominio = await this.condominioDeQuemAgiu(dto.user_mail, trx);
+    await trx<AuditInsert>('auditoria').insert(
+      this.buildInsert(dto, uuidCondominio),
+    );
   }
 
-  private buildInsert(dto: RegistrarAuditoriaDto): AuditInsert {
+  /**
+   * Condomínio de quem agiu, gravado no registro (spec
+   * `isolamento-multitenant-auditoria`, card #208): o do usuário cujo e-mail é
+   * o `user_mail`, lido na transação da escrita quando houver. Fica `null` sem
+   * `user_mail`, para e-mail que não é de nenhum usuário, para o `super` e para
+   * usuário sem condomínio, a mesma regra do preenchimento do histórico na
+   * migration `alter_auditoria_add_uuid_condominio`. Nunca lança: se a leitura
+   * falhar, o registro é gravado sem condomínio, e a operação auditada segue.
+   */
+  private async condominioDeQuemAgiu(
+    userMail: string | null | undefined,
+    qb: Knex | Knex.Transaction,
+  ): Promise<string | null> {
+    if (!userMail) {
+      return null;
+    }
+
+    try {
+      const usuario = await qb('usuarios')
+        .where({ email: userMail })
+        .first<
+          { perfil: Perfil; uuid_condominio: string | null } | undefined
+        >('perfil', 'uuid_condominio');
+
+      if (!usuario || usuario.perfil === Perfil.SUPER) {
+        return null;
+      }
+
+      return usuario.uuid_condominio ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `Condomínio do registro de auditoria não resolvido; gravado sem condomínio: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private buildInsert(
+    dto: RegistrarAuditoriaDto,
+    uuidCondominio: string | null,
+  ): AuditInsert {
     const { ctx } = dto;
     const bodySeguro = ctx.body ? this.omitirSensiveis(ctx.body) : null;
 
@@ -157,6 +230,7 @@ export class AuditoriaService {
       user_ip: ctx.user_ip ?? null,
       user_mail: dto.user_mail ?? null,
       description: this.limitarDescricao(dto.description),
+      uuid_condominio: uuidCondominio,
     };
   }
 

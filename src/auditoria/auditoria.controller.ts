@@ -5,7 +5,9 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { PaginationAuditoriaDto } from './dto/pagination-auditoria.dto';
 import { AuditoriaService } from './auditoria.service';
@@ -17,7 +19,10 @@ export class AuditoriaController {
   constructor(private readonly auditoriaService: AuditoriaService) {}
 
   @Get()
-  findAll(@Query() pagination: PaginationAuditoriaDto) {
-    return this.auditoriaService.findAllPaginated(pagination);
+  findAll(
+    @Query() pagination: PaginationAuditoriaDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.auditoriaService.findAllPaginated(pagination, user);
   }
 }

@@ -1,5 +1,10 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import {
+  EscopoCondominio,
+  EscopoCondominioService,
+} from '../common/tenant/escopo-condominio.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { EncomendaStatus } from '../encomendas/enums/encomenda-status.enum';
 import { Perfil } from '../usuarios/enums/perfil.enum';
@@ -62,9 +67,18 @@ export interface DashboardIndicesGeraisResponse {
   };
 }
 
+/**
+ * Painel de indicadores (spec `isolamento-multitenant-dashboard`, card #208 e
+ * #165): o `super` vê a plataforma inteira; o admin, só o próprio condomínio;
+ * o admin sem condomínio, zeros e listas vazias. O formato das respostas não
+ * muda.
+ */
 @Injectable()
 export class DashboardService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly escopoCondominio: EscopoCondominioService,
+  ) {}
 
   private toNumber(value: unknown): number {
     if (typeof value === 'number') {
@@ -178,26 +192,40 @@ export class DashboardService {
   private async countEncomendasPorCampoData(
     campo: 'recebido_em' | 'entregue_em',
     periodo: PeriodoResolvido,
+    escopo: EscopoCondominio,
   ): Promise<number> {
-    const row = await this.knex('encomendas')
+    const query = this.knex('encomendas')
       .whereNull('deleted_at')
       .whereNotNull(campo)
-      .whereBetween(campo, [periodo.inicio, periodo.fim])
-      .count<{ total: string }[]>({ total: '*' })
-      .first();
+      .whereBetween(campo, [periodo.inicio, periodo.fim]);
+    this.escopoCondominio.restringirConsulta(query, 'uuid_condominio', escopo);
+
+    const row = await query.count<{ total: string }[]>({ total: '*' }).first();
 
     return this.toNumber(row?.total);
   }
 
+  /**
+   * Os rankings partem de `encomendas`: o filtro pelo condomínio da encomenda
+   * também tira do ranking as pessoas de outro condomínio.
+   */
   private async getTopMoradores(
     periodo: PeriodoResolvido,
+    escopo: EscopoCondominio,
   ): Promise<RankingUsuario[]> {
-    const rows = await this.knex('encomendas as e')
+    const query = this.knex('encomendas as e')
       .innerJoin('usuarios as u', 'u.uuid', 'e.uuid_usuario')
       .whereNull('e.deleted_at')
       .whereNull('u.deleted_at')
       .where('u.perfil', Perfil.MORADOR)
-      .whereBetween('e.created_at', [periodo.inicio, periodo.fim])
+      .whereBetween('e.created_at', [periodo.inicio, periodo.fim]);
+    this.escopoCondominio.restringirConsulta(
+      query,
+      'e.uuid_condominio',
+      escopo,
+    );
+
+    const rows = await query
       .groupBy('u.uuid', 'u.nome', 'u.email', 'u.perfil')
       .select(
         'u.uuid as uuid_usuario',
@@ -222,15 +250,23 @@ export class DashboardService {
     campoUuid: 'recebido_por_uuid_usuario' | 'entregue_por_uuid_usuario',
     campoData: 'recebido_em' | 'entregue_em',
     periodo: PeriodoResolvido,
+    escopo: EscopoCondominio,
   ): Promise<RankingUsuario[]> {
-    const rows = await this.knex('encomendas as e')
+    const query = this.knex('encomendas as e')
       .innerJoin('usuarios as u', 'u.uuid', `e.${campoUuid}`)
       .whereNull('e.deleted_at')
       .whereNull('u.deleted_at')
       .whereNotNull(`e.${campoUuid}`)
       .whereNotNull(`e.${campoData}`)
       .where('u.perfil', Perfil.PORTARIA)
-      .whereBetween(`e.${campoData}`, [periodo.inicio, periodo.fim])
+      .whereBetween(`e.${campoData}`, [periodo.inicio, periodo.fim]);
+    this.escopoCondominio.restringirConsulta(
+      query,
+      'e.uuid_condominio',
+      escopo,
+    );
+
+    const rows = await query
       .groupBy('u.uuid', 'u.nome', 'u.email', 'u.perfil')
       .select(
         'u.uuid as uuid_usuario',
@@ -253,7 +289,10 @@ export class DashboardService {
 
   private async getResumoPorPeriodo(
     periodo: PeriodoResolvido,
+    user: JwtPayload,
   ): Promise<DashboardResumoPeriodoResponse> {
+    const escopo = await this.escopoCondominio.resolver(user);
+
     const [
       quantidadeRecebidas,
       quantidadeRetiradas,
@@ -261,11 +300,21 @@ export class DashboardService {
       topPortariasRecebimento,
       topPortariasEntrega,
     ] = await Promise.all([
-      this.countEncomendasPorCampoData('recebido_em', periodo),
-      this.countEncomendasPorCampoData('entregue_em', periodo),
-      this.getTopMoradores(periodo),
-      this.getTopPortarias('recebido_por_uuid_usuario', 'recebido_em', periodo),
-      this.getTopPortarias('entregue_por_uuid_usuario', 'entregue_em', periodo),
+      this.countEncomendasPorCampoData('recebido_em', periodo, escopo),
+      this.countEncomendasPorCampoData('entregue_em', periodo, escopo),
+      this.getTopMoradores(periodo, escopo),
+      this.getTopPortarias(
+        'recebido_por_uuid_usuario',
+        'recebido_em',
+        periodo,
+        escopo,
+      ),
+      this.getTopPortarias(
+        'entregue_por_uuid_usuario',
+        'entregue_em',
+        periodo,
+        escopo,
+      ),
     ]);
 
     return {
@@ -287,35 +336,108 @@ export class DashboardService {
   }
 
   async getResumoDiario(
+    user: JwtPayload,
     dataReferencia?: string,
   ): Promise<DashboardResumoPeriodoResponse> {
     const periodo = this.resolvePeriodoDiario(dataReferencia);
-    return this.getResumoPorPeriodo(periodo);
+    return this.getResumoPorPeriodo(periodo, user);
   }
 
   async getResumoSemanal(
+    user: JwtPayload,
     dataReferencia?: string,
   ): Promise<DashboardResumoPeriodoResponse> {
     const periodo = this.resolvePeriodoSemanal(dataReferencia);
-    return this.getResumoPorPeriodo(periodo);
+    return this.getResumoPorPeriodo(periodo, user);
   }
 
   async getResumoMensal(
+    user: JwtPayload,
     dataReferencia?: string,
   ): Promise<DashboardResumoPeriodoResponse> {
     const periodo = this.resolvePeriodoMensal(dataReferencia);
-    return this.getResumoPorPeriodo(periodo);
+    return this.getResumoPorPeriodo(periodo, user);
   }
 
   async getResumoPersonalizado(
+    user: JwtPayload,
     inicio: string,
     fim: string,
   ): Promise<DashboardResumoPeriodoResponse> {
     const periodo = this.resolvePeriodoPersonalizado(inicio, fim);
-    return this.getResumoPorPeriodo(periodo);
+    return this.getResumoPorPeriodo(periodo, user);
   }
 
-  async getIndicesGerais(): Promise<DashboardIndicesGeraisResponse> {
+  /**
+   * Armazenamento das fotos de encomenda. O `super` soma todas, como antes,
+   * inclusive foto órfã (sem encomenda). Com escopo, só as fotos das
+   * encomendas do condomínio, pela junção com `encomendas`; a encomenda
+   * excluída não tira a foto da conta, como na 1.4.1.
+   */
+  private somarFotosDeEncomendas(escopo: EscopoCondominio) {
+    if (escopo === null) {
+      return this.knex('imagens')
+        .whereNull('deleted_at')
+        .where('tabela_referencia', 'encomendas')
+        .select(
+          this.knex.raw('COUNT(*) as total_arquivos'),
+          this.knex.raw('COALESCE(SUM(tamanho), 0) as total_bytes'),
+        )
+        .first();
+    }
+
+    const query = this.knex('imagens as i')
+      .innerJoin('encomendas as e', 'e.uuid', 'i.uuid_referencia')
+      .whereNull('i.deleted_at')
+      .where('i.tabela_referencia', 'encomendas');
+    this.escopoCondominio.restringirConsulta(
+      query,
+      'e.uuid_condominio',
+      escopo,
+    );
+
+    return query
+      .select(
+        this.knex.raw('COUNT(*) as total_arquivos'),
+        this.knex.raw('COALESCE(SUM(i.tamanho), 0) as total_bytes'),
+      )
+      .first();
+  }
+
+  async getIndicesGerais(
+    user: JwtPayload,
+  ): Promise<DashboardIndicesGeraisResponse> {
+    const escopo = await this.escopoCondominio.resolver(user);
+
+    const usuariosAtivosQuery = this.knex('usuarios')
+      .whereNull('deleted_at')
+      .whereNot('perfil', Perfil.SUPER);
+    const usuariosPorPerfilQuery = this.knex('usuarios')
+      .whereNull('deleted_at')
+      .whereIn('perfil', [Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR]);
+    const encomendasTotalQuery =
+      this.knex('encomendas').whereNull('deleted_at');
+    const encomendasPorStatusQuery = this.knex('encomendas')
+      .whereNull('deleted_at')
+      .whereIn('status', [
+        EncomendaStatus.PREVISTA,
+        EncomendaStatus.AGUARDANDO_RETIRADA,
+        EncomendaStatus.RETIRADA,
+        EncomendaStatus.CANCELADA,
+      ]);
+    for (const query of [
+      usuariosAtivosQuery,
+      usuariosPorPerfilQuery,
+      encomendasTotalQuery,
+      encomendasPorStatusQuery,
+    ]) {
+      this.escopoCondominio.restringirConsulta(
+        query,
+        'uuid_condominio',
+        escopo,
+      );
+    }
+
     const [
       usuariosAtivos,
       usuariosPorPerfilRows,
@@ -323,38 +445,15 @@ export class DashboardService {
       encomendasPorStatusRows,
       imagensRow,
     ] = await Promise.all([
-      this.knex('usuarios')
-        .whereNull('deleted_at')
-        .whereNot('perfil', Perfil.SUPER)
-        .count<{ total: string }[]>({ total: '*' })
-        .first(),
-      this.knex('usuarios')
-        .whereNull('deleted_at')
-        .whereIn('perfil', [Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])
+      usuariosAtivosQuery.count<{ total: string }[]>({ total: '*' }).first(),
+      usuariosPorPerfilQuery
         .groupBy('perfil')
         .select('perfil', this.knex.raw('COUNT(*) as total')),
-      this.knex('encomendas')
-        .whereNull('deleted_at')
-        .count<{ total: string }[]>({ total: '*' })
-        .first(),
-      this.knex('encomendas')
-        .whereNull('deleted_at')
-        .whereIn('status', [
-          EncomendaStatus.PREVISTA,
-          EncomendaStatus.AGUARDANDO_RETIRADA,
-          EncomendaStatus.RETIRADA,
-          EncomendaStatus.CANCELADA,
-        ])
+      encomendasTotalQuery.count<{ total: string }[]>({ total: '*' }).first(),
+      encomendasPorStatusQuery
         .groupBy('status')
         .select('status', this.knex.raw('COUNT(*) as total')),
-      this.knex('imagens')
-        .whereNull('deleted_at')
-        .where('tabela_referencia', 'encomendas')
-        .select(
-          this.knex.raw('COUNT(*) as total_arquivos'),
-          this.knex.raw('COALESCE(SUM(tamanho), 0) as total_bytes'),
-        )
-        .first(),
+      this.somarFotosDeEncomendas(escopo),
     ]);
 
     const usuariosPorPerfil = {
