@@ -1,4 +1,5 @@
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import knexFactory, { Knex } from 'knex';
 import { EncomendasService } from './encomendas.service';
 import { EncomendaStatus } from './enums/encomenda-status.enum';
 import { Perfil } from '../usuarios/enums/perfil.enum';
@@ -6,6 +7,24 @@ import { BaixaAdministrativaEncomendaDto } from './dto/baixa-administrativa-enco
 import { CreateEncomendaDto } from './dto/create-encomenda.dto';
 import { UpdateEncomendaDto } from './dto/update-encomenda.dto';
 import { EncomendaRestricaoRetirada } from './enums/encomenda-restricao-retirada.enum';
+import { AcessoEncomendaService } from '../common/tenant/acesso-encomenda.service';
+import { EscopoCondominioService } from '../common/tenant/escopo-condominio.service';
+
+/** Dependências que estes testes não exercitam. */
+const SEM_USO = undefined as never;
+
+/**
+ * Regra de acesso à encomenda liberando tudo: os testes deste arquivo
+ * exercitam as regras do próprio `EncomendasService`. A regra de acesso tem
+ * o unit dela (`acesso-encomenda.service.spec.ts`).
+ */
+function acessoLiberado(): AcessoEncomendaService {
+  return {
+    restringirLista: jest.fn().mockResolvedValue(undefined),
+    assertPodeLer: jest.fn().mockResolvedValue(undefined),
+    assertPodeAlterar: jest.fn().mockResolvedValue(undefined),
+  } as unknown as AcessoEncomendaService;
+}
 
 describe('EncomendasService - Regras de exclusão para Portaria', () => {
   let service: EncomendasService;
@@ -13,7 +32,15 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
 
   beforeEach(() => {
     mockKnex = jest.fn();
-    service = new EncomendasService(mockKnex);
+    service = new EncomendasService(
+      mockKnex,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      acessoLiberado(),
+    );
   });
 
   describe('remove (perfil PORTARIA)', () => {
@@ -383,6 +410,234 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
       );
     });
 
+    describe('isolamento por condomínio (change isolar-encomendas-e-derivados)', () => {
+      const MENSAGEM_SUPER =
+        'O registro de encomendas é feito pela portaria ou pela administração do condomínio.';
+
+      /** `findUsuarioAtivo` lendo de uma tabela de usuários por uuid. */
+      const usuariosPorUuid = (usuarios: Record<string, object>) =>
+        jest
+          .spyOn(service as any, 'findUsuarioAtivo')
+          .mockImplementation((uuid: unknown) => {
+            const usuario = usuarios[uuid as string];
+            if (!usuario) {
+              return Promise.reject(new BadRequestException('não encontrado'));
+            }
+            return Promise.resolve({
+              uuid,
+              aproved_at: new Date(),
+              ...usuario,
+            });
+          });
+
+      /** Gravação completa: insert e a passagem para aguardando retirada. */
+      const mockGravacao = () => {
+        const insertMock = jest.fn().mockResolvedValue(undefined);
+        mockKnex.mockReturnValue({
+          insert: insertMock,
+          where: jest
+            .fn()
+            .mockReturnValue({ update: jest.fn().mockResolvedValue(1) }),
+        });
+        jest
+          .spyOn(service as any, 'registerStatusEvent')
+          .mockResolvedValue(undefined);
+        jest
+          .spyOn(service as any, 'registerStatusNotification')
+          .mockResolvedValue(undefined);
+        return insertMock;
+      };
+
+      const userAdminA = {
+        sub: 'admin-a',
+        email: 'admin@a.com',
+        nome: 'Admin A',
+        perfil: Perfil.ADMIN,
+      } as any;
+
+      const usuariosDoCenario = {
+        'admin-a': {
+          perfil: Perfil.ADMIN,
+          uuid_condominio: 'condo-a',
+          uuid_unidade: null,
+        },
+        'portaria-a': {
+          perfil: Perfil.PORTARIA,
+          uuid_condominio: 'condo-a',
+          uuid_unidade: null,
+        },
+        'portaria-b': {
+          perfil: Perfil.PORTARIA,
+          uuid_condominio: 'condo-b',
+          uuid_unidade: null,
+        },
+        'morador-a': {
+          perfil: Perfil.MORADOR,
+          uuid_condominio: 'condo-a',
+          uuid_unidade: 'unidade-a',
+        },
+        'morador-b': {
+          perfil: Perfil.MORADOR,
+          uuid_condominio: 'condo-b',
+          uuid_unidade: 'unidade-b',
+        },
+      };
+
+      it('Super não registra encomenda: 403 com a mensagem própria, antes de qualquer leitura ou escrita', async () => {
+        const insertMock = mockGravacao();
+        const findUsuarioAtivo = jest.spyOn(service as any, 'findUsuarioAtivo');
+        const userSuper = {
+          sub: 'super-1',
+          email: 'super@plataforma.com',
+          nome: 'Super',
+          perfil: Perfil.SUPER,
+        } as any;
+
+        await expect(
+          service.create(
+            {
+              uuid_usuario: 'morador-a',
+              recebido_por_uuid_usuario: 'portaria-a',
+            },
+            userSuper,
+          ),
+        ).rejects.toThrow(new ForbiddenException(MENSAGEM_SUPER));
+        expect(findUsuarioAtivo).not.toHaveBeenCalled();
+        expect(insertMock).not.toHaveBeenCalled();
+      });
+
+      it('Super pelo cadastro (perfil do banco) também recebe 403, mesmo com token de outro perfil', async () => {
+        const insertMock = mockGravacao();
+        usuariosPorUuid({
+          ...usuariosDoCenario,
+          'admin-a': { ...usuariosDoCenario['admin-a'], perfil: Perfil.SUPER },
+        });
+
+        await expect(
+          service.create(
+            {
+              uuid_usuario: 'morador-a',
+              recebido_por_uuid_usuario: 'portaria-a',
+            },
+            userAdminA,
+          ),
+        ).rejects.toThrow(new ForbiddenException(MENSAGEM_SUPER));
+        expect(insertMock).not.toHaveBeenCalled();
+      });
+
+      it('Admin não registra encomenda para morador de outro condomínio (400, sem gravar)', async () => {
+        const insertMock = mockGravacao();
+        usuariosPorUuid(usuariosDoCenario);
+
+        await expect(
+          service.create(
+            {
+              uuid_usuario: 'morador-b',
+              recebido_por_uuid_usuario: 'portaria-a',
+            },
+            userAdminA,
+          ),
+        ).rejects.toThrow(
+          new BadRequestException(
+            'Usuário de destino deve pertencer ao mesmo condomínio do usuário autenticado.',
+          ),
+        );
+        expect(insertMock).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          'recebido_por_uuid_usuario',
+          { recebido_por_uuid_usuario: 'portaria-b' },
+        ],
+        [
+          'entregue_por_uuid_usuario',
+          {
+            recebido_por_uuid_usuario: 'portaria-a',
+            entregue_por_uuid_usuario: 'portaria-b',
+          },
+        ],
+      ])(
+        'Porteiro de outro condomínio em %s: 400 citando o campo, sem gravar',
+        async (campo, porteiros) => {
+          const insertMock = mockGravacao();
+          usuariosPorUuid(usuariosDoCenario);
+
+          await expect(
+            service.create(
+              {
+                uuid_usuario: 'morador-a',
+                ...porteiros,
+              },
+              userAdminA,
+            ),
+          ).rejects.toThrow(
+            new BadRequestException(
+              `O campo ${campo} deve referenciar um usuário do mesmo condomínio da encomenda.`,
+            ),
+          );
+          expect(insertMock).not.toHaveBeenCalled();
+        },
+      );
+
+      it('Portaria sem condomínio não registra para morador sem condomínio: o destinatário já falha fechado (nulo não combina com nulo)', async () => {
+        const insertMock = mockGravacao();
+        usuariosPorUuid({
+          'portaria-sem': {
+            perfil: Perfil.PORTARIA,
+            uuid_condominio: null,
+            uuid_unidade: null,
+          },
+          'morador-sem': {
+            perfil: Perfil.MORADOR,
+            uuid_condominio: null,
+            uuid_unidade: null,
+          },
+        });
+
+        await expect(
+          service.create(
+            {
+              uuid_usuario: 'morador-sem',
+              recebido_por_uuid_usuario: 'portaria-sem',
+            },
+            {
+              sub: 'portaria-sem',
+              email: 'portaria@sem.com',
+              nome: 'Portaria Sem Condomínio',
+              perfil: Perfil.PORTARIA,
+            } as any,
+          ),
+        ).rejects.toThrow(
+          new BadRequestException(
+            'Usuário de destino deve pertencer ao mesmo condomínio da portaria autenticada.',
+          ),
+        );
+        expect(insertMock).not.toHaveBeenCalled();
+      });
+
+      it('Admin com morador e porteiro do próprio condomínio grava no condomínio dele, como antes', async () => {
+        const insertMock = mockGravacao();
+        usuariosPorUuid(usuariosDoCenario);
+
+        await service.create(
+          {
+            uuid_usuario: 'morador-a',
+            recebido_por_uuid_usuario: 'portaria-a',
+          },
+          userAdminA,
+        );
+
+        expect(insertMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            uuid_condominio: 'condo-a',
+            uuid_usuario: 'morador-a',
+            recebido_por_uuid_usuario: 'portaria-a',
+          }),
+        );
+      });
+    });
+
     it('deve preservar restricao_retirada=pessoal quando informado explicitamente na criação', async () => {
       const insertMock = mockInsert();
       const dto = {
@@ -627,6 +882,139 @@ describe('EncomendasService - Regras de exclusão para Portaria', () => {
         'status',
         EncomendaStatus.RECEBIDA,
       );
+    });
+  });
+});
+
+/**
+ * Escopo das listas de encomendas pela regra única do `AcessoEncomendaService`
+ * (change `isolar-encomendas-e-derivados`, #168 e #125). O knex sem conexão só
+ * monta o SQL; o chamador vem de uma tabela `usuarios` em memória.
+ */
+describe('EncomendasService - escopo das listas', () => {
+  const montador = knexFactory({ client: 'mysql2' });
+  afterAll(() => montador.destroy());
+
+  type Linha = Record<string, unknown>;
+
+  function usuariosEmMemoria(usuarios: Linha[]): Knex {
+    return jest.fn(() => {
+      let resultado = [...usuarios];
+      const builder = {
+        where: (criterio: Linha) => {
+          resultado = resultado.filter((linha) =>
+            Object.entries(criterio).every(
+              ([coluna, valor]) => linha[coluna] === valor,
+            ),
+          );
+          return builder;
+        },
+        whereNull: (coluna: string) => {
+          resultado = resultado.filter((linha) => linha[coluna] == null);
+          return builder;
+        },
+        select: () => builder,
+        first: () => Promise.resolve(resultado[0]),
+      };
+      return builder;
+    }) as unknown as Knex;
+  }
+
+  function servicoCom(chamadorNoBanco: Linha): EncomendasService {
+    const banco = usuariosEmMemoria([{ deleted_at: null, ...chamadorNoBanco }]);
+    const servico = new EncomendasService(
+      montador,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      SEM_USO,
+      new AcessoEncomendaService(banco, new EscopoCondominioService(banco)),
+    );
+    // Lookup do próprio service, usado pelo escopo antes da regra única; mantido
+    // para o mesmo cenário rodar contra as duas versões do escopo.
+    jest.spyOn(servico as any, 'findUsuarioAtivo').mockImplementation(() =>
+      Promise.resolve({
+        perfil: chamadorNoBanco.perfil,
+        uuid: chamadorNoBanco.uuid,
+        uuid_condominio: chamadorNoBanco.uuid_condominio,
+        uuid_unidade: chamadorNoBanco.uuid_unidade,
+        aproved_at: new Date(),
+      }),
+    );
+    return servico;
+  }
+
+  const sqlDo = async (
+    servico: EncomendasService,
+    metodo: 'scopedListQuery' | 'scopedQuery',
+    user: object,
+  ) => {
+    const { query } = await (servico as any)[metodo](user);
+    return (query as Knex.QueryBuilder).toSQL().toNative();
+  };
+
+  it.each([Perfil.ADMIN, Perfil.PORTARIA])(
+    'Funcionário sem condomínio (%s): lista vazia por regra explícita (1 = 0), nunca uuid_condominio IS NULL',
+    async (perfil) => {
+      const servico = servicoCom({
+        uuid: 'func-sem',
+        perfil,
+        uuid_condominio: null,
+        uuid_unidade: null,
+      });
+      const user = { sub: 'func-sem', email: 'f@t.com', nome: 'F', perfil };
+
+      for (const metodo of ['scopedListQuery', 'scopedQuery'] as const) {
+        expect((await sqlDo(servico, metodo, user)).sql).toBe(
+          'select * from `encomendas` where `deleted_at` is null and 1 = 0',
+        );
+      }
+    },
+  );
+
+  it('Escopo do morador inclui o condomínio dele: lista com titular ou unidade compartilhada, sempre no condomínio do morador', async () => {
+    const servico = servicoCom({
+      uuid: 'morador-1',
+      perfil: Perfil.MORADOR,
+      uuid_condominio: 'condo-a',
+      uuid_unidade: 'unidade-1',
+    });
+    const user = {
+      sub: 'morador-1',
+      email: 'm@t.com',
+      nome: 'M',
+      perfil: Perfil.MORADOR,
+    };
+
+    expect(await sqlDo(servico, 'scopedListQuery', user)).toEqual({
+      sql: 'select * from `encomendas` where `deleted_at` is null and `uuid_condominio` = ? and (`uuid_usuario` = ? or (`uuid_unidade` = ? and `restricao_retirada` = ?))',
+      bindings: ['condo-a', 'morador-1', 'unidade-1', 'unidade'],
+    });
+    // `scopedQuery` (encomendas previstas) segue só o titular, como antes.
+    expect(await sqlDo(servico, 'scopedQuery', user)).toEqual({
+      sql: 'select * from `encomendas` where `deleted_at` is null and `uuid_condominio` = ? and `uuid_usuario` = ?',
+      bindings: ['condo-a', 'morador-1'],
+    });
+  });
+
+  it('Admin e portaria do condomínio continuam com a lista do próprio condomínio', async () => {
+    const servico = servicoCom({
+      uuid: 'portaria-a',
+      perfil: Perfil.PORTARIA,
+      uuid_condominio: 'condo-a',
+      uuid_unidade: null,
+    });
+    const user = {
+      sub: 'portaria-a',
+      email: 'p@t.com',
+      nome: 'P',
+      perfil: Perfil.PORTARIA,
+    };
+
+    expect(await sqlDo(servico, 'scopedListQuery', user)).toEqual({
+      sql: 'select * from `encomendas` where `deleted_at` is null and `uuid_condominio` = ?',
+      bindings: ['condo-a'],
     });
   });
 });

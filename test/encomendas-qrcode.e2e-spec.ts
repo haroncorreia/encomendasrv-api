@@ -7,6 +7,15 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { KNEX_CONNECTION } from '../src/database/database.constants';
+import {
+  criarFixtureDoisCondominios,
+  FixtureDoisCondominios,
+  inserirEncomendaFixture,
+  inserirUsuarioFixture,
+  removerFixtureDoisCondominios,
+  tokenDoUsuarioFixture,
+  UsuarioFixture,
+} from './utils/e2e-dois-condominios';
 
 const BASE_URL = '/encomendas';
 
@@ -757,5 +766,206 @@ describe('Encomendas QRCode (e2e)', () => {
       .first();
 
     expect(auditoria).toBeTruthy();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Card #127 — leitura do QR só no condomínio da encomenda (change
+  // `isolar-encomendas-e-derivados`, spec `isolamento-multitenant-encomendas`)
+  // ---------------------------------------------------------------------------
+
+  describe('Leitura do QR de retirada só no condomínio da encomenda (#127)', () => {
+    let fx: FixtureDoisCondominios;
+    let superSemCondominio: UsuarioFixture;
+    let encomendaA: string;
+    let encomendaB: string;
+    /** Dados do titular da encomenda do B que não podem vazar no 403. */
+    let titularB: { nome: string; email: string; celular: string };
+
+    const tokenQr = (dados: {
+      uuidEncomenda: string;
+      uuidUsuario: string;
+      uuidCondominio: string;
+    }) =>
+      jwtService.sign(
+        {
+          tipo: 'retirada',
+          uuid_encomenda: dados.uuidEncomenda,
+          uuid_usuario: dados.uuidUsuario,
+          uuid_condominio: dados.uuidCondominio,
+        },
+        { secret: qrSecret, expiresIn: '12h' },
+      );
+
+    const tokenQrLote = (dados: {
+      uuidsEncomendas: string[];
+      uuidUsuario: string;
+      uuidCondominio: string;
+    }) =>
+      jwtService.sign(
+        {
+          tipo: 'retirada_lote',
+          uuids_encomendas: dados.uuidsEncomendas,
+          uuid_usuario: dados.uuidUsuario,
+          uuid_condominio: dados.uuidCondominio,
+        },
+        { secret: qrSecret, expiresIn: '12h' },
+      );
+
+    const lerQr = (tokenAcesso: string, token: string) =>
+      auth(
+        tokenAcesso,
+        request(app.getHttpServer())
+          .post(`${BASE_URL}/ler-qrcode`)
+          .send({ token }),
+      );
+
+    /** 403 só com o corpo de erro padrão, sem nenhum dado da encomenda. */
+    const esperar403SemDados = (res: request.Response) => {
+      expect(res.status).toBe(403);
+      expect(Object.keys(res.body as object).sort()).toEqual([
+        'error',
+        'message',
+        'statusCode',
+      ]);
+      const corpo = JSON.stringify(res.body);
+      for (const dado of [
+        titularB.nome,
+        titularB.email,
+        titularB.celular,
+        encomendaB,
+      ]) {
+        expect(corpo).not.toContain(dado);
+      }
+    };
+
+    let tokenEncomendaB: string;
+    let tokenLoteB: string;
+
+    beforeAll(async () => {
+      fx = await criarFixtureDoisCondominios(knex, jwtService, configService);
+
+      superSemCondominio = await inserirUsuarioFixture(knex, fx, {
+        perfil: 'super',
+        condominio: null,
+        aprovado: true,
+        rotulo: 'superqr201',
+      });
+
+      const unidadeMoradorA = await knex('usuarios')
+        .where({ uuid: UUID_MORADOR })
+        .first<{ uuid_unidade: string }>('uuid_unidade');
+
+      encomendaA = await inserirEncomendaFixture(knex, fx, {
+        titular: { uuid: UUID_MORADOR },
+        uuidCondominio: UUID_CONDOMINIO,
+        uuidUnidade: unidadeMoradorA.uuid_unidade,
+        rotulo: 'qrA',
+      });
+      encomendaB = await inserirEncomendaFixture(knex, fx, {
+        titular: fx.b.moradorAtivo,
+        uuidCondominio: fx.condominioB.uuid,
+        uuidUnidade: fx.condominioB.unidade.uuid,
+        rotulo: 'qrB',
+      });
+
+      titularB = await knex('usuarios')
+        .where({ uuid: fx.b.moradorAtivo.uuid })
+        .first<{
+          nome: string;
+          email: string;
+          celular: string;
+        }>('nome', 'email', 'celular');
+
+      tokenEncomendaB = tokenQr({
+        uuidEncomenda: encomendaB,
+        uuidUsuario: fx.b.moradorAtivo.uuid,
+        uuidCondominio: fx.condominioB.uuid,
+      });
+      tokenLoteB = tokenQrLote({
+        uuidsEncomendas: [encomendaB],
+        uuidUsuario: fx.b.moradorAtivo.uuid,
+        uuidCondominio: fx.condominioB.uuid,
+      });
+    });
+
+    afterAll(async () => {
+      // `fx` fica indefinido se a criação falhou (ela já desfaz o que inseriu).
+      if (fx) {
+        await removerFixtureDoisCondominios(knex, fx);
+      }
+    });
+
+    it('Portaria não lê QR de encomenda de outro condomínio', async () => {
+      esperar403SemDados(await lerQr(fx.tokens.portariaA, tokenEncomendaB));
+      esperar403SemDados(await lerQr(fx.tokens.portariaA, tokenLoteB));
+    });
+
+    it('Admin não lê QR de encomenda de outro condomínio', async () => {
+      esperar403SemDados(await lerQr(fx.tokens.adminA, tokenEncomendaB));
+    });
+
+    it('Leitor de outro condomínio recebe o mesmo 403 no QR simples e no em lote, antes das demais checagens da encomenda', async () => {
+      // Token do B cujo usuário não está vinculado à encomenda (pessoal, de
+      // outro titular): o leitor do A deve receber o 403 do condomínio, e
+      // não o 400 de vínculo, nos dois formatos de token.
+      const pessoalB = await inserirEncomendaFixture(knex, fx, {
+        titular: fx.b.moradorAtivo,
+        uuidCondominio: fx.condominioB.uuid,
+        uuidUnidade: fx.condominioB.unidade.uuid,
+        restricao: 'pessoal',
+        rotulo: 'qrBpessoal',
+      });
+      const dadosDoToken = {
+        uuidUsuario: fx.b.portaria.uuid,
+        uuidCondominio: fx.condominioB.uuid,
+      };
+
+      const simples = await lerQr(
+        fx.tokens.portariaA,
+        tokenQr({ uuidEncomenda: pessoalB, ...dadosDoToken }),
+      );
+      const lote = await lerQr(
+        fx.tokens.portariaA,
+        tokenQrLote({ uuidsEncomendas: [pessoalB], ...dadosDoToken }),
+      );
+
+      expect({ simples: simples.status, lote: lote.status }).toEqual({
+        simples: 403,
+        lote: 403,
+      });
+      esperar403SemDados(simples);
+      esperar403SemDados(lote);
+      expect(lote.body).toEqual(simples.body);
+    });
+
+    it('Portaria lê QR de encomenda do próprio condomínio', async () => {
+      const res = await lerQr(
+        fx.tokens.portariaA,
+        tokenQr({
+          uuidEncomenda: encomendaA,
+          uuidUsuario: UUID_MORADOR,
+          uuidCondominio: UUID_CONDOMINIO,
+        }),
+      ).expect(201);
+
+      expect(res.body.uuid).toBe(encomendaA);
+      expect(res.body.entregue_para_usuario.uuid).toBe(UUID_MORADOR);
+    });
+
+    it('Super lê QR de qualquer condomínio', async () => {
+      const tokenSuper = tokenDoUsuarioFixture(
+        jwtService,
+        configService,
+        superSemCondominio,
+      );
+
+      const res = await lerQr(tokenSuper, tokenEncomendaB).expect(201);
+      const lote = await lerQr(tokenSuper, tokenLoteB).expect(201);
+
+      expect(res.body.uuid).toBe(encomendaB);
+      expect(lote.body.map((item: { uuid: string }) => item.uuid)).toEqual([
+        encomendaB,
+      ]);
+    });
   });
 });

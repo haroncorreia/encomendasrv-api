@@ -25,6 +25,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ParseUUIDPtPipe } from '../common/pipes/parse-uuid-pt.pipe';
 import { Perfil } from '../usuarios/enums/perfil.enum';
+import { DescartarUploadRecusadoInterceptor } from './descartar-upload-recusado.interceptor';
 import { UploadImagemMultipartDto } from './dto/upload-imagem-multipart.dto';
 import { ImagensService } from './imagens.service';
 
@@ -39,21 +40,28 @@ import { ImagensService } from './imagens.service';
 export class ImagensController {
   constructor(private readonly imagensService: ImagensService) {}
 
+  // Lista e metadados de todas as fotos, sem escopo de condomínio: só o
+  // `super` (nenhum cliente chama estas duas rotas). Change
+  // `isolar-encomendas-e-derivados`, card #122.
   @Get()
+  @Roles(Perfil.SUPER)
   findAll() {
     return this.imagensService.findAll();
   }
 
   @Get(':id')
+  @Roles(Perfil.SUPER)
   findOne(@Param('id', ParseUUIDPtPipe) id: string) {
     return this.imagensService.findOne(id);
   }
 
+  /** A quem pode ler a encomenda da foto (regra de `GET /encomendas/:id`). */
   @Get(':id/arquivo')
   async serveArquivo(
     @Param('id', ParseUUIDPtPipe) id: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<StreamableFile> {
-    const imagem = await this.imagensService.findOne(id);
+    const imagem = await this.imagensService.findOneParaLeitura(id, user);
     return this.imagensService.serveArquivo(imagem);
   }
 
@@ -87,6 +95,8 @@ export class ImagensController {
         cb(null, true);
       },
     }),
+    // Depois do multer: qualquer recusa daqui em diante descarta o arquivo.
+    DescartarUploadRecusadoInterceptor,
   )
   upload(
     @UploadedFile() arquivo: Express.Multer.File,
@@ -101,7 +111,7 @@ export class ImagensController {
       arquivo,
       uuidReferencia: dto.uuid_referencia,
       tabelaReferencia: dto.tabela_referencia,
-      actorEmail: user.email,
+      autor: user,
     });
   }
 
@@ -112,7 +122,7 @@ export class ImagensController {
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<void> {
-    await this.imagensService.excluir(id, user.email);
+    await this.imagensService.excluir(id, user);
   }
 
   @Patch(':id/restore')
@@ -121,6 +131,6 @@ export class ImagensController {
     @Param('id', ParseUUIDPtPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.imagensService.restaurar(id, user.email);
+    return this.imagensService.restaurar(id, user);
   }
 }

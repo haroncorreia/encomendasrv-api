@@ -13,6 +13,7 @@ import { isUUID } from 'class-validator';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { requireJwtSecret } from '../common/auth/require-jwt-secret.util';
+import { AcessoEncomendaService } from '../common/tenant/acesso-encomenda.service';
 import { Condominio } from '../condominios/interfaces/condominio.interface';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Unidade } from '../unidades/interfaces/unidade.interface';
@@ -39,6 +40,24 @@ import type { PaginatedResult } from '../common/interfaces/paginated-result.inte
 const TABLE = 'encomendas';
 const DEFAULT_LIMIT = 50;
 const DEFAULT_PAGE = 1;
+
+/** 403 do `super` no registro de encomenda (Issue #169). */
+export const MENSAGEM_SUPER_NAO_REGISTRA_ENCOMENDA =
+  'O registro de encomendas é feito pela portaria ou pela administração do condomínio.';
+
+const MENSAGEM_LEITURA_QRCODE_OUTRO_CONDOMINIO =
+  'Seu perfil não possui permissão para ler o QRCode desta encomenda.';
+
+/**
+ * Mesmo condomínio, sem tratar "nenhum" como igual a "nenhum": quem não tem
+ * condomínio não combina com ninguém (falha fechado).
+ */
+function mesmoCondominio(
+  uuidCondominio: string | null | undefined,
+  esperado: string | null | undefined,
+): boolean {
+  return !!uuidCondominio && uuidCondominio === esperado;
+}
 
 interface UsuarioLookup {
   uuid: string;
@@ -93,6 +112,7 @@ export class EncomendasService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly imagensService: ImagensService,
+    private readonly acessoEncomenda: AcessoEncomendaService,
   ) {}
 
   private getQrCodeSecret(): string {
@@ -251,49 +271,42 @@ export class EncomendasService {
     return this.knex<Encomenda>(TABLE).whereNull('deleted_at');
   }
 
+  /**
+   * Escopo da regra única (`AcessoEncomendaService`), sem a unidade
+   * compartilhada: o morador só vê as encomendas de que é titular.
+   */
   private async scopedQuery(
     user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<{ query: Knex.QueryBuilder<Encomenda, Encomenda[]> }> {
-    const qb = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
+    const query = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
 
-    if (user.perfil === Perfil.MORADOR) {
-      qb.andWhere('uuid_usuario', user.sub);
-      return { query: qb };
-    }
+    await this.acessoEncomenda.restringirLista(
+      query,
+      user,
+      { unidadeCompartilhada: false },
+      trx,
+    );
 
-    if (user.perfil !== Perfil.SUPER) {
-      const usuario = await this.findUsuarioAtivo(user.sub, trx);
-      qb.andWhere('uuid_condominio', usuario.uuid_condominio);
-    }
-
-    return { query: qb };
+    return { query };
   }
 
+  /**
+   * Escopo da regra única (`AcessoEncomendaService`): o morador vê as de que é
+   * titular e as compartilhadas pela unidade dele.
+   */
   private async scopedListQuery(
     user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<{ query: Knex.QueryBuilder<Encomenda, Encomenda[]> }> {
     const query = (trx ?? this.knex)<Encomenda>(TABLE).whereNull('deleted_at');
 
-    if (user.perfil === Perfil.SUPER) {
-      return { query };
-    }
-
-    const usuario = await this.findUsuarioAtivo(user.sub, trx);
-
-    if (user.perfil !== Perfil.MORADOR) {
-      query.andWhere('uuid_condominio', usuario.uuid_condominio);
-      return { query };
-    }
-
-    query.andWhere((builder) => {
-      builder.where('uuid_usuario', user.sub).orWhere((subBuilder) => {
-        subBuilder
-          .where('uuid_unidade', usuario.uuid_unidade)
-          .andWhere('restricao_retirada', EncomendaRestricaoRetirada.UNIDADE);
-      });
-    });
+    await this.acessoEncomenda.restringirLista(
+      query,
+      user,
+      { unidadeCompartilhada: true },
+      trx,
+    );
 
     return { query };
   }
@@ -332,9 +345,15 @@ export class EncomendasService {
     }
   }
 
+  /**
+   * Porteiro referenciado pelo DTO: perfil portaria, com acesso ativo e do
+   * condomínio da encomenda (#130). Na criação, o condomínio esperado é o do
+   * autor (o mesmo da encomenda); no `updateStatus`, o da encomenda gravada.
+   */
   private async validateUsuarioPortaria(
     uuid: string,
     field: 'recebido_por_uuid_usuario' | 'entregue_por_uuid_usuario',
+    uuidCondominioEncomenda: string | null,
     trx?: Knex.Transaction,
   ): Promise<string> {
     const usuario = await this.findUsuarioAtivo(uuid, trx);
@@ -346,7 +365,23 @@ export class EncomendasService {
       );
     }
 
+    if (!mesmoCondominio(usuario.uuid_condominio, uuidCondominioEncomenda)) {
+      throw new BadRequestException(
+        `O campo ${field} deve referenciar um usuário do mesmo condomínio da encomenda.`,
+      );
+    }
+
     return usuario.uuid;
+  }
+
+  /**
+   * O `super` é o dono da plataforma e não opera o condomínio: não registra
+   * encomenda, com ou sem condomínio vinculado (Issue #169).
+   */
+  private assertPodeRegistrarEncomenda(perfil: Perfil): void {
+    if (perfil === Perfil.SUPER) {
+      throw new ForbiddenException(MENSAGEM_SUPER_NAO_REGISTRA_ENCOMENDA);
+    }
   }
 
   private async validateEntregueParaUsuario(
@@ -441,68 +476,22 @@ export class EncomendasService {
     return encomenda;
   }
 
+  /** Regra única de leitura (`AcessoEncomendaService`), mesma mensagem. */
   private async assertReadAccess(
     encomenda: Encomenda,
     user: JwtPayload,
+    trx?: Knex.Transaction,
   ): Promise<void> {
-    if (user.perfil === Perfil.SUPER) {
-      return;
-    }
-
-    if (user.perfil !== Perfil.MORADOR) {
-      const usuario = await this.findUsuarioAtivo(user.sub);
-
-      if (usuario.uuid_condominio !== encomenda.uuid_condominio) {
-        throw new ForbiddenException(
-          'Seu perfil não possui permissão para acessar esta encomenda.',
-        );
-      }
-      return;
-    }
-
-    if (encomenda.uuid_usuario === user.sub) {
-      return;
-    }
-
-    if (encomenda.restricao_retirada !== EncomendaRestricaoRetirada.UNIDADE) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para acessar esta encomenda.',
-      );
-    }
-
-    const usuario = await this.findUsuarioAtivo(user.sub);
-
-    if (usuario.uuid_unidade !== encomenda.uuid_unidade) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para acessar esta encomenda.',
-      );
-    }
+    await this.acessoEncomenda.assertPodeLer(encomenda, user, trx);
   }
 
+  /** Regra única de alteração (`AcessoEncomendaService`), mesma mensagem. */
   private async assertWriteAccess(
     encomenda: Encomenda,
     user: JwtPayload,
+    trx?: Knex.Transaction,
   ): Promise<void> {
-    if (user.perfil === Perfil.MORADOR) {
-      if (encomenda.uuid_usuario !== user.sub) {
-        throw new ForbiddenException(
-          'Seu perfil não possui permissão para modificar esta encomenda.',
-        );
-      }
-      return;
-    }
-
-    if (user.perfil === Perfil.SUPER) {
-      return;
-    }
-
-    const usuario = await this.findUsuarioAtivo(user.sub);
-
-    if (usuario.uuid_condominio !== encomenda.uuid_condominio) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para modificar esta encomenda.',
-      );
-    }
+    await this.acessoEncomenda.assertPodeAlterar(encomenda, user, trx);
   }
 
   private async assertQrCodeAccess(
@@ -1013,9 +1002,27 @@ export class EncomendasService {
     return { token };
   }
 
+  /**
+   * Quem lê o QR de retirada (`admin` ou `portaria`) precisa ser do
+   * condomínio da encomenda (403, sem nenhum dado dela); o `super` é global
+   * (card #127). Mesma regra de leitura de `GET /encomendas/:id`.
+   */
+  private async assertLeitorDoQrCode(
+    encomenda: Encomenda,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    await this.acessoEncomenda.assertPodeLer(
+      encomenda,
+      user,
+      trx,
+      MENSAGEM_LEITURA_QRCODE_OUTRO_CONDOMINIO,
+    );
+  }
+
   async readQrCodeToken(
     dto: LerQrCodeEncomendaDto,
-    _user: JwtPayload,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<EncomendaComRelacionamentos | EncomendaComRelacionamentos[]> {
     const qb = trx ?? this.knex;
@@ -1068,7 +1075,14 @@ export class EncomendasService {
             'Token QRCode não corresponde ao condomínio da encomenda.',
           );
         }
+      }
 
+      // Na mesma posição do QR simples: logo depois da conferência de
+      // condomínio do token. Todas são desse condomínio, então basta conferir
+      // o leitor numa.
+      await this.assertLeitorDoQrCode(encomendas[0], user, trx);
+
+      for (const encomenda of encomendas) {
         const usuarioRelacionado = encomenda.uuid_usuario === usuario.uuid;
         const unidadeRelacionada =
           encomenda.restricao_retirada === EncomendaRestricaoRetirada.UNIDADE &&
@@ -1110,6 +1124,8 @@ export class EncomendasService {
       );
     }
 
+    await this.assertLeitorDoQrCode(encomenda, user, trx);
+
     const usuarioRelacionado = encomenda.uuid_usuario === usuario.uuid;
     const unidadeRelacionada =
       encomenda.restricao_retirada === EncomendaRestricaoRetirada.UNIDADE &&
@@ -1137,8 +1153,13 @@ export class EncomendasService {
     user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<Encomenda> {
+    // Antes de qualquer validação e de qualquer escrita (Issue #169).
+    this.assertPodeRegistrarEncomenda(user.perfil);
+
     const qb = trx ?? this.knex;
     const actor = await this.findUsuarioAtivo(user.sub, trx);
+    // O perfil do cadastro também conta (ex.: promovido a super na sessão).
+    this.assertPodeRegistrarEncomenda(actor.perfil);
     const uuidTransportadora = await this.validateTransportadora(
       dto.uuid_transportadora,
       trx,
@@ -1197,7 +1218,9 @@ export class EncomendasService {
         );
       }
 
-      if (usuarioDestino.uuid_condominio !== actor.uuid_condominio) {
+      if (
+        !mesmoCondominio(usuarioDestino.uuid_condominio, actor.uuid_condominio)
+      ) {
         throw new BadRequestException(
           'Usuário de destino deve pertencer ao mesmo condomínio da portaria autenticada.',
         );
@@ -1216,6 +1239,7 @@ export class EncomendasService {
       recebidoPorUuidUsuario = await this.validateUsuarioPortaria(
         dto.recebido_por_uuid_usuario,
         'recebido_por_uuid_usuario',
+        actor.uuid_condominio,
         trx,
       );
     } else {
@@ -1229,6 +1253,7 @@ export class EncomendasService {
       recebidoPorUuidUsuario = await this.validateUsuarioPortaria(
         dto.recebido_por_uuid_usuario,
         'recebido_por_uuid_usuario',
+        actor.uuid_condominio,
         trx,
       );
 
@@ -1238,6 +1263,20 @@ export class EncomendasService {
           trx,
         );
         this.assertUsuarioComAcessoAtivo(usuarioDestino, 'uuid_usuario');
+
+        // A mesma regra da portaria (#125/#65): o destinatário é do
+        // condomínio do autor, que é o gravado na encomenda.
+        if (
+          !mesmoCondominio(
+            usuarioDestino.uuid_condominio,
+            actor.uuid_condominio,
+          )
+        ) {
+          throw new BadRequestException(
+            'Usuário de destino deve pertencer ao mesmo condomínio do usuário autenticado.',
+          );
+        }
+
         uuidUsuarioEncomenda = usuarioDestino.uuid;
         uuidUnidadeEncomenda = usuarioDestino.uuid_unidade;
       }
@@ -1260,6 +1299,7 @@ export class EncomendasService {
       entreguePorUuidUsuario = await this.validateUsuarioPortaria(
         dto.entregue_por_uuid_usuario,
         'entregue_por_uuid_usuario',
+        actor.uuid_condominio,
         trx,
       );
       entregueParaUuidUsuario = await this.validateEntregueParaUsuario(
@@ -1403,7 +1443,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    await this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user, trx);
 
     const uuidTransportadora =
       dto.uuid_transportadora === undefined
@@ -1448,7 +1488,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    await this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user, trx);
     const usuarioEncomenda = encomenda.uuid_usuario;
     const justificativa = dto.justificativa?.trim();
 
@@ -1473,6 +1513,7 @@ export class EncomendasService {
         ? await this.validateUsuarioPortaria(
             dto.recebido_por_uuid_usuario,
             'recebido_por_uuid_usuario',
+            encomenda.uuid_condominio,
             trx,
           )
         : user.sub;
@@ -1689,7 +1730,7 @@ export class EncomendasService {
   ): Promise<Encomenda> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    await this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user, trx);
     const justificativa = dto.justificativa.trim();
     const statusOrigemPermitidos = [
       EncomendaStatus.PREVISTA,
@@ -1789,7 +1830,7 @@ export class EncomendasService {
       );
     }
 
-    await this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user, trx);
 
     await qb<Encomenda>(TABLE).where({ uuid }).update({
       deleted_at: null,
@@ -1808,7 +1849,7 @@ export class EncomendasService {
   ): Promise<void> {
     const qb = trx ?? this.knex;
     const encomenda = await this.findActiveByUuid(uuid, trx);
-    await this.assertWriteAccess(encomenda, user);
+    await this.assertWriteAccess(encomenda, user, trx);
 
     if (user.perfil === Perfil.PORTARIA) {
       if (

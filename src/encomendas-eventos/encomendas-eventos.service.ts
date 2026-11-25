@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { AcessoEncomendaService } from '../common/tenant/acesso-encomenda.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import { Perfil } from '../usuarios/enums/perfil.enum';
 import { EncomendaRestricaoRetirada } from '../encomendas/enums/encomenda-restricao-retirada.enum';
@@ -20,20 +21,69 @@ const ENCOMENDAS_TABLE = 'encomendas';
 const DEFAULT_LIMIT = 50;
 const DEFAULT_PAGE = 1;
 
+/**
+ * Ordem do histórico, com desempate determinístico: mais recentes primeiro e,
+ * no mesmo `created_at` (TIMESTAMP sem fração: encomendas registradas no
+ * mesmo segundo empatam), `uuid` crescente. Sem o desempate, o MariaDB devolve
+ * os empatados em ordens diferentes conforme o `LIMIT`/`OFFSET` e o plano, e a
+ * paginação repete ou omite eventos (regressão da change
+ * `isolar-encomendas-e-derivados`, card #201). A lista sem paginação e o
+ * envelope paginado saem desta mesma ordem, para todos os perfis.
+ */
+const ORDEM_HISTORICO: {
+  column: keyof EncomendaEvento;
+  order: 'asc' | 'desc';
+}[] = [
+  { column: 'created_at', order: 'desc' },
+  { column: 'uuid', order: 'asc' },
+];
+
+const MENSAGEM_LEITURA_EVENTO =
+  'Seu perfil não possui permissão para acessar este evento de encomenda.';
+const MENSAGEM_ALTERACAO_EVENTO =
+  'Seu perfil não possui permissão para modificar este evento de encomenda.';
+
+/**
+ * Histórico de eventos de encomenda. O evento não tem condomínio próprio:
+ * herda o da encomenda (spec `isolamento-multitenant-encomendas`, change
+ * `isolar-encomendas-e-derivados`, card #123). `admin` e `portaria` só veem e
+ * alteram eventos de encomendas do próprio condomínio (inclusive de encomenda
+ * excluída), sem condomínio não veem nenhum (#168); o `super` é global; a
+ * regra do morador não muda.
+ */
 @Injectable()
 export class EncomendasEventosService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly acessoEncomenda: AcessoEncomendaService,
+  ) {}
 
-  private scopedQuery(user: JwtPayload, trx?: Knex.Transaction) {
-    const qb = (trx ?? this.knex)<EncomendaEvento>(TABLE).whereNull(
+  /**
+   * Devolve o builder dentro de um objeto: o `QueryBuilder` do knex é
+   * "thenable", e devolvê-lo direto de uma função `async` executaria a
+   * consulta.
+   */
+  private async scopedQuery(
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<{ query: Knex.QueryBuilder<EncomendaEvento, EncomendaEvento[]> }> {
+    const query = (trx ?? this.knex)<EncomendaEvento>(TABLE).whereNull(
       'deleted_at',
     );
 
     if (user.perfil === Perfil.MORADOR) {
-      qb.andWhere('uuid_usuario', user.sub);
+      query.andWhere('uuid_usuario', user.sub);
+      return { query };
     }
 
-    return qb;
+    await this.acessoEncomenda.restringirDerivadosAoCondominio(
+      query,
+      'uuid_encomenda',
+      user,
+      trx,
+    );
+
+    return { query };
   }
 
   private resolvePagination(pagination: PaginationEncomendasEventosDto): {
@@ -64,12 +114,40 @@ export class EncomendasEventosService {
     return { uuid_unidade: usuario.uuid_unidade };
   }
 
-  private assertReadAccess(evento: EncomendaEvento, user: JwtPayload): void {
-    if (user.perfil === Perfil.MORADOR && evento.uuid_usuario !== user.sub) {
-      throw new ForbiddenException(
-        'Seu perfil não possui permissão para acessar este evento de encomenda.',
-      );
+  private async assertReadAccess(
+    evento: EncomendaEvento,
+    user: JwtPayload,
+  ): Promise<void> {
+    if (user.perfil === Perfil.MORADOR) {
+      if (evento.uuid_usuario !== user.sub) {
+        throw new ForbiddenException(MENSAGEM_LEITURA_EVENTO);
+      }
+      return;
     }
+
+    await this.acessoEncomenda.autorizarPorUuid(evento.uuid_encomenda, user, {
+      acao: 'ler',
+      incluirExcluidas: true,
+      mensagem: MENSAGEM_LEITURA_EVENTO,
+    });
+  }
+
+  /** 403 se o chamador não pode alterar a encomenda do evento. */
+  private async assertWriteAccess(
+    evento: EncomendaEvento,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    await this.acessoEncomenda.autorizarPorUuid(
+      evento.uuid_encomenda,
+      user,
+      {
+        acao: 'alterar',
+        incluirExcluidas: true,
+        mensagem: MENSAGEM_ALTERACAO_EVENTO,
+      },
+      trx,
+    );
   }
 
   private async findActiveByUuid(
@@ -173,7 +251,7 @@ export class EncomendasEventosService {
     );
     const { offset, limit, page } = this.resolvePagination(pagination);
 
-    const query = this.scopedQuery(user);
+    const { query } = await this.scopedQuery(user);
 
     if (pagination.busca && pagination.busca.trim()) {
       this.applyFilters(query, { busca: pagination.busca });
@@ -192,7 +270,7 @@ export class EncomendasEventosService {
 
     const data = await query
       .select('*')
-      .orderBy('created_at', 'desc')
+      .orderBy(ORDEM_HISTORICO)
       .offset(offset)
       .limit(limit);
 
@@ -235,6 +313,12 @@ export class EncomendasEventosService {
               .select('uuid'),
           );
       });
+    } else {
+      await this.acessoEncomenda.restringirDerivadosAoCondominio(
+        query,
+        'uuid_encomenda',
+        user,
+      );
     }
 
     this.applyFilters(query, filters);
@@ -252,7 +336,7 @@ export class EncomendasEventosService {
 
     const data = await query
       .select('*')
-      .orderBy('created_at', 'desc')
+      .orderBy(ORDEM_HISTORICO)
       .offset(offset)
       .limit(limit);
 
@@ -271,13 +355,13 @@ export class EncomendasEventosService {
 
   async findOne(uuid: string, user: JwtPayload): Promise<EncomendaEvento> {
     const evento = await this.findActiveByUuid(uuid);
-    this.assertReadAccess(evento, user);
+    await this.assertReadAccess(evento, user);
     return evento;
   }
 
   async restore(
     uuid: string,
-    actorEmail: string,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<EncomendaEvento> {
     const qb = trx ?? this.knex;
@@ -293,11 +377,13 @@ export class EncomendasEventosService {
       );
     }
 
+    await this.assertWriteAccess(removido, user, trx);
+
     await qb<EncomendaEvento>(TABLE).where({ uuid }).update({
       deleted_at: null,
       deleted_by: null,
       updated_at: new Date(),
-      updated_by: actorEmail,
+      updated_by: user.email,
     });
 
     return this.findActiveByUuid(uuid, trx);
@@ -305,21 +391,26 @@ export class EncomendasEventosService {
 
   async remove(
     uuid: string,
-    actorEmail: string,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<void> {
     const qb = trx ?? this.knex;
-    await this.findActiveByUuid(uuid, trx);
+    const evento = await this.findActiveByUuid(uuid, trx);
+    await this.assertWriteAccess(evento, user, trx);
 
     await qb<EncomendaEvento>(TABLE).where({ uuid }).update({
       deleted_at: new Date(),
-      deleted_by: actorEmail,
+      deleted_by: user.email,
       updated_at: new Date(),
-      updated_by: actorEmail,
+      updated_by: user.email,
     });
   }
 
-  async hardRemove(uuid: string, trx?: Knex.Transaction): Promise<void> {
+  async hardRemove(
+    uuid: string,
+    user: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
     const qb = trx ?? this.knex;
     const evento = await qb<EncomendaEvento>(TABLE).where({ uuid }).first();
 
@@ -328,6 +419,8 @@ export class EncomendasEventosService {
         `Evento de encomenda com uuid ${uuid} não encontrado.`,
       );
     }
+
+    await this.assertWriteAccess(evento, user, trx);
 
     await qb<EncomendaEvento>(TABLE).where({ uuid }).delete();
   }

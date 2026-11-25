@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { join, normalize, sep } from 'path';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Knex } from 'knex';
@@ -87,6 +89,14 @@ export interface FixtureDoisCondominios {
   usuariosCriados: string[];
   /** Unidades inseridas pela fixture, removidas no teardown. */
   unidadesCriadas: string[];
+  /**
+   * Encomendas a remover no teardown, com fotos, eventos e notificações:
+   * as de `inserirEncomendaFixture` e as que o teste criar pela API e
+   * registrar aqui.
+   */
+  encomendasCriadas: string[];
+  /** Fotos inseridas por `inserirImagemFixture`, removidas no teardown. */
+  imagensCriadas: string[];
   /** Base dos valores únicos (e-mail, CPF, celular) desta instância. */
   sufixo: string;
   /** Contador de usuários inseridos, para os valores únicos. */
@@ -183,6 +193,134 @@ export async function inserirUsuarioFixture(
   };
 }
 
+export interface NovaEncomendaFixture {
+  /** Titular (`uuid_usuario`). */
+  titular: { uuid: string };
+  /** Condomínio gravado na encomenda, que pode divergir do titular (#125). */
+  uuidCondominio: string;
+  uuidUnidade: string;
+  restricao?: 'pessoal' | 'unidade';
+  status?: string;
+  excluida?: boolean;
+  rotulo: string;
+}
+
+/**
+ * Insere uma encomenda direto no banco (sem passar pelas regras da API) e a
+ * registra para o teardown.
+ */
+export async function inserirEncomendaFixture(
+  knex: Knex,
+  fixture: FixtureDoisCondominios,
+  dados: NovaEncomendaFixture,
+): Promise<string> {
+  const uuid = randomUUID();
+  const agora = new Date();
+
+  await knex('encomendas').insert({
+    uuid,
+    uuid_condominio: dados.uuidCondominio,
+    uuid_unidade: dados.uuidUnidade,
+    uuid_usuario: dados.titular.uuid,
+    status: dados.status ?? 'aguardando retirada',
+    restricao_retirada: dados.restricao ?? 'unidade',
+    descricao: `Fixture ${dados.rotulo} multitenant`,
+    codigo_rastreamento: `MT-${dados.rotulo}-${fixture.sufixo}`.slice(0, 100),
+    created_by: 'e2e-fixture',
+    updated_by: 'e2e-fixture',
+    deleted_at: dados.excluida ? agora : null,
+    deleted_by: dados.excluida ? 'e2e-fixture' : null,
+  });
+  fixture.encomendasCriadas.push(uuid);
+
+  return uuid;
+}
+
+/** Diretório (relativo à raiz da api) dos arquivos de foto desta fixture. */
+function diretorioImagensFixture(fixture: FixtureDoisCondominios): string {
+  return join('uploads', 'imagens', `e2e-dois-condominios-${fixture.sufixo}`);
+}
+
+export interface NovaImagemFixture {
+  uuidReferencia: string;
+  tabelaReferencia?: string;
+  /** Bytes gravados no disco, servidos por `GET /imagens/:id/arquivo`. */
+  conteudo: Buffer;
+  excluida?: boolean;
+}
+
+/**
+ * Insere uma foto (registro e arquivo JPEG no disco) direto, sem passar pelo
+ * upload sob teste, e a registra para o teardown.
+ */
+export async function inserirImagemFixture(
+  knex: Knex,
+  fixture: FixtureDoisCondominios,
+  dados: NovaImagemFixture,
+): Promise<string> {
+  const uuid = randomUUID();
+  const nomeArquivo = `${uuid}.jpeg`;
+  const diretorio = diretorioImagensFixture(fixture);
+  const caminho = join(diretorio, nomeArquivo);
+  const agora = new Date();
+
+  mkdirSync(join(process.cwd(), diretorio), { recursive: true });
+  writeFileSync(join(process.cwd(), caminho), dados.conteudo);
+
+  await knex('imagens').insert({
+    uuid,
+    uuid_referencia: dados.uuidReferencia,
+    tabela_referencia: dados.tabelaReferencia ?? 'encomendas',
+    nome_arquivo: nomeArquivo,
+    nome_original: `fixture-${uuid}.jpeg`,
+    tipo: 'jpeg',
+    tamanho: dados.conteudo.length,
+    caminho,
+    created_by: 'e2e-fixture',
+    updated_by: 'e2e-fixture',
+    deleted_at: dados.excluida ? agora : null,
+    deleted_by: dados.excluida ? 'e2e-fixture' : null,
+  });
+  fixture.imagensCriadas.push(uuid);
+
+  return uuid;
+}
+
+export interface NovoEventoFixture {
+  uuidEncomenda: string;
+  uuidUsuario: string;
+  evento: string;
+  excluido?: boolean;
+  /** `created_at` fixo, para criar eventos empatados na ordenação. */
+  criadoEm?: Date;
+}
+
+/** Insere um evento de encomenda direto no banco. */
+export async function inserirEventoFixture(
+  knex: Knex,
+  dados: NovoEventoFixture,
+): Promise<string> {
+  const uuid = randomUUID();
+  const agora = new Date();
+
+  await knex('encomendas_eventos').insert({
+    uuid,
+    uuid_encomenda: dados.uuidEncomenda,
+    uuid_usuario: dados.uuidUsuario,
+    evento: dados.evento,
+    created_by: 'e2e-fixture',
+    updated_by: 'e2e-fixture',
+    deleted_at: dados.excluido ? agora : null,
+    deleted_by: dados.excluido ? 'e2e-fixture' : null,
+    ...(dados.criadoEm && {
+      created_at: dados.criadoEm,
+      updated_at: dados.criadoEm,
+    }),
+  });
+
+  return uuid;
+}
+
 /** Cria o condomínio B e seus usuários, e carrega as contas do seed (A). */
 export async function criarFixtureDoisCondominios(
   knex: Knex,
@@ -243,6 +381,8 @@ export async function criarFixtureDoisCondominios(
     tokens: {} as FixtureDoisCondominios['tokens'],
     usuariosCriados: [],
     unidadesCriadas: [],
+    encomendasCriadas: [],
+    imagensCriadas: [],
     sufixo: String(Date.now()).slice(-7),
     sequencia: 0,
   };
@@ -328,7 +468,10 @@ export async function criarFixtureDoisCondominios(
 
 /**
  * Remove tudo o que a fixture inseriu (inclusive os alvos criados por
- * `inserirUsuarioFixture`), na ordem exigida pelas FKs.
+ * `inserirUsuarioFixture`), na ordem exigida pelas FKs. Também remove as
+ * encomendas do condomínio B, as de titular da fixture e as registradas em
+ * `encomendasCriadas`, com as fotos (registro e arquivo), os eventos e as
+ * notificações delas.
  */
 export async function removerFixtureDoisCondominios(
   knex: Knex,
@@ -336,7 +479,50 @@ export async function removerFixtureDoisCondominios(
 ): Promise<void> {
   const usuarios = fixture.usuariosCriados;
 
+  const encomendas: string[] = await knex('encomendas')
+    .where('uuid_condominio', fixture.condominioB.uuid)
+    .orWhereIn('uuid_usuario', usuarios)
+    .orWhereIn('uuid', fixture.encomendasCriadas)
+    .pluck('uuid');
+
+  const imagens = await knex('imagens')
+    .whereIn('uuid', fixture.imagensCriadas)
+    .orWhereIn('uuid_referencia', encomendas)
+    .select<{ uuid: string; caminho: string }[]>('uuid', 'caminho');
+
+  // Só arquivos sob `uploads/imagens`: os da fixture e os gravados pela API
+  // sob teste nesta execução, para as encomendas acima.
+  const raizUploads = join(process.cwd(), 'uploads', 'imagens') + sep;
+  for (const { caminho } of imagens) {
+    const absoluto = normalize(join(process.cwd(), caminho));
+    if (absoluto.startsWith(raizUploads)) {
+      rmSync(absoluto, { force: true });
+    }
+  }
+  rmSync(join(process.cwd(), diretorioImagensFixture(fixture)), {
+    recursive: true,
+    force: true,
+  });
+
+  if (imagens.length > 0) {
+    await knex('imagens')
+      .whereIn(
+        'uuid',
+        imagens.map((imagem) => imagem.uuid),
+      )
+      .del();
+  }
+
+  if (encomendas.length > 0) {
+    await knex('encomendas_eventos')
+      .whereIn('uuid_encomenda', encomendas)
+      .del();
+    await knex('notificacoes').whereIn('uuid_encomenda', encomendas).del();
+    await knex('encomendas').whereIn('uuid', encomendas).del();
+  }
+
   if (usuarios.length > 0) {
+    await knex('encomendas_eventos').whereIn('uuid_usuario', usuarios).del();
     await knex('notificacoes').whereIn('uuid_usuario', usuarios).del();
     await knex('device_tokens').whereIn('uuid_usuario', usuarios).del();
     await knex('usuarios').whereIn('uuid', usuarios).del();

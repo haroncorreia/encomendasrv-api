@@ -66,11 +66,7 @@ export class EncomendasEventosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      const evento = await this.encomendasEventosService.restore(
-        id,
-        user.email,
-        trx,
-      );
+      const evento = await this.encomendasEventosService.restore(id, user, trx);
 
       await this.auditoriaService.registrarEmTrx(
         {
@@ -94,7 +90,7 @@ export class EncomendasEventosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      await this.encomendasEventosService.remove(id, user.email, trx);
+      await this.encomendasEventosService.remove(id, user, trx);
 
       await this.auditoriaService.registrarEmTrx(
         {
@@ -116,7 +112,7 @@ export class EncomendasEventosController {
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
     return this.knex.transaction(async (trx) => {
-      await this.encomendasEventosService.hardRemove(id, trx);
+      await this.encomendasEventosService.hardRemove(id, user, trx);
 
       await this.auditoriaService.registrarEmTrx(
         {

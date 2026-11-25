@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Knex } from 'knex';
 import sharp from 'sharp';
+import type { AcessoEncomendaService } from '../common/tenant/acesso-encomenda.service';
 import type { ImagemMetadadosDto } from './dto/imagem-metadados.dto';
 import { LIMITE_LADO_MAIOR_COMUM } from './imagens.constants';
 import { ImagensService } from './imagens.service';
@@ -50,7 +51,9 @@ describe('ImagensService — otimização e metadados medidos', () => {
     };
 
     const knex = jest.fn().mockReturnValue(builder) as unknown as Knex;
-    service = new ImagensService(knex);
+    // A regra de acesso pela encomenda não é exercitada aqui (ela tem o unit
+    // dela e os e2e de `imagens-isolamento`).
+    service = new ImagensService(knex, {} as AcessoEncomendaService);
   });
 
   afterEach(() => {

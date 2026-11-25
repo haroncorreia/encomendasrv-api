@@ -17,6 +17,8 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { Knex } from 'knex';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { AcessoEncomendaService } from '../common/tenant/acesso-encomenda.service';
 import { KNEX_CONNECTION } from '../database/database.constants';
 import type { CoordenadasImagemDto } from './dto/coordenadas-imagem.dto';
 import type { ImagemMetadadosDto } from './dto/imagem-metadados.dto';
@@ -27,6 +29,16 @@ import { processarImagem } from './processamento-imagem.util';
 const TABLE = 'imagens';
 const TIPOS_PERMITIDOS = ['jpeg', 'jpg', 'png', 'webp'];
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/** Única `tabela_referencia` com condomínio (o da encomenda). */
+const TABELA_ENCOMENDAS = 'encomendas';
+
+const MENSAGEM_LEITURA_IMAGEM =
+  'Seu perfil não possui permissão para acessar esta imagem.';
+const MENSAGEM_ALTERACAO_IMAGEM =
+  'Seu perfil não possui permissão para alterar esta imagem.';
+const MENSAGEM_ANEXO_IMAGEM =
+  'Seu perfil não possui permissão para anexar imagem a esta encomenda.';
 
 export interface SalvarImagemBase64Params {
   imagemBase64: string;
@@ -47,7 +59,8 @@ export interface SalvarImagemArquivoParams {
   arquivo: Express.Multer.File;
   uuidReferencia: string;
   tabelaReferencia: string;
-  actorEmail: string;
+  /** Quem envia: precisa poder alterar a encomenda referenciada. */
+  autor: JwtPayload;
 }
 
 interface PersistirParams {
@@ -67,11 +80,20 @@ interface PersistirParams {
   actorEmail: string;
 }
 
+/**
+ * Fotos de encomenda. A foto não tem condomínio próprio: herda o acesso da
+ * encomenda a que pertence (spec `isolamento-multitenant-encomendas`, change
+ * `isolar-encomendas-e-derivados`, card #122), pela regra única do
+ * `AcessoEncomendaService`.
+ */
 @Injectable()
 export class ImagensService {
   private readonly uploadDir = join(process.cwd(), 'uploads', 'imagens');
 
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly acessoEncomenda: AcessoEncomendaService,
+  ) {
     this.ensureUploadDir();
   }
 
@@ -204,11 +226,19 @@ export class ImagensService {
     }
   }
 
+  /**
+   * Upload multipart (`POST /imagens`). O `multer` já gravou o arquivo quando
+   * isto roda: na recusa, quem descarta o arquivo é o
+   * `DescartarUploadRecusadoInterceptor` da rota.
+   */
   async salvarDeArquivo(
     params: SalvarImagemArquivoParams,
     trx?: Knex.Transaction,
   ): Promise<Imagem> {
-    const { arquivo, uuidReferencia, tabelaReferencia, actorEmail } = params;
+    const { arquivo, uuidReferencia, tabelaReferencia, autor } = params;
+    const actorEmail = autor.email;
+
+    await this.assertPodeAnexar(uuidReferencia, tabelaReferencia, autor, trx);
 
     const partes = arquivo.filename.split('.');
     const ext = partes[partes.length - 1]?.toLowerCase() ?? '';
@@ -304,6 +334,81 @@ export class ImagensService {
     return imagem;
   }
 
+  /**
+   * Foto para `GET /imagens/:id/arquivo`: 404 se não existir; 403 se o
+   * chamador não pode ler a encomenda dela, pela regra de
+   * `GET /encomendas/:id`, inclusive quando a encomenda foi excluída.
+   */
+  async findOneParaLeitura(uuid: string, user: JwtPayload): Promise<Imagem> {
+    const imagem = await this.findOne(uuid);
+    await this.autorizarPelaEncomenda(imagem, user, 'ler');
+    return imagem;
+  }
+
+  /**
+   * Aplica à foto a regra da encomenda a que ela pertence (inclusive
+   * excluída). Foto de outra `tabela_referencia`, ou de encomenda que não
+   * existe mais, não tem condomínio: só o `super` passa.
+   */
+  private async autorizarPelaEncomenda(
+    imagem: Pick<Imagem, 'uuid_referencia' | 'tabela_referencia'>,
+    user: JwtPayload,
+    acao: 'ler' | 'alterar',
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    const mensagem =
+      acao === 'ler' ? MENSAGEM_LEITURA_IMAGEM : MENSAGEM_ALTERACAO_IMAGEM;
+
+    if (imagem.tabela_referencia !== TABELA_ENCOMENDAS) {
+      await this.acessoEncomenda.assertPodeLer(null, user, trx, mensagem);
+      return;
+    }
+
+    await this.acessoEncomenda.autorizarPorUuid(
+      imagem.uuid_referencia,
+      user,
+      { acao, incluirExcluidas: true, mensagem },
+      trx,
+    );
+  }
+
+  /**
+   * Upload só para encomenda existente (não excluída) que o autor pode
+   * alterar: 400 para outra tabela ou referência inexistente; 403 para
+   * encomenda fora do alcance do autor (ex.: de outro condomínio).
+   */
+  private async assertPodeAnexar(
+    uuidReferencia: string,
+    tabelaReferencia: string,
+    autor: JwtPayload,
+    trx?: Knex.Transaction,
+  ): Promise<void> {
+    if (tabelaReferencia !== TABELA_ENCOMENDAS) {
+      throw new BadRequestException(
+        `O campo tabela_referencia deve ser ${TABELA_ENCOMENDAS}.`,
+      );
+    }
+
+    const encomenda = await this.acessoEncomenda.buscarEncomenda(
+      uuidReferencia,
+      {},
+      trx,
+    );
+
+    if (!encomenda) {
+      throw new BadRequestException(
+        'O campo uuid_referencia deve referenciar uma encomenda existente.',
+      );
+    }
+
+    await this.acessoEncomenda.assertPodeAlterar(
+      encomenda,
+      autor,
+      trx,
+      MENSAGEM_ANEXO_IMAGEM,
+    );
+  }
+
   async findAll(): Promise<Imagem[]> {
     return this.knex<Imagem>(TABLE)
       .whereNull('deleted_at')
@@ -345,25 +450,28 @@ export class ImagensService {
     });
   }
 
+  /** Soft delete; 403 se o chamador não pode alterar a encomenda da foto. */
   async excluir(
     uuid: string,
-    actorEmail: string,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<void> {
-    await this.findOne(uuid, trx);
+    const imagem = await this.findOne(uuid, trx);
+    await this.autorizarPelaEncomenda(imagem, user, 'alterar', trx);
     const qb = trx ?? this.knex;
 
     await qb<Imagem>(TABLE).where({ uuid }).update({
       deleted_at: this.knex.fn.now(),
-      deleted_by: actorEmail,
+      deleted_by: user.email,
       updated_at: this.knex.fn.now(),
-      updated_by: actorEmail,
+      updated_by: user.email,
     });
   }
 
+  /** 403 se o chamador não pode alterar a encomenda da foto. */
   async restaurar(
     uuid: string,
-    actorEmail: string,
+    user: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<Imagem> {
     const qb = trx ?? this.knex;
@@ -379,11 +487,13 @@ export class ImagensService {
       );
     }
 
+    await this.autorizarPelaEncomenda(imagem, user, 'alterar', trx);
+
     await qb<Imagem>(TABLE).where({ uuid }).update({
       deleted_at: null,
       deleted_by: null,
       updated_at: this.knex.fn.now(),
-      updated_by: actorEmail,
+      updated_by: user.email,
     });
 
     return this.findOne(uuid, trx);

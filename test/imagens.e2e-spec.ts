@@ -416,9 +416,12 @@ describe('ImagensModule (e2e)', () => {
 
   // ─── GET /imagens ──────────────────────────────────────────────────────────
 
-  it('GET /imagens deve retornar lista de imagens para perfil autenticado', async () => {
+  // A lista e os metadados de todas as fotos são só do super (change
+  // `isolar-encomendas-e-derivados`, card #122); os cenários de isolamento
+  // ficam em `imagens-isolamento.e2e-spec.ts`.
+  it('GET /imagens deve retornar lista de imagens para o super e 403 para a portaria', async () => {
     const res = await auth(
-      portariaToken,
+      superToken,
       request(app.getHttpServer()).get(BASE_URL),
     ).expect(200);
 
@@ -429,29 +432,34 @@ describe('ImagensModule (e2e)', () => {
         (item: { uuid: string }) => item.uuid === uploadedImagemUuid,
       ),
     ).toBe(true);
+
+    await auth(
+      portariaToken,
+      request(app.getHttpServer()).get(BASE_URL),
+    ).expect(403);
   });
 
-  it('GET /imagens deve retornar lista de imagens para perfil morador', async () => {
+  it('GET /imagens deve retornar 403 para perfil morador', async () => {
     const res = await auth(
       moradorToken,
       request(app.getHttpServer()).get(BASE_URL),
-    ).expect(200);
+    ).expect(403);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body)).toBe(false);
   });
 
   // ─── GET /imagens/:id ──────────────────────────────────────────────────────
 
   it('GET /imagens/:id deve retornar 400 para UUID com formato inválido', async () => {
     await auth(
-      portariaToken,
+      superToken,
       request(app.getHttpServer()).get(`${BASE_URL}/nao-e-uuid`),
     ).expect(400);
   });
 
   it('GET /imagens/:id deve retornar 404 para UUID inexistente', async () => {
     await auth(
-      portariaToken,
+      superToken,
       request(app.getHttpServer()).get(
         `${BASE_URL}/99999999-9999-4999-8999-999999999999`,
       ),
@@ -460,7 +468,7 @@ describe('ImagensModule (e2e)', () => {
 
   it('GET /imagens/:id deve retornar os dados da imagem para UUID válido', async () => {
     const res = await auth(
-      portariaToken,
+      superToken,
       request(app.getHttpServer()).get(`${BASE_URL}/${uploadedImagemUuid}`),
     ).expect(200);
 
@@ -513,8 +521,9 @@ describe('ImagensModule (e2e)', () => {
       ),
     ).expect(204);
 
+    // Metadados por id são só do super (card #122).
     await auth(
-      adminToken,
+      superToken,
       request(app.getHttpServer()).get(
         `${BASE_URL}/${imagemParaRestaurarUuid}`,
       ),
@@ -571,8 +580,9 @@ describe('ImagensModule (e2e)', () => {
     expect(res.body.uuid).toBe(imagemParaRestaurarUuid);
     expect(res.body.deleted_at).toBeNull();
 
+    // Metadados por id são só do super (card #122).
     await auth(
-      adminToken,
+      superToken,
       request(app.getHttpServer()).get(
         `${BASE_URL}/${imagemParaRestaurarUuid}`,
       ),

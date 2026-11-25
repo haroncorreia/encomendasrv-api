@@ -374,6 +374,33 @@ describe('POST /usuarios: condomínio do funcionário (card #167, e2e)', () => {
       );
     });
 
+    it('super com uuid_condominio de A e unidade de B: 400 e nenhum usuário criado (#172)', async () => {
+      // Super de verdade (perfil no banco), como os testes do super da change
+      // `isolar-encomendas-e-derivados`.
+      const superReal = await inserirUsuarioFixture(knex, fx, {
+        perfil: 'super',
+        condominio: null,
+        aprovado: true,
+        rotulo: 'super172',
+      });
+      const payload = payloadDoApp('portaria', 'super172ab');
+
+      const res = await criarUsuario(
+        tokenDoUsuarioFixture(jwtService, configService, superReal),
+        {
+          ...payload,
+          uuid_condominio: fx.condominioA.uuid,
+          unidade: fx.condominioB.unidade.codigo,
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect((res.body as { message: string }).message).toBe(
+        `A unidade '${fx.condominioB.unidade.codigo}' não pertence ao condomínio do novo usuário.`,
+      );
+      expect(await usuarioPorEmail(payload.email)).toBeUndefined();
+    });
+
     it('super cria super: o usuário criado não tem condomínio', async () => {
       const res = await criarUsuario(fx.tokens.super, {
         ...payloadDoApp('admin', 'super23super'),
