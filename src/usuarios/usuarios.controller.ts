@@ -350,7 +350,8 @@ export class UsuariosController {
         );
       }
 
-      // O service também recusa (403) unidade nova de outro condomínio.
+      // O service procura a unidade no condomínio do alvo (#159): a de outro
+      // condomínio responde como inexistente (400).
       const usuario = await this.usuariosService.updateUnidade(
         id,
         dto.unidade,

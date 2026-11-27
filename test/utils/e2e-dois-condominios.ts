@@ -27,9 +27,11 @@ const SEED_MORADOR_EMAIL = 'pedro@cfrecantoverde.com.br';
 const SEED_UNIDADE_A = '0303';
 
 /**
- * Códigos das unidades do condomínio B. `unidades.unidade` é VARCHAR(4) e
- * único na base inteira (#159); o prefixo com letras evita colisão com os
- * códigos `9xxx` gerados por outros e2e na mesma execução.
+ * Códigos das unidades do condomínio B, que só existem nele. Desde o #159 o
+ * código (VARCHAR(4)) é único por condomínio, e o mesmo código pode existir em
+ * A e B (`inserirUnidadeFixture`). O prefixo com letras mantém estes sem par
+ * no seed e nos códigos `9xxx` de outros e2e, para os testes de "código que só
+ * existe em outro condomínio".
  */
 const CODIGOS_UNIDADES_B = ['MTB1', 'MTB2'] as const;
 
@@ -193,6 +195,51 @@ export async function inserirUsuarioFixture(
   };
 }
 
+export interface NovaUnidadeFixture {
+  /** A, B ou outro condomínio gravado pelo próprio teste. */
+  condominio: Pick<CondominioFixture, 'uuid'>;
+  /** Pode ser um código que já existe no outro condomínio (#159). */
+  codigo: string;
+  /**
+   * Uuid fixo, para controlar a ordem de uma varredura pela chave primária
+   * (ex.: uma busca por código sem condomínio encontraria esta primeiro).
+   */
+  uuid?: string;
+  /** Unidade já excluída (soft delete). */
+  excluida?: boolean;
+}
+
+/**
+ * Insere uma unidade no condomínio informado e a registra para o teardown.
+ * Usuários criados pela API nela precisam entrar em `usuariosCriados`, que
+ * saem antes das unidades.
+ */
+export async function inserirUnidadeFixture(
+  knex: Knex,
+  fixture: FixtureDoisCondominios,
+  dados: NovaUnidadeFixture,
+): Promise<UnidadeFixture> {
+  const unidade: UnidadeFixture = {
+    uuid: dados.uuid ?? randomUUID(),
+    codigo: dados.codigo,
+  };
+
+  await knex('unidades').insert({
+    uuid: unidade.uuid,
+    uuid_condominio: dados.condominio.uuid,
+    unidade: unidade.codigo,
+    quadra: unidade.codigo.slice(0, 2),
+    lote: unidade.codigo.slice(2, 4),
+    created_by: 'e2e-fixture',
+    updated_by: 'e2e-fixture',
+    deleted_at: dados.excluida ? new Date() : null,
+    deleted_by: dados.excluida ? 'e2e-fixture' : null,
+  });
+  fixture.unidadesCriadas.push(unidade.uuid);
+
+  return unidade;
+}
+
 export interface NovaEncomendaFixture {
   /** Titular (`uuid_usuario`). */
   titular: { uuid: string };
@@ -333,8 +380,10 @@ export async function criarFixtureDoisCondominios(
     buscarUsuarioDoSeed(knex, SEED_MORADOR_EMAIL, 'morador'),
   ]);
 
+  // O condomínio A é o do admin do seed: desde o #159 o mesmo código pode
+  // existir em outro condomínio, e a busca só pelo código ficaria ambígua.
   const unidadeSeed = await knex('unidades')
-    .where({ unidade: SEED_UNIDADE_A })
+    .where({ uuid_condominio: adminA.uuid_condominio, unidade: SEED_UNIDADE_A })
     .whereNull('deleted_at')
     .first<
       { uuid: string; uuid_condominio: string } | undefined

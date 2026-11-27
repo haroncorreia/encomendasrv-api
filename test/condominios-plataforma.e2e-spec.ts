@@ -39,7 +39,11 @@ const CAMPOS_NEGOCIO = [
   'email',
 ];
 
-/** Colunas internas (autoria, exclusão e status), só para o `super`. */
+/**
+ * Colunas só para o `super`: autoria, exclusão, status e, desde o #159, a
+ * marca de cadastro público (spec `cadastro-publico-condominio`, "Só o super
+ * vê a marca").
+ */
 const CAMPOS_INTERNOS = [
   'created_at',
   'created_by',
@@ -51,6 +55,7 @@ const CAMPOS_INTERNOS = [
   'motivo_suspensao',
   'status_alterado_em',
   'status_alterado_por',
+  'cadastro_publico',
 ];
 
 const MENSAGEM_403_PERFIL =
@@ -320,6 +325,20 @@ describe('Plataforma: gestão de condomínios pelo super (e2e)', () => {
       ]);
     });
 
+    it('Condomínio novo nasce sem cadastro público: a resposta do POST traz cadastro_publico false, e a marca fica desligada no banco e no GET', async () => {
+      const novo = await criarPeloSuper();
+
+      const lido = await getCondominio(superUsuario.token, novo.uuid).expect(
+        200,
+      );
+
+      expect({
+        resposta: novo.cadastro_publico,
+        banco: Number((await linhaDoBanco(novo.uuid)).cadastro_publico),
+        get: (lido.body as { cadastro_publico: unknown }).cadastro_publico,
+      }).toEqual({ resposta: false, banco: 0, get: false });
+    });
+
     it('Condomínio novo tem só Encomendas: GET /condominios/<novo>/modulos traz só encomendas ativo', async () => {
       const novo = await criarPeloSuper();
 
@@ -410,6 +429,8 @@ describe('Plataforma: gestão de condomínios pelo super (e2e)', () => {
       ['deleted_at', () => ({ deleted_at: '2026-01-01T00:00:00Z' })],
       ['uuid', () => ({ uuid: randomUUID() })],
       ['created_by', () => ({ created_by: 'intruso@teste.com' })],
+      // O condomínio novo nasce sem cadastro público, e só o PATCH liga (#159).
+      ['cadastro_publico', () => ({ cadastro_publico: true })],
     ])(
       'Campo fora do contrato (%s): 400 e nenhum condomínio é criado',
       async (_rotulo, extra) => {

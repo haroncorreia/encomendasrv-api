@@ -28,6 +28,8 @@ export interface NovoCondominio {
   excluido?: boolean;
   email?: string | null;
   telefone?: string | null;
+  /** Sem o campo, vale o padrão da coluna: desligado (#159). */
+  cadastro_publico?: boolean;
 }
 
 export interface UnidadePlataforma {
@@ -95,8 +97,11 @@ export class FixturePlataforma {
   private senhaHash?: string;
 
   /**
-   * @param prefixoUnidade duas letras próprias do arquivo de teste: o código
-   *   da unidade é VARCHAR(4) e único na base inteira (#159).
+   * @param prefixoUnidade duas letras próprias do arquivo de teste. O código da
+   *   unidade é VARCHAR(4) e, desde o #159, único por condomínio: o prefixo
+   *   evita que um código da fixture coincida com o de outro condomínio com
+   *   cadastro público (o seed usa só dígitos), o que deixaria o auto-cadastro
+   *   ambíguo.
    */
   constructor(
     private readonly knex: Knex,
@@ -139,6 +144,9 @@ export class FixturePlataforma {
       email: dados.email ?? null,
       telefone: dados.telefone ?? null,
       ...(dados.status && { status: dados.status }),
+      ...(dados.cadastro_publico !== undefined && {
+        cadastro_publico: dados.cadastro_publico,
+      }),
       motivo_suspensao: dados.motivo_suspensao ?? null,
       created_by: 'e2e-fixture',
       updated_by: 'e2e-fixture',

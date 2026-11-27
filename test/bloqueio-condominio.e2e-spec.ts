@@ -14,6 +14,7 @@ import {
   ContagemFixture,
   contarTabelasDaFixture,
   FixturePlataforma,
+  NovoCondominio,
   SENHA_FIXTURE,
   UnidadePlataforma,
   UsuarioPlataforma,
@@ -97,11 +98,13 @@ describe('Bloqueio de condomínio inativo (e2e)', () => {
   /** Condomínio ativo com unidade, morador, admin e portaria aprovados. */
   const novoCondominio = async (
     rotulo: string,
+    extra: Pick<NovoCondominio, 'cadastro_publico'> = {},
   ): Promise<CondominioComUsuarios> => {
     sequenciaNome += 1;
     const uuid = await fx.inserirCondominio({
       nome: `Bloqueio e2e ${rotulo} ${sequenciaNome}`.slice(0, 50),
       cnpj: gerarCnpj(),
+      ...extra,
     });
     const unidade = await fx.inserirUnidade(uuid);
 
@@ -517,6 +520,12 @@ describe('Bloqueio de condomínio inativo (e2e)', () => {
   });
 
   describe('Auto-cadastro recusado em condomínio inativo', () => {
+    /**
+     * Só condomínio com cadastro público aceita o auto-cadastro (#159): sem a
+     * marca, a recusa do suspenso e do excluído não provaria nada.
+     */
+    const comCadastroPublico = { cadastro_publico: true };
+
     /** Corpo de sign-up válido para a unidade informada. */
     const corpoSignUp = (unidade: string, rotulo: string) => ({
       nome: `Cadastro ${rotulo} Teste`,
@@ -543,7 +552,7 @@ describe('Bloqueio de condomínio inativo (e2e)', () => {
       rotulo: string,
       inativar: (uuid: string) => Promise<unknown>,
     ) => {
-      const condominio = await novoCondominio(rotulo);
+      const condominio = await novoCondominio(rotulo, comCadastroPublico);
       await inativar(condominio.uuid);
       const corpo = corpoSignUp(condominio.unidade.codigo, rotulo);
       const notificacoesAntes = await contarNotificacoes();
@@ -577,7 +586,7 @@ describe('Bloqueio de condomínio inativo (e2e)', () => {
     });
 
     it('Cadastro em unidade de condomínio ativo: continua 201, como antes', async () => {
-      const condominio = await novoCondominio('suativo');
+      const condominio = await novoCondominio('suativo', comCadastroPublico);
       const corpo = corpoSignUp(condominio.unidade.codigo, 'ativo');
 
       const res = await signUp(corpo).expect(201);

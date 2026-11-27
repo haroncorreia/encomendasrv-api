@@ -24,6 +24,12 @@ export interface Condominio {
   motivo_suspensao: string | null;
   status_alterado_em: Date | null;
   status_alterado_por: string | null;
+  /**
+   * Aceita o auto-cadastro de moradores (spec `cadastro-publico-condominio`,
+   * card #159). Só o `super` a vê e a altera. No banco é TINYINT(1), que o
+   * mysql2 devolve como 0 ou 1: as respostas a convertem para booleano.
+   */
+  cadastro_publico: boolean;
   created_at: Date;
   created_by: string;
   updated_at: Date;

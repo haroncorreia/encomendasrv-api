@@ -77,10 +77,14 @@ export function condominioSujeitoAoBloqueio(usuario: {
 /** Alias do JOIN de `restringirACondominiosLiberados`. */
 const ALIAS = 'condominio_acesso';
 
+/** Alias do JOIN de `restringirACondominiosComCadastroPublico`. */
+const ALIAS_CADASTRO = 'condominio_cadastro';
+
 /**
  * Ponto único que responde "o condomínio deste usuário está liberado?" (spec
  * `bloqueio-condominio-inativo`, card #192), usado pelo sign-in, pela sessão
- * (`JwtStrategy`), pela renovação, pelo auto-cadastro e pelo lembrete diário.
+ * (`JwtStrategy`), pela renovação, pelo auto-cadastro (que também exige o
+ * cadastro público, #159) e pelo lembrete diário.
  */
 @Injectable()
 export class AcessoCondominioService {
@@ -144,5 +148,26 @@ export class AcessoCondominioService {
             .whereNull(`${ALIAS}.deleted_at`);
         });
       });
+  }
+
+  /**
+   * Restringe uma consulta às linhas de condomínio com cadastro público e
+   * liberado, pela coluna informada (spec `cadastro-publico-condominio`, card
+   * #159): é onde o auto-cadastro procura a unidade. Ao contrário de
+   * `restringirACondominiosLiberados`, a linha sem condomínio fica de fora.
+   */
+  restringirACondominiosComCadastroPublico(
+    qb: Knex.QueryBuilder,
+    colunaUuidCondominio: string,
+  ): Knex.QueryBuilder {
+    return qb
+      .join(
+        `condominios as ${ALIAS_CADASTRO}`,
+        `${ALIAS_CADASTRO}.uuid`,
+        colunaUuidCondominio,
+      )
+      .where(`${ALIAS_CADASTRO}.cadastro_publico`, true)
+      .where(`${ALIAS_CADASTRO}.status`, StatusCondominio.ATIVO)
+      .whereNull(`${ALIAS_CADASTRO}.deleted_at`);
   }
 }

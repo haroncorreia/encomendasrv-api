@@ -1364,14 +1364,24 @@ describe('UsuariosModule (e2e)', () => {
     let portariaAlvoUuid: string;
     let adminAlvoUuid: string;
     let superAlvoUuid: string;
+    /** Condomínio do seed, onde nascem os alvos e a unidade nova. */
+    let uuidCondominio: string;
+
+    const condominioNoBanco = async (uuid: string) =>
+      (
+        await knex('usuarios')
+          .where({ uuid })
+          .first<{ uuid_condominio: string | null }>('uuid_condominio')
+      ).uuid_condominio;
 
     beforeAll(async () => {
       const runId = Date.now();
-      const seedUnidadeRow = await knex('unidades')
-        .where({ unidade: SEED_UNIDADE })
-        .whereNull('deleted_at')
+      // O condomínio do seed é o do admin do seed: desde o #159 o código da
+      // unidade pode se repetir em outro condomínio.
+      const adminDoSeed = await knex('usuarios')
+        .where({ email: SEEDED_ADMIN_EMAIL })
         .first('uuid_condominio');
-      const uuidCondominio = seedUnidadeRow.uuid_condominio as string;
+      uuidCondominio = adminDoSeed.uuid_condominio as string;
 
       unidadeNovaUuid = randomUUID();
       unidadeNovaCodigo = `9${String(runId).slice(-3)}`;
@@ -1453,7 +1463,9 @@ describe('UsuariosModule (e2e)', () => {
       superAlvoUuid = superRes.body.uuid as string;
     });
 
-    it('super corrige a unidade de um morador', async () => {
+    it('Super corrige a unidade de um morador: 200, a unidade nova, e o morador continua no mesmo condomínio', async () => {
+      const condominioAntes = await condominioNoBanco(moradorAlvoUuid);
+
       const res = await auth(
         superToken,
         request(app.getHttpServer())
@@ -1469,9 +1481,15 @@ describe('UsuariosModule (e2e)', () => {
         .where({ uuid: moradorAlvoUuid })
         .first('uuid_unidade', 'uuid_condominio');
       expect(row.uuid_unidade).toBe(unidadeNovaUuid);
+      expect({
+        antes: condominioAntes,
+        depois: row.uuid_condominio as string | null,
+      }).toEqual({ antes: uuidCondominio, depois: uuidCondominio });
     });
 
-    it('admin corrige a unidade de uma portaria', async () => {
+    it('Admin corrige a unidade de uma portaria: 200, a unidade nova, e a portaria continua no mesmo condomínio', async () => {
+      const condominioAntes = await condominioNoBanco(portariaAlvoUuid);
+
       const res = await auth(
         adminToken,
         request(app.getHttpServer())
@@ -1480,6 +1498,15 @@ describe('UsuariosModule (e2e)', () => {
       ).expect(200);
 
       expect(res.body.uuid_unidade).toBe(unidadeNovaUuid);
+      expect({
+        antes: condominioAntes,
+        resposta: res.body.uuid_condominio as string | null,
+        depois: await condominioNoBanco(portariaAlvoUuid),
+      }).toEqual({
+        antes: uuidCondominio,
+        resposta: uuidCondominio,
+        depois: uuidCondominio,
+      });
     });
 
     it('retorna 400 para unidade inexistente e não altera o usuário', async () => {

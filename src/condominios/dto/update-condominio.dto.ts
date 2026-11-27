@@ -1,5 +1,11 @@
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { IsCnpj, normalizarCnpj } from '../../common/validators/cnpj';
 import { DadosCadastraisCondominioDto } from './dados-cadastrais-condominio.dto';
 
@@ -25,4 +31,15 @@ export class UpdateCondominioDto extends DadosCadastraisCondominioDto {
   @ValidateIf((dto: UpdateCondominioDto) => dto.cnpj !== undefined)
   @IsCnpj()
   cnpj?: string;
+
+  /**
+   * Marca de cadastro público (card #159). Opcional: os clientes de antes não
+   * a enviam. Só o `super` altera (403 para os demais, no service), e ligar é
+   * recusado (409) se algum código de unidade ativa do condomínio também
+   * existir em outro condomínio com cadastro público. `@ValidateIf`, e não
+   * `@IsOptional`, para o `null` dar 400 em vez de chegar à coluna NOT NULL.
+   */
+  @ValidateIf((dto: UpdateCondominioDto) => dto.cadastro_publico !== undefined)
+  @IsBoolean({ message: 'O cadastro público deve ser verdadeiro ou falso.' })
+  cadastro_publico?: boolean;
 }

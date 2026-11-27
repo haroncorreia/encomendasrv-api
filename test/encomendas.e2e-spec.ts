@@ -1555,6 +1555,9 @@ describe('EncomendasModule (e2e)', () => {
       await knex('condominios').insert({
         uuid: uuidCondominioOutro,
         nome: 'Condomínio Outro (Teste #49)',
+        // O morador deste condomínio nasce pelo auto-cadastro, que só procura
+        // a unidade em condomínio com cadastro público (#159).
+        cadastro_publico: true,
         created_by: 'test',
         updated_by: 'test',
       });

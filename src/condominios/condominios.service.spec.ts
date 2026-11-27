@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
@@ -59,7 +60,7 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
   const MENSAGEM_409_CNPJ_EXCLUIDO =
     'Este CNPJ pertence a um condomínio excluído. Peça ao suporte a restauração desse cadastro em vez de cadastrá-lo de novo.';
 
-  /** Linha completa, com todas as colunas da tabela depois do #192. */
+  /** Linha completa, com todas as colunas da tabela depois do #192 e do #159. */
   const condominio = (
     uuid: string,
     criadoEm: string,
@@ -79,6 +80,7 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
     motivo_suspensao: null,
     status_alterado_em: null,
     status_alterado_por: null,
+    cadastro_publico: false,
     created_at: new Date(criadoEm),
     created_by: 'seed',
     updated_at: new Date(criadoEm),
@@ -103,6 +105,38 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
   let service: CondominiosService;
   /** Quando definido, todo UPDATE ou INSERT rejeita com este erro. */
   let falhaNaEscrita: Error | undefined;
+  /** Códigos que a consulta de colisão do cadastro público devolve (#159). */
+  let colisoes: string[];
+  /** `cadastro_publico` da linha inserida, como o banco a devolve (padrão da coluna). */
+  let marcaPadraoDoBanco: unknown;
+
+  /**
+   * Consulta de colisão do cadastro público, sobre `unidades` (#159): anota
+   * cada chamada e devolve `colisoes`, até o `limit`. A semântica do SQL fica
+   * para o e2e.
+   */
+  function consultaDeColisao(
+    anotar: (metodo: string, args: unknown[]) => void,
+  ): Record<string, (...args: unknown[]) => unknown> {
+    let limite: number | undefined;
+    const consulta: Record<string, (...args: unknown[]) => unknown> = {};
+    for (const metodo of ['join', 'where', 'whereNull', 'groupBy', 'orderBy']) {
+      consulta[metodo] = (...args: unknown[]) => {
+        anotar(metodo, args);
+        return consulta;
+      };
+    }
+    consulta.limit = (n: unknown) => {
+      anotar('limit', [n]);
+      limite = Number(n);
+      return consulta;
+    };
+    consulta.pluck = (coluna: unknown) => {
+      anotar('pluck', [coluna]);
+      return Promise.resolve(colisoes.slice(0, limite));
+    };
+    return consulta;
+  }
 
   /**
    * Conexão em memória com o subconjunto do query builder usado pelo
@@ -113,6 +147,10 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       let resultado = nomeTabela === 'condominios' ? [...tabela] : [];
       const anotar = (metodo: string, args: unknown[]) =>
         chamadas.push({ tabela: nomeTabela, metodo, args });
+
+      if (nomeTabela.startsWith('unidades')) {
+        return consultaDeColisao(anotar);
+      }
       const atende = (linha: Linha, criterio: Linha) =>
         Object.entries(criterio).every(([coluna, valor]) =>
           // Como o knex: `null` no `where` vira `IS NULL`.
@@ -173,9 +211,11 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
           if (falhaNaEscrita !== undefined) {
             return Promise.reject(falhaNaEscrita);
           }
-          // Colunas com padrão no banco, como a migration do #192 define.
+          // Colunas com padrão no banco, como as migrations do #192 e do #159
+          // definem.
           tabela.push({
             ...condominio(String(linha.uuid), '2026-11-21T00:00:00Z'),
+            cadastro_publico: marcaPadraoDoBanco,
             created_at: new Date(),
             updated_at: new Date(),
             ...linha,
@@ -228,6 +268,8 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
     ];
     chamadas = [];
     falhaNaEscrita = undefined;
+    colisoes = [];
+    marcaPadraoDoBanco = false;
     knex = bancoEmMemoria();
     // O helper não consulta o banco aqui: só o `resolver` (simulado) o faria.
     escopoCondominio = new EscopoCondominioService(
@@ -731,6 +773,227 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
         ).rejects.toBe(falha);
       });
     });
+
+    describe('cadastro público (spec cadastro-publico-condominio, #159)', () => {
+      const MENSAGEM_403_CADASTRO =
+        'Seu perfil não possui permissão para alterar o cadastro público do condomínio.';
+
+      const consultouColisao = () =>
+        chamadas.some((c) => c.tabela.startsWith('unidades'));
+
+      const posicao = (predicado: (c: Chamada) => boolean) =>
+        chamadas.findIndex(predicado);
+
+      it('Super liga o cadastro público sem colisão: trava a linha com forUpdate, procura colisão nas unidades dele e grava a marca', async () => {
+        montarComTransacao(null);
+
+        const atualizado = await atualizar(
+          CONDOMINIO_B,
+          { cadastro_publico: true },
+          chamador(Perfil.SUPER),
+        );
+
+        const trava = posicao((c) => c.metodo === 'forUpdate');
+        const colisao = posicao((c) => c.tabela.startsWith('unidades'));
+        const escrita = posicao((c) => c.metodo === 'update');
+        expect({
+          travaAntesDaColisaoAntesDaEscrita:
+            trava >= 0 && colisao > trava && escrita > colisao,
+          colisaoDoAlvo: chamadas.some(
+            (c) =>
+              c.tabela === 'unidades as u1' &&
+              c.metodo === 'where' &&
+              c.args[0] === 'u1.uuid_condominio' &&
+              c.args[1] === CONDOMINIO_B,
+          ),
+          marcaGravada: tabela[1].cadastro_publico,
+          marcaNaResposta: (atualizado as Linha).cadastro_publico,
+        }).toEqual({
+          travaAntesDaColisaoAntesDaEscrita: true,
+          colisaoDoAlvo: true,
+          marcaGravada: true,
+          marcaNaResposta: true,
+        });
+      });
+
+      it('Ligar com código coincidente é recusado: 409 citando a unidade, sem UPDATE, e nada muda', async () => {
+        montarComTransacao(null);
+        colisoes = ['0101'];
+        const antes = { ...tabela[1] };
+
+        const erro = await erroDe(
+          atualizar(
+            CONDOMINIO_B,
+            { cadastro_publico: true, nome: 'Nome novo' },
+            chamador(Perfil.SUPER),
+          ),
+        );
+
+        expect(erro).toBeInstanceOf(ConflictException);
+        expect(erro.message).toBe(
+          'Não é possível ligar o cadastro público: a unidade 0101 também existe em outro condomínio com cadastro público.',
+        );
+        expect(escreveu()).toBe(false);
+        expect(tabela[1]).toEqual(antes);
+      });
+
+      it.each<[string, string[], string]>([
+        [
+          'dois',
+          ['0101', '0102'],
+          'Não é possível ligar o cadastro público: as unidades 0101, 0102 também existem em outro condomínio com cadastro público.',
+        ],
+        [
+          'mais de cinco',
+          ['0101', '0102', '0103', '0104', '0105', '0106', '0107'],
+          'Não é possível ligar o cadastro público: as unidades 0101, 0102, 0103, 0104, 0105… também existem em outro condomínio com cadastro público.',
+        ],
+      ])(
+        'Ligar com %s códigos coincidentes: a consulta pede no máximo 6, e a mensagem cita até 5',
+        async (_rotulo, codigos, mensagem) => {
+          montarComTransacao(null);
+          colisoes = codigos;
+
+          const erro = await erroDe(
+            atualizar(
+              CONDOMINIO_B,
+              { cadastro_publico: true },
+              chamador(Perfil.SUPER),
+            ),
+          );
+
+          expect({
+            limite: chamadas.find(
+              (c) => c.tabela.startsWith('unidades') && c.metodo === 'limit',
+            )?.args,
+            mensagem: erro.message,
+          }).toEqual({ limite: [6], mensagem });
+        },
+      );
+
+      it.each([true, false])(
+        'Admin não altera a marca (cadastro_publico: %s): 403 antes de procurar colisão e de qualquer UPDATE, e nada muda',
+        async (valor) => {
+          montarComTransacao(CONDOMINIO_A);
+          tabela[0].cadastro_publico = true;
+          const antes = { ...tabela[0] };
+
+          const erro = await erroDe(
+            atualizar(
+              CONDOMINIO_A,
+              { cadastro_publico: valor, nome: 'Nome novo' },
+              chamador(Perfil.ADMIN),
+            ),
+          );
+
+          expect(erro).toBeInstanceOf(ForbiddenException);
+          expect(erro.message).toBe(MENSAGEM_403_CADASTRO);
+          expect({
+            escreveu: escreveu(),
+            consultouColisao: consultouColisao(),
+            linha: tabela[0],
+          }).toEqual({
+            escreveu: false,
+            consultouColisao: false,
+            linha: antes,
+          });
+        },
+      );
+
+      it('admin do A no B com cadastro_publico: o 403 de escopo vem antes do 403 da marca', async () => {
+        montarComTransacao(CONDOMINIO_A);
+
+        const erro = await erroDe(
+          atualizar(
+            CONDOMINIO_B,
+            { cadastro_publico: true },
+            chamador(Perfil.ADMIN),
+          ),
+        );
+
+        expect(erro).toBeInstanceOf(ForbiddenException);
+        expect(erro.message).toBe(MENSAGEM_403);
+        expect(consultouColisao()).toBe(false);
+      });
+
+      it('Super desliga o cadastro público: grava sem procurar colisão, mesmo que houvesse', async () => {
+        montarComTransacao(null);
+        tabela[1].cadastro_publico = true;
+        colisoes = ['0101'];
+
+        const atualizado = await atualizar(
+          CONDOMINIO_B,
+          { cadastro_publico: false },
+          chamador(Perfil.SUPER),
+        );
+
+        expect({
+          consultouColisao: consultouColisao(),
+          marcaGravada: tabela[1].cadastro_publico,
+          marcaNaResposta: (atualizado as Linha).cadastro_publico,
+        }).toEqual({
+          consultouColisao: false,
+          marcaGravada: false,
+          marcaNaResposta: false,
+        });
+      });
+
+      it('sem cadastro_publico no corpo, o super não procura colisão nem envia a marca no UPDATE', async () => {
+        montarComTransacao(null);
+
+        await atualizar(
+          CONDOMINIO_B,
+          { nome: 'Nome novo' },
+          chamador(Perfil.SUPER),
+        );
+
+        const [payload] = chamadas
+          .filter((c) => c.metodo === 'update')
+          .map(({ args }) => args[0] as Linha);
+        expect({
+          consultouColisao: consultouColisao(),
+          enviouMarca: 'cadastro_publico' in payload,
+        }).toEqual({ consultouColisao: false, enviouMarca: false });
+      });
+    });
+  });
+
+  describe('Só o super vê a marca (spec cadastro-publico-condominio, #159)', () => {
+    it('o super recebe cadastro_publico booleano em findAll e findOne, vindo 0 ou 1 do mysql2', async () => {
+      montar(null);
+      tabela[0].cadastro_publico = 1;
+      tabela[1].cadastro_publico = 0;
+
+      const lista = await service.findAll(chamador(Perfil.SUPER));
+      const lido = await service.findOne(CONDOMINIO_A, chamador(Perfil.SUPER));
+
+      expect({
+        lista: lista.map((c) => [c.uuid, (c as Linha).cadastro_publico]),
+        lido: (lido as Linha).cadastro_publico,
+      }).toEqual({
+        lista: [
+          [CONDOMINIO_B, false],
+          [CONDOMINIO_A, true],
+        ],
+        lido: true,
+      });
+    });
+
+    it.each([Perfil.ADMIN, Perfil.PORTARIA, Perfil.MORADOR])(
+      '%s não recebe cadastro_publico: os mesmos 10 campos de negócio, na lista e por id',
+      async (perfil) => {
+        montar(CONDOMINIO_A);
+        tabela[0].cadastro_publico = 1;
+
+        const [item] = await service.findAll(chamador(perfil));
+        const lido = await service.findOne(CONDOMINIO_A, chamador(perfil));
+
+        expect({ lista: chavesDe(item), porId: chavesDe(lido) }).toEqual({
+          lista: [...CAMPOS_NEGOCIO].sort(),
+          porId: [...CAMPOS_NEGOCIO].sort(),
+        });
+      },
+    );
   });
 
   describe('criar(dto, user, trx)', () => {
@@ -787,6 +1050,20 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       expect(String(criado.uuid)).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
+    });
+
+    it('Condomínio novo nasce sem cadastro público: o INSERT não envia a marca, e a resposta traz o padrão da coluna como booleano', async () => {
+      montarParaCriar();
+      // O mysql2 devolve o TINYINT(1) do padrão como 0.
+      marcaPadraoDoBanco = 0;
+
+      const criado = await criar({});
+
+      const [{ args }] = chamadas.filter((c) => c.metodo === 'insert');
+      expect({
+        enviouMarca: 'cadastro_publico' in (args[0] as Linha),
+        marcaNaResposta: criado.cadastro_publico,
+      }).toEqual({ enviouMarca: false, marcaNaResposta: false });
     });
 
     it('grava nulo nos campos cadastrais que não vieram', async () => {
@@ -1024,6 +1301,26 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
         });
       });
 
+      it('a linha devolvida ao super traz cadastro_publico booleano, com e sem mudança (o mysql2 devolve 0 ou 1)', async () => {
+        montarStatus();
+        tabela[0].cadastro_publico = 1;
+        tabela[1].cadastro_publico = 0;
+
+        const mudou = await alterarStatus(CONDOMINIO_A, {
+          status: 'suspenso',
+          motivo: 'Inadimplência',
+        });
+        const repetido = await alterarStatus(CONDOMINIO_B, {
+          status: 'suspenso',
+          motivo: 'Outro motivo',
+        });
+
+        expect({
+          mudou: mudou.condominio.cadastro_publico,
+          repetido: repetido.condominio.cadastro_publico,
+        }).toEqual({ mudou: true, repetido: false });
+      });
+
       it.each<[string, string]>([
         ['inexistente', 'condo-inexistente'],
         ['excluído', CONDOMINIO_EXCLUIDO],
@@ -1098,4 +1395,225 @@ describe('CondominiosService: escopo de condomínio do chamador', () => {
       });
     });
   });
+});
+
+/**
+ * Trava das ligações do cadastro público (spec `cadastro-publico-condominio`,
+ * card #159): duas ligações simultâneas não passam as duas pela checagem de
+ * colisão. A trava nomeada do MariaDB é da sessão, e não da transação: a
+ * transação roda na mesma conexão, aberta só depois da trava, e a trava sai
+ * depois do commit. O banco é simulado; a espera de verdade fica para o e2e.
+ */
+describe('CondominiosService.comTravaDoCadastroPublico (#159)', () => {
+  const GET_LOCK =
+    "SELECT GET_LOCK(CONCAT(LEFT(DATABASE(), 35), '.condominios_cadastro_publico'), ?) AS obtida";
+  const RELEASE_LOCK =
+    "SELECT RELEASE_LOCK(CONCAT(LEFT(DATABASE(), 35), '.condominios_cadastro_publico')) AS soltou";
+  const MENSAGEM_409_TRAVA =
+    'Outra alteração de cadastro público está em andamento. Tente de novo em instantes.';
+
+  let eventos: string[];
+  let conexao: { destroy: jest.Mock };
+  /** O que o GET_LOCK devolve: 1, 0 (tempo esgotado) ou NULL (erro). */
+  let obtida: number | null;
+  /** Quando definida, substitui a resposta inteira do GET_LOCK. */
+  let respostaDoGetLock: (() => Promise<unknown>) | undefined;
+  /** O que o RELEASE_LOCK devolve, ou o erro dele. */
+  let soltou: number | Error;
+  let knex: {
+    raw: jest.Mock;
+    transaction: jest.Mock;
+    client: { acquireConnection: jest.Mock; releaseConnection: jest.Mock };
+  };
+  let service: CondominiosService;
+  let aviso: jest.SpyInstance;
+
+  beforeEach(() => {
+    eventos = [];
+    obtida = 1;
+    respostaDoGetLock = undefined;
+    soltou = 1;
+    conexao = { destroy: jest.fn(() => eventos.push('destroy')) };
+    knex = {
+      client: {
+        acquireConnection: jest.fn(() => {
+          eventos.push('acquire');
+          return Promise.resolve(conexao);
+        }),
+        releaseConnection: jest.fn((c: unknown) => {
+          eventos.push(`release(${c === conexao ? 'mesma' : 'outra'})`);
+          return Promise.resolve();
+        }),
+      },
+      raw: jest.fn((sql: string, bindings?: unknown[]) => ({
+        connection: (c: unknown) => {
+          const naConexao = c === conexao ? 'mesma' : 'outra';
+          if (sql === GET_LOCK) {
+            eventos.push(`GET_LOCK(${naConexao}, ${String(bindings)})`);
+            return respostaDoGetLock
+              ? respostaDoGetLock()
+              : Promise.resolve([[{ obtida }], []]);
+          }
+          if (sql === RELEASE_LOCK) {
+            eventos.push(`RELEASE_LOCK(${naConexao})`);
+            return soltou instanceof Error
+              ? Promise.reject(soltou)
+              : Promise.resolve([[{ soltou }], []]);
+          }
+          throw new Error(`SQL não simulado: ${sql}`);
+        },
+      })),
+      transaction: jest.fn(
+        async (
+          trabalho: (trx: unknown) => Promise<unknown>,
+          config?: { connection?: unknown },
+        ) => {
+          eventos.push(
+            `transaction(${config?.connection === conexao ? 'mesma' : 'outra'})`,
+          );
+          try {
+            const resultado = await trabalho('trx');
+            eventos.push('commit');
+            return resultado;
+          } catch (erro) {
+            eventos.push('rollback');
+            throw erro;
+          }
+        },
+      ),
+    };
+    service = new CondominiosService(
+      knex as unknown as Knex,
+      new EscopoCondominioService(knex as unknown as Knex),
+    );
+    aviso = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+  });
+
+  afterEach(() => {
+    aviso.mockRestore();
+  });
+
+  const trabalho = (resultado: unknown = 'alterado') =>
+    jest.fn((trx: unknown) => {
+      eventos.push(`trabalho(${String(trx)})`);
+      return Promise.resolve(resultado);
+    });
+
+  it('Duas ligações simultâneas não criam colisão: pede a trava na conexão da transação, abre a transação nela só depois da trava e solta a trava depois do commit', async () => {
+    await expect(service.comTravaDoCadastroPublico(trabalho())).resolves.toBe(
+      'alterado',
+    );
+
+    expect(eventos).toEqual([
+      'acquire',
+      'GET_LOCK(mesma, 5)',
+      'transaction(mesma)',
+      'trabalho(trx)',
+      'commit',
+      'RELEASE_LOCK(mesma)',
+      'release(mesma)',
+    ]);
+  });
+
+  it('a alteração recusada (ex.: 409 de colisão) também solta a trava e devolve a conexão', async () => {
+    const colisao = new ConflictException('colisão');
+
+    await expect(
+      service.comTravaDoCadastroPublico(() => Promise.reject(colisao)),
+    ).rejects.toBe(colisao);
+
+    expect(eventos).toEqual([
+      'acquire',
+      'GET_LOCK(mesma, 5)',
+      'transaction(mesma)',
+      'rollback',
+      'RELEASE_LOCK(mesma)',
+      'release(mesma)',
+    ]);
+  });
+
+  it.each<[string, number | null]>([
+    ['tempo de espera esgotado (0)', 0],
+    ['erro do GET_LOCK (NULL)', null],
+  ])(
+    'trava não obtida, %s: 409 pedindo nova tentativa, sem abrir transação nem soltar a trava de outra sessão',
+    async (_rotulo, valor) => {
+      obtida = valor;
+      const alterar = trabalho();
+
+      const erro = await service.comTravaDoCadastroPublico(alterar).then(
+        () => null,
+        (e: Error) => e,
+      );
+
+      expect({
+        tipo: erro?.constructor.name,
+        mensagem: erro?.message,
+        alterou: alterar.mock.calls.length,
+        eventos,
+      }).toEqual({
+        tipo: 'ConflictException',
+        mensagem: MENSAGEM_409_TRAVA,
+        alterou: 0,
+        eventos: ['acquire', 'GET_LOCK(mesma, 5)', 'release(mesma)'],
+      });
+    },
+  );
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['a consulta falha', () => Promise.reject(new Error('Connection lost'))],
+    [
+      'a resposta deixa de ser [linhas, campos]',
+      () => Promise.resolve({ rows: [{ obtida: 1 }] }),
+    ],
+    [
+      'a coluna da resposta muda de nome',
+      () => Promise.resolve([[{ resultado: 1 }], []]),
+    ],
+  ])(
+    'GET_LOCK sem 0, 1 ou NULL confirmado (%s): a conexão é fechada antes de o pool recebê-la, sem transação, e o erro sobe',
+    async (_rotulo, resposta) => {
+      // Sem saber se o MariaDB concedeu a trava, a conexão não pode voltar
+      // viva ao pool: fechada, a sessão solta a trava que tiver.
+      respostaDoGetLock = resposta;
+      const alterar = trabalho();
+
+      const erro = await service.comTravaDoCadastroPublico(alterar).then(
+        () => null,
+        (e: unknown) => e,
+      );
+
+      expect({
+        falhou: erro instanceof Error,
+        alterou: alterar.mock.calls.length,
+        eventos,
+      }).toEqual({
+        falhou: true,
+        alterou: 0,
+        eventos: ['acquire', 'GET_LOCK(mesma, 5)', 'destroy', 'release(mesma)'],
+      });
+    },
+  );
+
+  it.each<[string, () => number | Error]>([
+    ['erro', () => new Error('Connection lost')],
+    ['RELEASE_LOCK sem confirmar (0)', () => 0],
+  ])(
+    'soltar a trava falha (%s): a conexão é fechada antes de voltar ao pool, para a sessão soltar a trava, e a alteração confirmada é devolvida',
+    async (_rotulo, falha) => {
+      soltou = falha();
+
+      await expect(service.comTravaDoCadastroPublico(trabalho())).resolves.toBe(
+        'alterado',
+      );
+
+      expect({
+        eventos: eventos.slice(-3),
+        avisou: aviso.mock.calls.length,
+      }).toEqual({
+        eventos: ['RELEASE_LOCK(mesma)', 'destroy', 'release(mesma)'],
+        avisou: 1,
+      });
+    },
+  );
 });

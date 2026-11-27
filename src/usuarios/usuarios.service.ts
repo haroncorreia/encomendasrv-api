@@ -46,6 +46,21 @@ type UsuarioComCondominio = UsuarioSemCredenciais & {
 /** Condomínio e unidade gravados para um usuário novo. */
 type VinculoCondominio = Pick<Usuario, 'uuid_condominio' | 'uuid_unidade'>;
 
+/** Unidade achada pelo código, com o condomínio dela. */
+type UnidadeEncontrada = Pick<Unidade, 'uuid' | 'uuid_condominio'>;
+
+const mensagemUnidadeNaoEncontrada = (codigo: string) =>
+  `Unidade '${codigo}' não encontrada.`;
+
+/**
+ * 400 de código achado em mais de um condomínio (spec
+ * `cadastro-publico-condominio`, card #159). No auto-cadastro, só aparece com
+ * dado gravado direto no banco: a API recusa ligar o cadastro público com
+ * colisão.
+ */
+const mensagemUnidadeAmbigua = (codigo: string) =>
+  `A unidade '${codigo}' existe em mais de um condomínio. Procure a administração do seu condomínio para concluir o cadastro.`;
+
 /**
  * O que a sessão (`JwtStrategy`) precisa a cada requisição: o usuário e a
  * situação do condomínio dele, lidos numa consulta só.
@@ -506,14 +521,16 @@ export class UsuariosService {
    * (`POST /usuarios`). Pela spec `isolamento-multitenant-usuarios` (card
    * #167), nenhum funcionário não-super nasce sem condomínio. Ordem da
    * decisão 2 do design da change `vincular-funcionario-ao-condominio`:
-   * 1. perfil novo `super`: sem condomínio (é global); a unidade, se vier,
-   *    segue a regra anterior;
+   * 1. perfil novo `super`: sem condomínio (é global); a unidade, se vier, é
+   *    procurada no `uuid_condominio` informado ou, sem ele, na base inteira
+   *    (ambígua dá 400);
    * 2. ator não-super (admin): o condomínio do próprio ator, lido do banco;
    *    403 se ele não tiver condomínio ou informar outro;
    * 3. ator `super`: o `uuid_condominio` informado ou, sem ele, o único
    *    condomínio cadastrado; senão 400;
-   * 4. a unidade informada precisa existir (400) e ser do condomínio
-   *    resolvido (403 para admin, 400 para super).
+   * 4. a unidade informada é procurada só no condomínio resolvido (spec
+   *    `isolamento-multitenant-unidades`, #159): a que só existe em outro
+   *    condomínio responde como inexistente (400), para admin e para super.
    * Roda antes do insert e na mesma transação: quando recusa, nada é criado.
    */
   private async resolverVinculoCadastroAdministrativo(
@@ -531,8 +548,13 @@ export class UsuariosService {
         );
       }
 
+      // O `uuid_condominio` só orienta a busca: o super criado é global.
       const unidade = dto.unidade
-        ? await this.buscarUnidadePorCodigo(dto.unidade, qb)
+        ? await this.buscarUnidadePorCodigo(
+            dto.unidade,
+            dto.uuid_condominio ?? null,
+            qb,
+          )
         : undefined;
       return { uuid_condominio: null, uuid_unidade: unidade?.uuid ?? null };
     }
@@ -548,21 +570,14 @@ export class UsuariosService {
       return { uuid_condominio: uuidCondominio, uuid_unidade: null };
     }
 
-    const unidade = await this.buscarUnidadePorCodigo(dto.unidade, qb);
-
-    // Admin: mesma recusa (403) do `updateUnidade`. Não restringe o super.
-    this.assertDentroDoEscopo(
-      escopo,
-      unidade.uuid_condominio,
-      'Seu perfil não possui permissão para atribuir unidade de outro condomínio.',
+    // Busca só no condomínio resolvido: a unidade achada é sempre dele, e a
+    // recusa de "unidade de outro condomínio" (403 do admin e 400 do super)
+    // deixou de ser alcançável, por isso saiu.
+    const unidade = await this.buscarUnidadePorCodigo(
+      dto.unidade,
+      uuidCondominio,
+      qb,
     );
-
-    // Super: a unidade precisa ser do condomínio escolhido (400).
-    if (unidade.uuid_condominio !== uuidCondominio) {
-      throw new BadRequestException(
-        `A unidade '${dto.unidade}' não pertence ao condomínio do novo usuário.`,
-      );
-    }
 
     return { uuid_condominio: uuidCondominio, uuid_unidade: unidade.uuid };
   }
@@ -629,11 +644,14 @@ export class UsuariosService {
   }
 
   /**
-   * Vínculo do auto-cadastro: condomínio e unidade vêm da unidade. Unidade de
-   * condomínio suspenso ou excluído responde como inexistente, com a mesma
-   * 400 (spec `bloqueio-condominio-inativo`, card #192), antes do insert:
-   * nenhum usuário é criado e nenhum admin é avisado. Só o auto-cadastro passa
-   * por aqui; o cadastro administrativo do `super` não muda.
+   * Vínculo do auto-cadastro: condomínio e unidade vêm da unidade, procurada
+   * numa consulta só, entre as unidades ativas de condomínio com cadastro
+   * público, ativo e não excluído (spec `cadastro-publico-condominio`, card
+   * #159). O corpo do sign-up continua só com o código. Sem resultado, a 400
+   * de unidade inexistente, a mesma de condomínio suspenso ou excluído (spec
+   * `bloqueio-condominio-inativo`, #192); com mais de um, a 400 de unidade
+   * ambígua. A recusa vem antes do insert: nenhum usuário é criado e nenhum
+   * admin é avisado. Só o auto-cadastro passa por aqui.
    */
   private async resolverVinculoPelaUnidade(
     codigo: string | undefined,
@@ -643,13 +661,17 @@ export class UsuariosService {
       return { uuid_condominio: null, uuid_unidade: null };
     }
 
-    const unidade = await this.buscarUnidadePorCodigo(codigo, qb);
+    const unidades = await this.acessoCondominio
+      .restringirACondominiosComCadastroPublico(
+        qb('unidades as u')
+          .where('u.unidade', codigo)
+          .whereNull('u.deleted_at'),
+        'u.uuid_condominio',
+      )
+      .limit(2)
+      .select<UnidadeEncontrada[]>('u.uuid', 'u.uuid_condominio');
 
-    if (
-      await this.acessoCondominio.estaBloqueado(unidade.uuid_condominio, qb)
-    ) {
-      throw new BadRequestException(`Unidade '${codigo}' não encontrada.`);
-    }
+    const unidade = this.unicaUnidade(unidades, codigo);
 
     return {
       uuid_condominio: unidade.uuid_condominio,
@@ -657,21 +679,59 @@ export class UsuariosService {
     };
   }
 
-  /** Unidade pelo código, único na base (#159). 400 se não existir. */
-  private async buscarUnidadePorCodigo(
+  /**
+   * A única unidade de uma busca por código feita com `limit(2)`: nenhuma dá
+   * a 400 de unidade inexistente; duas, a 400 de unidade ambígua.
+   */
+  private unicaUnidade(
+    unidades: UnidadeEncontrada[],
     codigo: string,
-    qb: Knex | Knex.Transaction,
-  ): Promise<{ uuid: string; uuid_condominio: string }> {
-    const unidadeRow = await qb('unidades')
-      .where({ unidade: codigo })
-      .whereNull('deleted_at')
-      .first<{ uuid: string; uuid_condominio: string }>();
-
-    if (!unidadeRow) {
-      throw new BadRequestException(`Unidade '${codigo}' não encontrada.`);
+  ): UnidadeEncontrada {
+    if (unidades.length === 0) {
+      throw new BadRequestException(mensagemUnidadeNaoEncontrada(codigo));
     }
 
-    return unidadeRow;
+    if (unidades.length > 1) {
+      throw new BadRequestException(mensagemUnidadeAmbigua(codigo));
+    }
+
+    return unidades[0];
+  }
+
+  /**
+   * Unidade ativa pelo código, no condomínio informado (spec
+   * `isolamento-multitenant-unidades`, card #159): o código é único por
+   * condomínio, e o de outro condomínio responde como inexistente (400).
+   * `null` procura nos condomínios não excluídos, só para o que não tem
+   * condomínio (super criando super, correção de usuário sem condomínio):
+   * mais de uma dá a 400 de unidade ambígua.
+   */
+  private async buscarUnidadePorCodigo(
+    codigo: string,
+    uuidCondominio: string | null,
+    qb: Knex | Knex.Transaction,
+  ): Promise<UnidadeEncontrada> {
+    const consulta = qb('unidades as u')
+      .where('u.unidade', codigo)
+      .whereNull('u.deleted_at');
+
+    // Nunca `where` com `null`, que o knex traduziria para `IS NULL`.
+    if (uuidCondominio !== null) {
+      consulta.where('u.uuid_condominio', uuidCondominio);
+    } else {
+      // O DELETE de condomínio mantém as unidades dele ativas: sem este
+      // filtro, a unidade de um excluído seria achada, ou daria uma ambígua
+      // falsa.
+      consulta
+        .join('condominios as c', 'c.uuid', 'u.uuid_condominio')
+        .whereNull('c.deleted_at');
+    }
+
+    const unidades = await consulta
+      .limit(2)
+      .select<UnidadeEncontrada[]>('u.uuid', 'u.uuid_condominio');
+
+    return this.unicaUnidade(unidades, codigo);
   }
 
   async update(
@@ -846,10 +906,14 @@ export class UsuariosService {
   }
 
   /**
-   * Corrige a unidade (e o condomínio) de um usuário. A unidade nova precisa
-   * estar no escopo de condomínio do `ator` (spec `correcao-unidade-usuario`),
-   * por isso ele é obrigatório. A busca por código continua global porque o
-   * código é único na base (#159).
+   * Corrige a unidade de um usuário (spec `correcao-unidade-usuario`). O alvo
+   * precisa estar no escopo de condomínio do `ator`, por isso ele é
+   * obrigatório. O código é procurado no condomínio do alvo (spec
+   * `isolamento-multitenant-unidades`, #159), que para o admin é o dele,
+   * depois da guarda: o de outro condomínio responde como inexistente (400), e
+   * o alvo não muda de condomínio. Só o alvo sem condomínio (corrigido pelo
+   * `super`) tem o código procurado na base inteira, e ganha o condomínio da
+   * unidade; ambígua dá 400.
    */
   async updateUnidade(
     uuid: string,
@@ -857,24 +921,14 @@ export class UsuariosService {
     ator: JwtPayload,
     trx?: Knex.Transaction,
   ): Promise<UsuarioComCondominio> {
-    // O escopo, resolvido uma vez, vale para o alvo e para a unidade nova.
-    const { escopo } = await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
+    const { alvo } = await this.alvoDaEscritaNoEscopo(uuid, ator, trx);
 
     const qb = trx ?? this.knex;
 
-    const unidadeRow = await qb('unidades')
-      .where({ unidade })
-      .whereNull('deleted_at')
-      .first<{ uuid: string; uuid_condominio: string }>();
-
-    if (!unidadeRow) {
-      throw new BadRequestException(`Unidade '${unidade}' não encontrada.`);
-    }
-
-    this.assertDentroDoEscopo(
-      escopo,
-      unidadeRow.uuid_condominio,
-      'Seu perfil não possui permissão para atribuir unidade de outro condomínio.',
+    const unidadeRow = await this.buscarUnidadePorCodigo(
+      unidade,
+      alvo.uuid_condominio,
+      qb,
     );
 
     await qb<Usuario>(TABLE).where({ uuid }).update({

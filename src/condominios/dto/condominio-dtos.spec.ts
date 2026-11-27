@@ -121,6 +121,38 @@ describe('DTOs de condomínios', () => {
         ).toEqual([`property ${campo} should not exist`]);
       },
     );
+
+    describe('cadastro_publico (spec cadastro-publico-condominio, #159)', () => {
+      it.each([true, false])(
+        'aceita o booleano %s, opcional, ao lado dos campos de antes',
+        async (valor) => {
+          await expect(
+            validar(UpdateCondominioDto, {
+              nome: 'Recanto Verde',
+              cadastro_publico: valor,
+            }),
+          ).resolves.toEqual({
+            nome: 'Recanto Verde',
+            cadastro_publico: valor,
+          });
+        },
+      );
+
+      it.each<[string, unknown]>([
+        ['nulo', null],
+        ['texto "true"', 'true'],
+        ['número 1', 1],
+      ])(
+        'cadastro_publico %s: 400 com a mensagem do campo (a coluna é NOT NULL)',
+        async (_rotulo, valor) => {
+          expect(
+            await mensagensDo400(UpdateCondominioDto, {
+              cadastro_publico: valor,
+            }),
+          ).toEqual(['O cadastro público deve ser verdadeiro ou falso.']);
+        },
+      );
+    });
   });
 
   describe('CreateCondominioDto', () => {
@@ -233,18 +265,24 @@ describe('DTOs de condomínios', () => {
       ).toEqual(['Informe um CNPJ válido.']);
     });
 
-    it.each(['status', 'motivo_suspensao', 'uuid', 'deleted_at', 'extra'])(
-      'Campo fora do contrato (%s): 400',
-      async (campo) => {
-        expect(
-          await mensagensDo400(CreateCondominioDto, {
-            nome: 'Novo',
-            cnpj: CNPJ,
-            [campo]: 'x',
-          }),
-        ).toEqual([`property ${campo} should not exist`]);
-      },
-    );
+    // `cadastro_publico`: o condomínio novo nasce desligado e só o PATCH do
+    // super liga a marca (#159).
+    it.each([
+      'status',
+      'motivo_suspensao',
+      'uuid',
+      'deleted_at',
+      'extra',
+      'cadastro_publico',
+    ])('Campo fora do contrato (%s): 400', async (campo) => {
+      expect(
+        await mensagensDo400(CreateCondominioDto, {
+          nome: 'Novo',
+          cnpj: CNPJ,
+          [campo]: 'x',
+        }),
+      ).toEqual([`property ${campo} should not exist`]);
+    });
 
     it('nome com mais de 50 caracteres: 400', async () => {
       await mensagensDo400(CreateCondominioDto, {

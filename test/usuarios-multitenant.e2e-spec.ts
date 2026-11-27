@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -149,6 +150,66 @@ describe('Usuarios: isolamento por condomínio (e2e)', () => {
           ])
           .whereNull('deleted_at'),
       ).toHaveLength(3);
+    });
+
+    it('acha o condomínio A pelo admin do seed, mesmo com a unidade do seed também em outro condomínio (#159)', async () => {
+      // A 0303 do seed num terceiro condomínio, com um uuid que vem primeiro
+      // numa varredura pela chave primária: uma busca só pelo código acharia
+      // esta, e não a do seed.
+      const outro = randomUUID();
+      await knex('condominios').insert({
+        uuid: outro,
+        nome: 'Outro com a 0303 (e2e fixture)',
+        created_by: 'e2e-fixture',
+        updated_by: 'e2e-fixture',
+      });
+      await knex('unidades').insert({
+        uuid: '00000000-0000-4000-8000-000000000303',
+        uuid_condominio: outro,
+        unidade: '0303',
+        quadra: '03',
+        lote: '03',
+        created_by: 'e2e-fixture',
+        updated_by: 'e2e-fixture',
+      });
+
+      try {
+        const doSeed = await knex('unidades')
+          .join(
+            'usuarios',
+            'usuarios.uuid_condominio',
+            'unidades.uuid_condominio',
+          )
+          .where('usuarios.email', 'admin@cfrecantoverde.com.br')
+          .where('unidades.unidade', '0303')
+          .first<{
+            uuid: string;
+            uuid_condominio: string;
+          }>('unidades.uuid', 'unidades.uuid_condominio');
+        const fx = await criarFixtureDoisCondominios(
+          knex,
+          jwtService,
+          configService,
+        ).catch((erro: Error) => erro);
+
+        try {
+          expect(
+            fx instanceof Error
+              ? fx.message
+              : {
+                  a: fx.condominioA.uuid,
+                  unidade: fx.condominioA.unidade.uuid,
+                },
+          ).toEqual({ a: doSeed.uuid_condominio, unidade: doSeed.uuid });
+        } finally {
+          if (!(fx instanceof Error)) {
+            await removerFixtureDoisCondominios(knex, fx);
+          }
+        }
+      } finally {
+        await knex('unidades').where({ uuid_condominio: outro }).del();
+        await knex('condominios').where({ uuid: outro }).del();
+      }
     });
   });
 
@@ -447,7 +508,10 @@ describe('Usuarios: isolamento por condomínio (e2e)', () => {
           },
         );
 
-        it('PATCH /usuarios/:id/unidade: admin A não move usuário do A para unidade do B (403, usuário inalterado)', async () => {
+        // Era 403 até o #159. Agora a unidade é procurada só no condomínio do
+        // alvo (spec `isolamento-multitenant-unidades`, cenário "Código que só
+        // existe em outro condomínio").
+        it('PATCH /usuarios/:id/unidade: admin A não move usuário do A para unidade que só existe no B (400 de unidade inexistente, usuário inalterado)', async () => {
           const alvo = await novoAlvo(
             fx.condominioA,
             { perfil: 'morador', aprovado: true },
@@ -455,10 +519,13 @@ describe('Usuarios: isolamento por condomínio (e2e)', () => {
           );
           const antes = await estadoNoBanco(alvo.uuid);
 
-          await patch(fx.tokens.adminA, `/${alvo.uuid}/unidade`, {
+          const res = await patch(fx.tokens.adminA, `/${alvo.uuid}/unidade`, {
             unidade: fx.condominioB.unidade.codigo,
-          }).expect(403);
+          }).expect(400);
 
+          expect((res.body as { message: string }).message).toBe(
+            `Unidade '${fx.condominioB.unidade.codigo}' não encontrada.`,
+          );
           expect(await estadoNoBanco(alvo.uuid)).toEqual(antes);
         });
       });

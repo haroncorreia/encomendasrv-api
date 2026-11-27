@@ -320,7 +320,10 @@ describe('POST /usuarios: condomínio do funcionário (card #167, e2e)', () => {
       expect(await usuarioPorEmail(payload.email)).toBeUndefined();
     });
 
-    it('admin A com unidade do B: 403 e nenhum usuário criado', async () => {
+    // Era 403 até o #159. Agora a unidade é procurada só no condomínio do
+    // admin (spec `isolamento-multitenant-unidades`, cenário "Código que só
+    // existe em outro condomínio").
+    it('admin A com unidade que só existe no B: 400 de unidade inexistente e nenhum usuário criado', async () => {
       const payload = payloadDoApp('portaria', 'admina23unid');
 
       const res = await criarUsuario(fx.tokens.adminA, {
@@ -328,7 +331,10 @@ describe('POST /usuarios: condomínio do funcionário (card #167, e2e)', () => {
         unidade: fx.condominioB.unidade.codigo,
       });
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(400);
+      expect((res.body as { message: string }).message).toBe(
+        `Unidade '${fx.condominioB.unidade.codigo}' não encontrada.`,
+      );
       expect(await usuarioPorEmail(payload.email)).toBeUndefined();
     });
 
@@ -394,9 +400,12 @@ describe('POST /usuarios: condomínio do funcionário (card #167, e2e)', () => {
         },
       );
 
+      // A mensagem era "não pertence ao condomínio do novo usuário" até o
+      // #159: a unidade é procurada só no condomínio escolhido (spec
+      // `isolamento-multitenant-unidades`).
       expect(res.status).toBe(400);
       expect((res.body as { message: string }).message).toBe(
-        `A unidade '${fx.condominioB.unidade.codigo}' não pertence ao condomínio do novo usuário.`,
+        `Unidade '${fx.condominioB.unidade.codigo}' não encontrada.`,
       );
       expect(await usuarioPorEmail(payload.email)).toBeUndefined();
     });

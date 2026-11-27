@@ -197,6 +197,30 @@ describe('AcessoCondominioService', () => {
     });
   });
 
+  describe('restringirACondominiosComCadastroPublico(qb, coluna)', () => {
+    // Só monta o SQL: nenhuma conexão é aberta.
+    const construtor = knexFactory({ client: 'mysql2' });
+
+    afterAll(async () => {
+      await construtor.destroy();
+    });
+
+    it('INNER JOIN no condomínio: só linhas de condomínio com cadastro público, ativo e não excluído (spec cadastro-publico-condominio, #159)', () => {
+      const qb = construtor('unidades as u')
+        .where('u.unidade', '0101')
+        .select('u.uuid');
+
+      service.restringirACondominiosComCadastroPublico(qb, 'u.uuid_condominio');
+
+      expect(qb.toQuery()).toBe(
+        'select `u`.`uuid` from `unidades` as `u` ' +
+          'inner join `condominios` as `condominio_cadastro` on `condominio_cadastro`.`uuid` = `u`.`uuid_condominio` ' +
+          "where `u`.`unidade` = '0101' and `condominio_cadastro`.`cadastro_publico` = true " +
+          "and `condominio_cadastro`.`status` = 'ativo' and `condominio_cadastro`.`deleted_at` is null",
+      );
+    });
+  });
+
   describe('CondominioInativoException', () => {
     it('é um 401 (UnauthorizedException) com o corpo do Nest mais o codigo CONDOMINIO_INATIVO', () => {
       const erro = new CondominioInativoException();

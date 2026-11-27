@@ -87,7 +87,7 @@ export class CondominiosController {
     @CurrentUser() user: JwtPayload,
     @AuditoriaCtx() ctx: AuditoriaContext,
   ) {
-    return this.knex.transaction(async (trx) => {
+    const alterar = async (trx: Knex.Transaction) => {
       // O escopo (403) é checado no service, antes da escrita. A auditoria só
       // é registrada depois que a alteração acontece, na mesma transação.
       const atualizado = await this.condominiosService.update(
@@ -107,7 +107,15 @@ export class CondominiosController {
       );
 
       return atualizado;
-    });
+    };
+
+    // Ligar o cadastro público (só o super liga) espera a trava das ligações
+    // antes de abrir a transação, e a solta depois do commit (#159).
+    if (dto.cadastro_publico === true && user.perfil === Perfil.SUPER) {
+      return this.condominiosService.comTravaDoCadastroPublico(alterar);
+    }
+
+    return this.knex.transaction(alterar);
   }
 
   /**

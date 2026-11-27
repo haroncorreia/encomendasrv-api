@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
@@ -27,7 +28,8 @@ const TABLE = 'condominios';
 /**
  * Campos que `admin`, `portaria` e `morador` recebem do condomínio (spec
  * `isolamento-multitenant-condominios`, card #192 / Issue #183). As colunas de
- * autoria, exclusão e status ficam só para o `super`.
+ * autoria, exclusão e status, e a marca de cadastro público (#159), ficam só
+ * para o `super`.
  */
 export const CAMPOS_NEGOCIO_CONDOMINIO = [
   'uuid',
@@ -52,7 +54,53 @@ export type CondominioResposta = Condominio | CondominioNegocio;
 
 const MENSAGEM_403_CNPJ =
   'Seu perfil não possui permissão para alterar o CNPJ do condomínio.';
+const MENSAGEM_403_CADASTRO_PUBLICO =
+  'Seu perfil não possui permissão para alterar o cadastro público do condomínio.';
 const MENSAGEM_409_CNPJ = 'Já existe um condomínio com este CNPJ.';
+
+/** Quantos códigos coincidentes o 409 do cadastro público cita. */
+const CODIGOS_NA_MENSAGEM_DE_COLISAO = 5;
+
+/**
+ * Nome da trava das ligações do cadastro público (#159), em SQL. O `GET_LOCK`
+ * vale para o servidor inteiro, por isso o nome leva o banco atual, cortado
+ * para caber nos 64 caracteres do MariaDB: bancos diferentes no mesmo servidor
+ * (dev e teste) não se esperam.
+ */
+const NOME_DA_TRAVA_SQL =
+  "CONCAT(LEFT(DATABASE(), 35), '.condominios_cadastro_publico')";
+
+/** Espera pela trava, abaixo do tempo limite de 10 s das requisições do app. */
+const ESPERA_DA_TRAVA_SEGUNDOS = 5;
+
+const MENSAGEM_409_TRAVA_CADASTRO_PUBLICO =
+  'Outra alteração de cadastro público está em andamento. Tente de novo em instantes.';
+
+/** Conexão do pool do knex (mysql2): só o que a trava usa dela. */
+interface ConexaoDoPool {
+  destroy(): void;
+}
+
+/** O que a trava usa do cliente do knex para tirar e devolver conexões. */
+interface ClienteDoPool {
+  acquireConnection(): Promise<ConexaoDoPool>;
+  releaseConnection(conexao: ConexaoDoPool): Promise<void>;
+}
+
+/**
+ * 409 ao ligar o cadastro público com código de unidade coincidente (spec
+ * `cadastro-publico-condominio`, card #159). Recebe até um código a mais que
+ * os citados, para saber se há mais.
+ */
+function mensagem409CadastroPublico(codigos: string[]): string {
+  const citados =
+    codigos.slice(0, CODIGOS_NA_MENSAGEM_DE_COLISAO).join(', ') +
+    (codigos.length > CODIGOS_NA_MENSAGEM_DE_COLISAO ? '…' : '');
+
+  return codigos.length === 1
+    ? `Não é possível ligar o cadastro público: a unidade ${citados} também existe em outro condomínio com cadastro público.`
+    : `Não é possível ligar o cadastro público: as unidades ${citados} também existem em outro condomínio com cadastro público.`;
+}
 const MENSAGEM_409_CNPJ_EXCLUIDO =
   'Este CNPJ pertence a um condomínio excluído. Peça ao suporte a restauração desse cadastro em vez de cadastrá-lo de novo.';
 
@@ -92,10 +140,12 @@ function ehCnpjDuplicado(erro: unknown): boolean {
  * `EscopoCondominioService` e é aplicado aqui, não no controller, para que
  * qualquer rota futura que use o service já nasça isolada. Pelo card #192,
  * quem não é `super` recebe só os campos de negócio, e só o `super` altera o
- * CNPJ.
+ * CNPJ. Pelo #159, só o `super` vê e altera a marca de cadastro público.
  */
 @Injectable()
 export class CondominiosService {
+  private readonly logger = new Logger(CondominiosService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly escopoCondominio: EscopoCondominioService,
@@ -125,6 +175,17 @@ export class CondominiosService {
   }
 
   /**
+   * Linha completa, a que o `super` recebe, com `cadastro_publico` booleano:
+   * o mysql2 devolve o TINYINT(1) como 0 ou 1.
+   */
+  private comMarcaBooleana(condominio: Condominio): Condominio {
+    return {
+      ...condominio,
+      cadastro_publico: Boolean(condominio.cadastro_publico),
+    };
+  }
+
+  /**
    * Projeção da resposta pelo escopo já resolvido: o escopo global (`null`)
    * é o do `super`, que recebe todas as colunas.
    */
@@ -133,7 +194,7 @@ export class CondominiosService {
     escopo: EscopoCondominio,
   ): CondominioResposta {
     if (escopo === null) {
-      return condominio;
+      return this.comMarcaBooleana(condominio);
     }
 
     return Object.fromEntries(
@@ -185,8 +246,9 @@ export class CondominiosService {
   /**
    * Cria o condomínio já `ativo`, na transação da auditoria (spec
    * `gestao-condominios`, card #192). O CNPJ é único inclusive entre
-   * excluídos (409). Só o `super` chega aqui (`@Roles` da rota), e por isso a
-   * resposta é a linha completa.
+   * excluídos (409). Nasce sem cadastro público, pelo padrão da coluna (#159).
+   * Só o `super` chega aqui (`@Roles` da rota), e por isso a resposta é a
+   * linha completa.
    */
   async criar(
     dto: CreateCondominioDto,
@@ -224,17 +286,17 @@ export class CondominiosService {
       );
     }
 
-    return criado;
+    return this.comMarcaBooleana(criado);
   }
 
   /**
-   * Alvo das escritas de status e exclusão, lido com `forUpdate()` na
-   * transação: suspender e excluir ao mesmo tempo não se atropelam.
-   * Inexistente ou excluído: 404.
+   * Alvo das escritas de status e exclusão, e da que liga o cadastro público,
+   * lido com `forUpdate()` na transação: escritas simultâneas no mesmo
+   * condomínio não se atropelam. Inexistente ou excluído: 404.
    */
   private async travarParaEscrita(
     uuid: string,
-    trx: Knex.Transaction,
+    trx: Knex | Knex.Transaction,
   ): Promise<Condominio> {
     const condominio = await this.query(trx)
       .where({ uuid })
@@ -267,7 +329,7 @@ export class CondominiosService {
     const atual = await this.travarParaEscrita(uuid, trx);
 
     if (atual.status === dto.status) {
-      return { condominio: atual, mudou: false };
+      return { condominio: this.comMarcaBooleana(atual), mudou: false };
     }
 
     const suspender = dto.status === StatusCondominio.SUSPENSO;
@@ -282,7 +344,9 @@ export class CondominiosService {
       });
 
     return {
-      condominio: await this.travarParaEscrita(uuid, trx),
+      condominio: this.comMarcaBooleana(
+        await this.travarParaEscrita(uuid, trx),
+      ),
       mudou: true,
     };
   }
@@ -349,11 +413,175 @@ export class CondominiosService {
   }
 
   /**
+   * Roda `alterar` numa transação protegida pela trava das ligações do
+   * cadastro público (spec `cadastro-publico-condominio`, card #159). Protege
+   * uma coisa só: duas ligações simultâneas, em condomínios com códigos
+   * coincidentes, não passam as duas pela checagem de colisão. A trava nomeada
+   * do MariaDB (`GET_LOCK`) é da sessão, e não da transação, por isso:
+   * - a conexão sai do pool só para isto, e a transação roda nela;
+   * - a transação só começa depois da trava, e a leitura da checagem já vê o
+   *   que a ligação anterior confirmou;
+   * - a trava sai depois do commit ou do rollback, na mesma conexão;
+   * - a conexão só volta viva ao pool com a trava solta ou sem ela (0 ou NULL
+   *   confirmados). Em qualquer outro caso, é fechada antes, e a sessão
+   *   encerrada solta a trava.
+   * Sem a trava em `ESPERA_DA_TRAVA_SEGUNDOS`, responde 409 pedindo nova
+   * tentativa, sem alterar nada. Não protege contra unidade gravada ou
+   * restaurada depois num condomínio com cadastro público (`PATCH
+   * /unidades/:id/restore`, banco): aí o auto-cadastro recusa o código como
+   * ambíguo.
+   */
+  async comTravaDoCadastroPublico<T>(
+    alterar: (trx: Knex.Transaction) => Promise<T>,
+  ): Promise<T> {
+    const client = this.knex.client as ClienteDoPool;
+    const conexao = await client.acquireConnection();
+
+    let obtida: boolean;
+    try {
+      obtida = await this.pedirTravaDoCadastroPublico(conexao);
+    } catch (erro) {
+      // Sem saber se o MariaDB concedeu a trava, a conexão não volta viva ao
+      // pool: fechada, a sessão solta a trava que tiver.
+      await this.descartarConexao(client, conexao);
+      throw erro;
+    }
+
+    if (!obtida) {
+      // 0 ou NULL confirmados: a sessão não tem a trava.
+      await client.releaseConnection(conexao);
+      throw new ConflictException(MENSAGEM_409_TRAVA_CADASTRO_PUBLICO);
+    }
+
+    try {
+      return await this.knex.transaction(alterar, { connection: conexao });
+    } finally {
+      if (await this.soltarTravaDoCadastroPublico(conexao)) {
+        await client.releaseConnection(conexao);
+      } else {
+        await this.descartarConexao(client, conexao);
+      }
+    }
+  }
+
+  /**
+   * `GET_LOCK` na conexão: `true` com a trava (1); `false` sem ela, com 0
+   * (tempo de espera esgotado) ou NULL (erro do MariaDB) confirmados. Qualquer
+   * outra resposta lança.
+   */
+  private async pedirTravaDoCadastroPublico(
+    conexao: ConexaoDoPool,
+  ): Promise<boolean> {
+    const [[{ obtida }]] = (await this.knex
+      .raw(`SELECT GET_LOCK(${NOME_DA_TRAVA_SQL}, ?) AS obtida`, [
+        ESPERA_DA_TRAVA_SEGUNDOS,
+      ])
+      .connection(conexao)) as [Array<{ obtida: unknown }>, unknown];
+
+    if (obtida === 1) {
+      return true;
+    }
+
+    if (obtida === 0 || obtida === null) {
+      return false;
+    }
+
+    throw new Error(`Resposta inesperada do GET_LOCK (tipo ${typeof obtida}).`);
+  }
+
+  /**
+   * Solta a trava na conexão que a obteve: `true` se o MariaDB confirmar.
+   * Não lança, porque a alteração já foi confirmada ou desfeita; sem a
+   * confirmação, quem chama fecha a conexão em vez de devolvê-la ao pool com
+   * a trava presa.
+   */
+  private async soltarTravaDoCadastroPublico(
+    conexao: ConexaoDoPool,
+  ): Promise<boolean> {
+    try {
+      const [[resultado]] = (await this.knex
+        .raw(`SELECT RELEASE_LOCK(${NOME_DA_TRAVA_SQL}) AS soltou`)
+        .connection(conexao)) as [Array<{ soltou: number | null }>, unknown];
+
+      if (resultado?.soltou === 1) {
+        return true;
+      }
+
+      this.logger.warn(
+        'O MariaDB não confirmou a liberação da trava do cadastro público: a conexão será fechada.',
+      );
+    } catch (erro) {
+      this.logger.warn(
+        `Falha ao soltar a trava do cadastro público (${(erro as Error).message}): a conexão será fechada.`,
+      );
+    }
+
+    return false;
+  }
+
+  /**
+   * Fecha a conexão e só então a entrega ao pool, para liberar a vaga dela:
+   * fechada, ela não passa na validação do pool (`validateConnection` do
+   * mysql2) e é descartada, nunca reutilizada. Com a sessão encerrada, o
+   * MariaDB solta a trava que ela tivesse. Sem a entrega, o pool perderia a
+   * vaga de vez.
+   */
+  private async descartarConexao(
+    client: ClienteDoPool,
+    conexao: ConexaoDoPool,
+  ): Promise<void> {
+    conexao.destroy();
+    await client.releaseConnection(conexao);
+  }
+
+  /**
+   * Ligar o cadastro público (spec `cadastro-publico-condominio`, card #159):
+   * 409 se algum código de unidade ativa do condomínio também existe, ativo,
+   * em outro condomínio com cadastro público e não excluído. Assim o
+   * auto-cadastro, que só manda o código, não fica ambíguo. A linha do
+   * condomínio é travada (`forUpdate`) contra escritas simultâneas nela
+   * (status, exclusão); a corrida com a ligação de outro condomínio só fica
+   * fechada dentro de `comTravaDoCadastroPublico`, como a rota faz. Desligar
+   * não passa por aqui: é sempre aceito.
+   */
+  private async assertCadastroPublicoSemColisao(
+    uuid: string,
+    qb: Knex | Knex.Transaction,
+  ): Promise<void> {
+    await this.travarParaEscrita(uuid, qb);
+
+    const codigos: string[] = await qb('unidades as u1')
+      .join('unidades as u2', (join) => {
+        join
+          .on('u2.unidade', '=', 'u1.unidade')
+          .andOn('u2.uuid_condominio', '<>', 'u1.uuid_condominio');
+      })
+      .join('condominios as c2', 'c2.uuid', 'u2.uuid_condominio')
+      .where('u1.uuid_condominio', uuid)
+      .whereNull('u1.deleted_at')
+      .whereNull('u2.deleted_at')
+      .where('c2.cadastro_publico', true)
+      .whereNull('c2.deleted_at')
+      .groupBy('u1.unidade')
+      .orderBy('u1.unidade')
+      .limit(CODIGOS_NA_MENSAGEM_DE_COLISAO + 1)
+      .pluck('u1.unidade');
+
+    if (codigos.length > 0) {
+      throw new ConflictException(mensagem409CadastroPublico(codigos));
+    }
+  }
+
+  /**
    * Altera o condomínio dentro do escopo do chamador, com escopo e alvo lidos
    * no mesmo `trx` da escrita. Ordem das checagens: 404 → 403 de escopo → 403
-   * de CNPJ (quem não é `super` enviando `cnpj`, mesmo igual ao atual) → 409
-   * de CNPJ → UPDATE. Os 403 saem antes da unicidade, porque um 409 revelaria
-   * o CNPJ de outro condomínio. E-mail e telefone não são únicos (#182/#184).
+   * dos campos só do `super` (quem não é `super` enviando `cnpj`, mesmo igual
+   * ao atual, ou `cadastro_publico`) → 409 de CNPJ → 409 de colisão ao ligar o
+   * cadastro público (#159) → UPDATE. Os 403 saem antes dos 409, porque estes
+   * revelariam dados de outro condomínio. E-mail e telefone não são únicos
+   * (#182/#184). Ligar o cadastro público precisa rodar dentro de
+   * `comTravaDoCadastroPublico`, para que duas ligações simultâneas não
+   * criem colisão.
    */
   async update(
     uuid: string,
@@ -371,12 +599,22 @@ export class CondominiosService {
       'Seu perfil não possui permissão para modificar este condomínio.',
     );
 
-    if (dto.cnpj !== undefined) {
-      if (escopo !== null) {
+    if (escopo !== null) {
+      if (dto.cnpj !== undefined) {
         throw new ForbiddenException(MENSAGEM_403_CNPJ);
       }
 
+      if (dto.cadastro_publico !== undefined) {
+        throw new ForbiddenException(MENSAGEM_403_CADASTRO_PUBLICO);
+      }
+    }
+
+    if (dto.cnpj !== undefined) {
       await this.assertCnpjDisponivel(dto.cnpj, qb, uuid);
+    }
+
+    if (dto.cadastro_publico === true) {
+      await this.assertCadastroPublicoSemColisao(uuid, qb);
     }
 
     const payload: Partial<Condominio> = {
@@ -389,6 +627,9 @@ export class CondominiosService {
       ...(dto.uf !== undefined && { uf: dto.uf }),
       ...(dto.telefone !== undefined && { telefone: dto.telefone }),
       ...(dto.email !== undefined && { email: dto.email }),
+      ...(dto.cadastro_publico !== undefined && {
+        cadastro_publico: dto.cadastro_publico,
+      }),
       updated_at: new Date(),
       updated_by: user.email,
     };

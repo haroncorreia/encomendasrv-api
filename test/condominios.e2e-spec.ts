@@ -50,7 +50,11 @@ const CAMPOS_NEGOCIO = [
   'email',
 ];
 
-/** Colunas internas (autoria, exclusão e status) que só o `super` recebe. */
+/**
+ * Colunas que só o `super` recebe: autoria, exclusão, status e, desde o #159,
+ * a marca de cadastro público (spec `cadastro-publico-condominio`, "Só o super
+ * vê a marca").
+ */
 const CAMPOS_INTERNOS = [
   'created_at',
   'created_by',
@@ -62,6 +66,7 @@ const CAMPOS_INTERNOS = [
   'motivo_suspensao',
   'status_alterado_em',
   'status_alterado_por',
+  'cadastro_publico',
 ];
 
 /** O corpo tem exatamente os campos de negócio, nem mais nem menos. */
@@ -611,6 +616,30 @@ describe('CondominiosModule (e2e)', () => {
           status_alterado_em: null,
           status_alterado_por: null,
         });
+      });
+
+      it('Só o super vê a marca: o admin lê os mesmos 10 campos de negócio, sem cadastro_publico, e o super recebe a marca como booleano', async () => {
+        const doAdmin = await get(adminToken, `/${condominioSeedUuid}`).expect(
+          200,
+        );
+        const listaDoAdmin = await get(adminToken).expect(200);
+        const doSuper = await get(superToken, `/${condominioSeedUuid}`).expect(
+          200,
+        );
+        const listaDoSuper = await get(superToken).expect(200);
+        const marcaNaLista = (lista: unknown, uuid: string) =>
+          (lista as Array<{ uuid: string; cadastro_publico?: unknown }>).find(
+            (c) => c.uuid === uuid,
+          )?.cadastro_publico;
+
+        expectSoCamposDeNegocio(doAdmin.body);
+        expectSoCamposDeNegocio(listaDoAdmin.body[0]);
+        expect({
+          porId: (doSuper.body as { cadastro_publico: unknown })
+            .cadastro_publico,
+          seedNaLista: marcaNaLista(listaDoSuper.body, condominioSeedUuid),
+          bNaLista: marcaNaLista(listaDoSuper.body, fx.condominioB.uuid),
+        }).toEqual({ porId: true, seedNaLista: true, bNaLista: false });
       });
 
       it('admin do B: GET /condominios/<B> e a lista dele só com os campos de negócio', async () => {

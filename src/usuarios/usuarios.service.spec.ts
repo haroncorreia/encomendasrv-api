@@ -12,6 +12,27 @@ jest.mock('bcrypt', () => ({
 }));
 
 /**
+ * `'unidades as u'` → tabela e uma função que prefixa as colunas da linha com
+ * o alias (`u.unidade`), como numa consulta com JOIN. Sem alias, a linha é a
+ * própria, para as escritas alterarem a tabela em memória.
+ */
+function separarAlias(tabelaComAlias: string): {
+  tabela: string;
+  prefixar: (linha: Record<string, unknown>) => Record<string, unknown>;
+} {
+  const [tabela, alias] = tabelaComAlias.split(/\s+as\s+/i);
+  return {
+    tabela,
+    prefixar: (linha) =>
+      alias
+        ? Object.fromEntries(
+            Object.entries(linha).map(([col, v]) => [`${alias}.${col}`, v]),
+          )
+        : linha,
+  };
+}
+
+/**
  * Escopo de condomínio do chamador (spec `isolamento-multitenant-usuarios`,
  * cards #157/#158). O banco é simulado: só a busca do chamador por `user.sub`.
  */
@@ -197,9 +218,11 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     uuid: string,
     excluido = false,
     status: 'ativo' | 'suspenso' = 'ativo',
+    cadastroPublico = true,
   ): Linha => ({
     uuid,
     status,
+    cadastro_publico: cadastroPublico,
     deleted_at: excluido ? new Date() : null,
   });
 
@@ -217,25 +240,40 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
   });
   const superAtor = ator(Perfil.SUPER, 'super-1');
   const adminA = ator(Perfil.ADMIN, 'admin-a');
+  const adminB = ator(Perfil.ADMIN, 'admin-b');
   const adminSemCondominio = ator(Perfil.ADMIN, 'admin-sem-condominio');
 
   /** Transação em memória com o subconjunto do query builder usado por `create`. */
   function novaTransacao(): jest.Mock {
-    return jest.fn((tabela: keyof Tabelas) => {
-      const linhas = tabelas[tabela];
-      let resultado = [...linhas];
+    return jest.fn((tabelaComAlias: string) => {
+      const { tabela, prefixar } = separarAlias(tabelaComAlias);
+      const linhas = tabelas[tabela as keyof Tabelas];
+      let resultado = linhas.map(prefixar);
       let limite: number | undefined;
       const builder = {
-        where: (criterio: Linha) => {
+        where: (criterio: Linha | string, valor?: unknown) => {
+          const filtro =
+            typeof criterio === 'string' ? { [criterio]: valor } : criterio;
           resultado = resultado.filter((linha) =>
-            Object.entries(criterio).every(
-              ([col, valor]) => linha[col] === valor,
-            ),
+            Object.entries(filtro).every(([col, v]) => linha[col] === v),
           );
           return builder;
         },
         whereNull: (coluna: string) => {
           resultado = resultado.filter((linha) => linha[coluna] == null);
+          return builder;
+        },
+        /** INNER JOIN por igualdade de duas colunas (`join(tabela, a, b)`). */
+        join: (outraComAlias: string, colunaA: string, colunaB: string) => {
+          const outra = separarAlias(outraComAlias);
+          resultado = resultado.flatMap((linha) =>
+            tabelas[outra.tabela as keyof Tabelas]
+              .map((linhaOutra) => ({
+                ...linha,
+                ...outra.prefixar(linhaOutra),
+              }))
+              .filter((combinada) => combinada[colunaA] === combinada[colunaB]),
+          );
           return builder;
         },
         limit: (n: number) => {
@@ -246,6 +284,17 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
         pluck: (coluna: string) =>
           Promise.resolve(
             resultado.slice(0, limite).map((linha) => linha[coluna]),
+          ),
+        /** `select('u.uuid')` devolve a coluna sem o alias (`uuid`). */
+        select: (...colunas: string[]) =>
+          Promise.resolve(
+            resultado
+              .slice(0, limite)
+              .map((linha) =>
+                Object.fromEntries(
+                  colunas.map((col) => [col.split('.').pop(), linha[col]]),
+                ),
+              ),
           ),
         insert: (linha: Linha) => {
           linhas.push({ deleted_at: null, ...linha });
@@ -275,6 +324,7 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
       ],
       usuarios: [
         { uuid: adminA.sub, uuid_condominio: CONDOMINIO_A, deleted_at: null },
+        { uuid: adminB.sub, uuid_condominio: CONDOMINIO_B, deleted_at: null },
         {
           uuid: adminSemCondominio.sub,
           uuid_condominio: null,
@@ -344,7 +394,65 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     expect(knexForaDaTrx).not.toHaveBeenCalled();
   });
 
+  /**
+   * A101 também no B, depois da do A: uma busca sem condomínio acharia a do A
+   * (spec `isolamento-multitenant-unidades`, #159).
+   */
+  const mesmoCodigoTambemNoB = () => {
+    tabelas.unidades.push({
+      uuid: 'unidade-b-a101',
+      unidade: 'A101',
+      uuid_condominio: CONDOMINIO_B,
+      deleted_at: null,
+    });
+  };
+
+  const MENSAGEM_AMBIGUA =
+    "A unidade 'A101' existe em mais de um condomínio. Procure a administração do seu condomínio para concluir o cadastro.";
+
   describe('perfil novo super', () => {
+    it('Super cria super com unidade: com uuid_condominio, a unidade é procurada nesse condomínio, e o super continua sem condomínio', async () => {
+      montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
+      mesmoCodigoTambemNoB();
+
+      await criar(superAtor, {
+        perfil: Perfil.SUPER,
+        unidade: 'A101',
+        uuid_condominio: CONDOMINIO_B,
+      });
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: null,
+        uuid_unidade: 'unidade-b-a101',
+      });
+    });
+
+    it('Super cria super com unidade: sem uuid_condominio, o código também num condomínio excluído é achado no ativo, sem dar ambígua', async () => {
+      montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B, true)]);
+      // O DELETE do condomínio mantém as unidades dele ativas.
+      mesmoCodigoTambemNoB();
+
+      await criar(superAtor, { perfil: Perfil.SUPER, unidade: 'A101' });
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: null,
+        uuid_unidade: 'unidade-a',
+      });
+    });
+
+    it('Super cria super com unidade: sem uuid_condominio e código de dois condomínios não excluídos, 400 de unidade ambígua e nada é inserido', async () => {
+      montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
+      mesmoCodigoTambemNoB();
+
+      const erro = await erroDe(
+        criar(superAtor, { perfil: Perfil.SUPER, unidade: 'A101' }),
+      );
+
+      expect(erro).toBeInstanceOf(BadRequestException);
+      expect(erro.message).toBe(MENSAGEM_AMBIGUA);
+      expect(inserido()).toBeUndefined();
+    });
+
     it('fica sem condomínio, mesmo com vários condomínios e sem uuid_condominio', async () => {
       montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
 
@@ -356,7 +464,7 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
       });
     });
 
-    it('com unidade: a unidade segue a regra atual e o condomínio continua nulo', async () => {
+    it('Super cria super com unidade: sem uuid_condominio e código de um condomínio só, a unidade é achada e o condomínio continua nulo', async () => {
       montar([condominio(CONDOMINIO_A)]);
 
       await criar(superAtor, { perfil: Perfil.SUPER, unidade: 'A101' });
@@ -452,13 +560,28 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
       });
     });
 
-    it('com unidade de outro condomínio: 403 e nada é inserido', async () => {
+    // Antes do #159 era 403: a busca global achava a unidade do B. Agora a
+    // busca é só no condomínio do admin (spec `isolamento-multitenant-unidades`).
+    it('Código que só existe em outro condomínio: 400 de unidade inexistente e nada é inserido', async () => {
       montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
 
-      expect(await erroDe(criar(adminA, { unidade: 'B101' }))).toBeInstanceOf(
-        ForbiddenException,
-      );
+      const erro = await erroDe(criar(adminA, { unidade: 'B101' }));
+
+      expect(erro).toBeInstanceOf(BadRequestException);
+      expect(erro.message).toBe("Unidade 'B101' não encontrada.");
       expect(inserido()).toBeUndefined();
+    });
+
+    it('Admin cadastra com código que existe nos dois condomínios: grava a unidade do condomínio do admin', async () => {
+      montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
+      mesmoCodigoTambemNoB();
+
+      await criar(adminB, { unidade: 'A101' });
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: CONDOMINIO_B,
+        uuid_unidade: 'unidade-b-a101',
+      });
     });
 
     it('com unidade inexistente: 400, como antes', async () => {
@@ -543,14 +666,15 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
       },
     );
 
-    it('com unidade de outro condomínio: 400 e nada é inserido', async () => {
+    it('com unidade de outro condomínio: 400 de unidade inexistente no condomínio escolhido e nada é inserido', async () => {
       montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
 
-      expect(
-        await erroDe(
-          criar(superAtor, { uuid_condominio: CONDOMINIO_B, unidade: 'A101' }),
-        ),
-      ).toBeInstanceOf(BadRequestException);
+      const erro = await erroDe(
+        criar(superAtor, { uuid_condominio: CONDOMINIO_B, unidade: 'A101' }),
+      );
+
+      expect(erro).toBeInstanceOf(BadRequestException);
+      expect(erro.message).toBe("Unidade 'A101' não encontrada.");
       expect(inserido()).toBeUndefined();
     });
   });
@@ -567,6 +691,74 @@ describe('UsuariosService.create: condomínio do cadastro administrativo', () =>
     expect(vinculoInserido()).toEqual({
       uuid_condominio: CONDOMINIO_B,
       uuid_unidade: 'unidade-b',
+    });
+  });
+
+  describe('auto-cadastro só em condomínio com cadastro público (spec cadastro-publico-condominio, #159)', () => {
+    const autoCadastro = (unidade: string) =>
+      service.create(
+        dto({ unidade }),
+        'SignUp',
+        trx as unknown as Knex.Transaction,
+      );
+
+    /** A101 também no B, antes da do A: uma busca sem filtro acharia a do B. */
+    const mesmoCodigoNoB = () => {
+      tabelas.unidades.unshift({
+        uuid: 'unidade-b-a101',
+        unidade: 'A101',
+        uuid_condominio: CONDOMINIO_B,
+        deleted_at: null,
+      });
+    };
+
+    const semCadastroPublico = (uuid: string) =>
+      condominio(uuid, false, 'ativo', false);
+
+    it('Auto-cadastro no Recanto Verde continua igual: a unidade do condomínio com cadastro público dá o vínculo de antes', async () => {
+      montar([condominio(CONDOMINIO_A), semCadastroPublico(CONDOMINIO_B)]);
+
+      await autoCadastro('A101');
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: CONDOMINIO_A,
+        uuid_unidade: 'unidade-a',
+      });
+    });
+
+    it('Código só de condomínio sem cadastro público é recusado: 400 de unidade inexistente e nada é inserido', async () => {
+      montar([condominio(CONDOMINIO_A), semCadastroPublico(CONDOMINIO_B)]);
+
+      const erro = await erroDe(autoCadastro('B101'));
+
+      expect(erro).toBeInstanceOf(BadRequestException);
+      expect(erro.message).toBe("Unidade 'B101' não encontrada.");
+      expect(inserido()).toBeUndefined();
+    });
+
+    it('Mesmo código em condomínio sem cadastro público não interfere: o vínculo é o do condomínio com cadastro público', async () => {
+      montar([condominio(CONDOMINIO_A), semCadastroPublico(CONDOMINIO_B)]);
+      mesmoCodigoNoB();
+
+      await autoCadastro('A101');
+
+      expect(vinculoInserido()).toEqual({
+        uuid_condominio: CONDOMINIO_A,
+        uuid_unidade: 'unidade-a',
+      });
+    });
+
+    it('Código em dois condomínios com cadastro público é recusado como ambíguo: 400 com mensagem própria e nada é inserido', async () => {
+      montar([condominio(CONDOMINIO_A), condominio(CONDOMINIO_B)]);
+      mesmoCodigoNoB();
+
+      const erro = await erroDe(autoCadastro('A101'));
+
+      expect(erro).toBeInstanceOf(BadRequestException);
+      expect(erro.message).toBe(
+        "A unidade 'A101' existe em mais de um condomínio. Procure a administração do seu condomínio para concluir o cadastro.",
+      );
+      expect(inserido()).toBeUndefined();
     });
   });
 
@@ -656,14 +848,16 @@ describe('UsuariosService: guarda de condomínio nas escritas (#163)', () => {
 
   /** Conexão em memória com o subconjunto do query builder usado aqui. */
   function novaConexao(): jest.Mock {
-    return jest.fn((tabela: Tabela) => {
-      let resultado = [...tabelas[tabela]];
+    return jest.fn((tabelaComAlias: string) => {
+      const { tabela, prefixar } = separarAlias(tabelaComAlias);
+      let resultado = tabelas[tabela as Tabela].map(prefixar);
+      let limite: number | undefined;
       const builder = {
-        where: (criterio: Linha) => {
+        where: (criterio: Linha | string, valor?: unknown) => {
+          const filtro =
+            typeof criterio === 'string' ? { [criterio]: valor } : criterio;
           resultado = resultado.filter((linha) =>
-            Object.entries(criterio).every(
-              ([coluna, valor]) => linha[coluna] === valor,
-            ),
+            Object.entries(filtro).every(([col, v]) => linha[col] === v),
           );
           return builder;
         },
@@ -671,9 +865,37 @@ describe('UsuariosService: guarda de condomínio nas escritas (#163)', () => {
           resultado = resultado.filter((linha) => linha[coluna] == null);
           return builder;
         },
+        /** INNER JOIN por igualdade de duas colunas (`join(tabela, a, b)`). */
+        join: (outraComAlias: string, colunaA: string, colunaB: string) => {
+          const outra = separarAlias(outraComAlias);
+          resultado = resultado.flatMap((linha) =>
+            tabelas[outra.tabela as Tabela]
+              .map((linhaOutra) => ({
+                ...linha,
+                ...outra.prefixar(linhaOutra),
+              }))
+              .filter((combinada) => combinada[colunaA] === combinada[colunaB]),
+          );
+          return builder;
+        },
+        limit: (n: number) => {
+          limite = n;
+          return builder;
+        },
+        /** `select('u.uuid')` devolve a coluna sem o alias (`uuid`). */
+        select: (...colunas: string[]) =>
+          Promise.resolve(
+            resultado
+              .slice(0, limite)
+              .map((linha) =>
+                Object.fromEntries(
+                  colunas.map((col) => [col.split('.').pop(), linha[col]]),
+                ),
+              ),
+          ),
         first: (..._colunas: string[]) => Promise.resolve(resultado[0]),
         update: (dados: Linha) => {
-          gravacoes.push({ tabela, dados });
+          gravacoes.push({ tabela: tabela as Tabela, dados });
           resultado.forEach((linha) => Object.assign(linha, dados));
           return Promise.resolve(resultado.length);
         },
@@ -826,5 +1048,158 @@ describe('UsuariosService: guarda de condomínio nas escritas (#163)', () => {
     expect(gravacoes.map((g) => g.dados.deleted_by)).toEqual([
       adminSemCondominio.email,
     ]);
+  });
+
+  /**
+   * Correção de unidade com o mesmo código em dois condomínios (spec
+   * `isolamento-multitenant-unidades`, card #159): o código é procurado no
+   * condomínio do usuário corrigido. As unidades repetidas vêm depois das
+   * originais, e a B202 só existe no B.
+   */
+  describe('updateUnidade: código procurado no condomínio do usuário corrigido (#159)', () => {
+    beforeEach(() => {
+      tabelas.usuarios.push(
+        {
+          uuid: 'morador-a',
+          perfil: Perfil.MORADOR,
+          uuid_condominio: 'condo-a',
+          uuid_unidade: 'unidade-a',
+          aproved_at: new Date(),
+          aproved_by_uuid_usuario: null,
+          deleted_at: null,
+        },
+        {
+          uuid: 'morador-sem-condominio',
+          perfil: Perfil.MORADOR,
+          uuid_condominio: null,
+          uuid_unidade: null,
+          aproved_at: new Date(),
+          aproved_by_uuid_usuario: null,
+          deleted_at: null,
+        },
+      );
+      tabelas.unidades.push(
+        {
+          uuid: 'unidade-a-b101',
+          unidade: 'B101',
+          uuid_condominio: 'condo-a',
+          deleted_at: null,
+        },
+        {
+          uuid: 'unidade-b-a101',
+          unidade: 'A101',
+          uuid_condominio: 'condo-b',
+          deleted_at: null,
+        },
+        {
+          uuid: 'unidade-b-b202',
+          unidade: 'B202',
+          uuid_condominio: 'condo-b',
+          deleted_at: null,
+        },
+      );
+    });
+
+    const vinculoDe = (uuid: string) => {
+      const linha = tabelas.usuarios.find((u) => u.uuid === uuid);
+      return {
+        uuid_condominio: linha?.uuid_condominio,
+        uuid_unidade: linha?.uuid_unidade,
+      };
+    };
+
+    /** Erro da promessa rejeitada, ou o aviso de que ela gravou. */
+    const erroDe = (promessa: Promise<unknown>) =>
+      promessa.then(
+        () => 'gravou sem recusar',
+        (erro: Error) => `${erro.constructor.name}: ${erro.message}`,
+      );
+
+    it('Admin corrige unidade com código repetido em outro condomínio: a unidade é a do condomínio dele, e o morador continua nele', async () => {
+      await service.updateUnidade('morador-a', 'B101', adminA, naTrx());
+
+      expect(vinculoDe('morador-a')).toEqual({
+        uuid_condominio: 'condo-a',
+        uuid_unidade: 'unidade-a-b101',
+      });
+    });
+
+    it('Código que só existe em outro condomínio: 400 de unidade inexistente e nada é gravado', async () => {
+      expect({
+        erro: await erroDe(
+          service.updateUnidade('morador-a', 'B202', adminA, naTrx()),
+        ),
+        gravacoes,
+      }).toEqual({
+        erro: "BadRequestException: Unidade 'B202' não encontrada.",
+        gravacoes: [],
+      });
+    });
+
+    it('Super corrige unidade de morador de B: a unidade é a do B', async () => {
+      await service.updateUnidade('morador-b', 'A101', superGlobal, naTrx());
+
+      expect(vinculoDe('morador-b')).toEqual({
+        uuid_condominio: 'condo-b',
+        uuid_unidade: 'unidade-b-a101',
+      });
+    });
+
+    it('Super corrige a unidade de usuário sem condomínio: o código também num condomínio excluído é achado no ativo, sem dar ambígua', async () => {
+      // O DELETE do condomínio mantém as unidades dele ativas.
+      tabelas.condominios.push({
+        uuid: 'condo-excluido',
+        deleted_at: new Date(),
+      });
+      tabelas.unidades.push({
+        uuid: 'unidade-excluido-b202',
+        unidade: 'B202',
+        uuid_condominio: 'condo-excluido',
+        deleted_at: null,
+      });
+
+      await service.updateUnidade(
+        'morador-sem-condominio',
+        'B202',
+        superGlobal,
+        naTrx(),
+      );
+
+      expect(vinculoDe('morador-sem-condominio')).toEqual({
+        uuid_condominio: 'condo-b',
+        uuid_unidade: 'unidade-b-b202',
+      });
+    });
+
+    it('Super corrige a unidade de usuário sem condomínio: código de um condomínio só, e o usuário ganha a unidade e o condomínio dela', async () => {
+      await service.updateUnidade(
+        'morador-sem-condominio',
+        'B202',
+        superGlobal,
+        naTrx(),
+      );
+
+      expect(vinculoDe('morador-sem-condominio')).toEqual({
+        uuid_condominio: 'condo-b',
+        uuid_unidade: 'unidade-b-b202',
+      });
+    });
+
+    it('Código ambíguo para usuário sem condomínio: 400 de unidade ambígua e nada é gravado', async () => {
+      expect({
+        erro: await erroDe(
+          service.updateUnidade(
+            'morador-sem-condominio',
+            'A101',
+            superGlobal,
+            naTrx(),
+          ),
+        ),
+        gravacoes,
+      }).toEqual({
+        erro: "BadRequestException: A unidade 'A101' existe em mais de um condomínio. Procure a administração do seu condomínio para concluir o cadastro.",
+        gravacoes: [],
+      });
+    });
   });
 });

@@ -6,9 +6,13 @@ export async function seed(knex: Knex): Promise<void> {
   assertSafeEnvironment('seed condominios_init');
   await knex('condominios').del();
 
+  // Com cadastro público, como a migration do card #159 deixa o Recanto Verde
+  // em produção. As migrations rodam antes dos seeds: sem o campo, o seed
+  // nasceria com a marca desligada e o auto-cadastro dos e2e quebraria.
   await knex('condominios').insert({
     uuid: uuidv4(),
     nome: 'Recanto Verde',
+    cadastro_publico: true,
     cep: '69915676',
     endereco: 'Avenida Tucunaré, 411',
     bairro: 'Portal da Amazônia',
